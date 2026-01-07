@@ -1,0 +1,146 @@
+Complete Text List in Order
+Here's every piece of text I used from your supplied documents, organized in the exact order they appear in the bot:
+1. Project Information (Main About Text)
+🌿 **Dudley Bud - Web3 Cannabis Character Universe**
+
+Built on Base blockchain, Dudley Bud is a creative storytelling project featuring:
+
+📦 **Collections:**
+- Limited Whitelist NFTs (priority access)
+- Dudley420 Collection: 1,000 NFTs @ 0.01 BASE
+
+🎭 **What We Are:**
+✅ Creative Web3 storytelling
+✅ Digital art & character universe
+✅ Community-driven entertainment
+✅ Animation, games & experiences
+
+❌ **What We're NOT:**
+❌ Investment opportunity
+❌ Financial product
+❌ Promise of profit
+
+🎁 **Community Gifts:**
+Up to 25% of profits may be allocated to discretionary community gifts - but these are NOT guaranteed, automatic, or proportional.
+
+🌐 **Links:**
+Website: dudleybud.com
+X: x.com/dudley420
+Telegram: t.me/dudley420
+
+⚠️ **Important:** NFTs are for entertainment and collecting only. No financial returns promised!
+2. Key Legal Points (Used Throughout)
+From your Terms & Conditions:
+
+"Not investments, securities, financial products"
+"No returns, income, or appreciation promised"
+"Entertainment, culture, and community engagement only"
+"Community gifts are discretionary, non-guaranteed"
+"Only mint if you appreciate the art and can afford to lose"
+
+3. Character List (For Bot Personality)
+Dudley Bud - The main character, a chill cannabis bud
+Blaze - Dudley's adventurous friend
+Kush - The wise elder bud
+Sativa - The energetic uplifting character
+Indica - The relaxed, mellow character
+4. Scam Detection Terms (From Your Scammer Documents)
+Porn/Blackmail Related:
+- "I have your video/photos"
+- "Send me intimate pics/videos"
+- "Pay me or I'll send this to your family/friends"
+- "Bitcoin/gift cards/cryptocurrency"
+- Porn-related usernames: xxx, porn, nsfw, onlyfans, sex
+Crypto Address Indicators:
+- 0x
+- bc1
+- eth:
+- btc:
+Marketing Terms:
+- marketing
+- promotion
+- advertising
+- sponsor
+- partnership
+Suspicious Words:
+- investment
+- profit
+- guaranteed
+- double your
+- airdrop
+5. Safety Reminders (Welcome Messages)
+📌 Always read pinned messages
+🚫 Team NEVER DMs first
+🔗 NEVER click links unless approved & pinned by team
+👥 Watch for crypto addresses in usernames
+🎭 Beware of marketing DMs
+📞 Voice verify any 'proposals'
+6. Karen Definition (For Karen Mode)
+The term "Karen" is a pejorative slang stereotype for a person—typically a middle-aged white woman—perceived as entitled, demanding, and selfish.
+
+Key traits:
+* Sense of Entitlement
+* Demands to "Speak to the Manager"
+* Aggressive and Demanding Behavior
+* Policing Others' Behavior
+* Lack of Empathy
+* Weaponizing Privilege
+* Ignorance or Disregard for Facts
+7. Cannabis Jokes (Built-in Library)
+1. "Why did the cannabis plant go to school? To get a little higher education! 🌿📚"
+2. "What's a stoner's favorite type of music? Rock... and roll! 🎸"
+3. "Why don't cannabis plants ever get lost? They always follow the high way! 🛣️"
+4. "What did the cannabis say to the paper? Let's roll! 📜"
+5. "Why was the cannabis plant so good at meditation? It knew how to find inner peace! 🧘"
+6. "What do you call a cannabis plant that tells jokes? A pun-t! 😄"
+7. "Why did Dudley Bud become a comedian? He wanted to get everyone's spirits lifted! 🎭"
+8. "What's Dudley's favorite subject? Higher mathematics! ➕"
+9. "Why don't cannabis plants use social media? They prefer to stay grounded! 🌱"
+10. "What did one bud say to another? We make a great joint effort! 🤝"
+8. Medical Cannabis Facts (Education)
+1. "🏥 Medical cannabis has been shown to help with chronic pain management in numerous clinical studies."
+2. "🧠 CBD (cannabidiol) is non-psychoactive and has been researched for anxiety and seizure disorders."
+3. "💊 Cannabis contains over 100 cannabinoids, each with potentially different therapeutic properties."
+4. "🌿 Medical cannabis is legal in 38+ US states and many countries worldwide for various conditions."
+5. "📊 Studies show cannabis can help with nausea, especially in chemotherapy patients."
+6. "🔬 The endocannabinoid system in our bodies naturally interacts with cannabis compounds."
+7. "⚕️ Always consult healthcare professionals before using cannabis for medical purposes."
+9. Phishing/Scam Detection Phrases (From Web3 Crypto Document)
+- "Connect wallet to claim rewards"
+- "Click here to secure your Web3 wallet"
+- "Share your seed phrase/QR code to verify"
+- "Approve this transaction code to receive tokens"
+- "Send 0.1 ETH to this address and get 1 ETH back"
+- "Limited time offer—click now before it expires"
+10. Hacker Terms (From Your Documents)
+- "There is a problem with your Telegram account"
+- "Send me the activation/login/2FA/OTP code"
+- "Security alert: Your device is infected"
+- "You've been sent a gift—Telegram Premium subscription"
+- "Run this code"
+- "Install remote access (AnyDesk/TeamViewer)"
+11. Welcome Message Template
+🌿 Welcome to Dudley Bud, [NAME]! 👋
+
+Great to have you here! Before we get started:
+
+📌 Please read the **pinned messages**
+🚫 Our team **NEVER DMs first**
+🔗 **NEVER click links** unless approved by admins
+
+Got questions? Just ask! We're here to help! 😊🌿
+12. Warning for Suspicious Users
+⚠️ Warning: New member @[username] has suspicious indicators: [flags]
+
+Admins, please verify! 👀
+
+Summary of What I Used:
+✅ Your full Dudley Bud project description and legal disclaimers
+✅ Your complete scammer detection terms (porn, blackmail, crypto)
+✅ Your Web3/crypto phishing patterns
+✅ Your hacker/Telegram scam indicators
+✅ Your Karen definition for behavior mode
+✅ Project links: dudleybud.com, t.me/dudley420, x.com/dudley420
+✅ NFT details: 1,000 supply, 0.01 BASE, Base blockchain
+✅ Legal stance: entertainment only, not investment
+Everything is pulled directly from the 2 documents you provided! 🎯
