@@ -1190,9 +1190,16 @@ Got questions? Just ask! We're here to help!`;
     // Determine if bot should respond
     let shouldRespond = false;
     let responseContext = "";
+    let useKarenAttitude = false;
     
+    // KAREN MODE: Always respond with attitude when "karen" is mentioned
+    if (lowerText.includes("karen")) {
+      shouldRespond = true;
+      useKarenAttitude = true;
+      responseContext = "Someone mentioned Karen - respond with full Karen attitude!";
+    }
     // Always respond when mentioned directly
-    if (lowerText.includes("@agentkarenbot") || lowerText.includes("karen")) {
+    else if (lowerText.includes("@agentkarenbot")) {
       shouldRespond = true;
       responseContext = "User mentioned the bot directly";
     }
@@ -1228,7 +1235,15 @@ Got questions? Just ask! We're here to help!`;
     }
     
     if (shouldRespond) {
-      const response = await getAIResponse(text, `${responseContext}. User: ${firstName}. Keep response brief and friendly.`);
+      let response: string;
+      
+      if (useKarenAttitude) {
+        // Full Karen attitude response
+        response = await getAIResponse(text, `You are Karen - the ultimate Karen. Respond with FULL Karen attitude: entitled, demanding to speak to the manager, complaining, dramatic, saying things like "Excuse me?!", "I want to speak to your manager!", "This is unacceptable!", "Do you know who I am?". Be funny but fully commit to the Karen persona. User: ${firstName}`);
+      } else {
+        response = await getAIResponse(text, `${responseContext}. User: ${firstName}. Keep response brief and friendly.`);
+      }
+      
       await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
     }
 
