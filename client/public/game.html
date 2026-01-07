@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Space Bud - Dudley's Adventure</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background: #0a0a1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    #gameContainer {
+      position: relative;
+      touch-action: none;
+    }
+    #gameCanvas {
+      display: block;
+      border: 2px solid #4ade80;
+      border-radius: 8px;
+    }
+    #startScreen, #gameOverScreen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: rgba(10, 10, 26, 0.95);
+      border-radius: 8px;
+    }
+    h1 {
+      color: #4ade80;
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+      text-shadow: 0 0 20px #4ade80;
+    }
+    h2 {
+      color: #22c55e;
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+    }
+    .subtitle {
+      color: #86efac;
+      font-size: 1rem;
+      margin-bottom: 2rem;
+    }
+    .score-display {
+      color: #fbbf24;
+      font-size: 1.5rem;
+      margin: 1rem 0;
+    }
+    button {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: white;
+      border: none;
+      padding: 1rem 2rem;
+      font-size: 1.2rem;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 0.5rem;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+    }
+    .controls {
+      color: #9ca3af;
+      font-size: 0.9rem;
+      margin-top: 1.5rem;
+      text-align: center;
+    }
+    .hidden {
+      display: none !important;
+    }
+    #hud {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      color: #4ade80;
+      font-size: 1rem;
+      font-weight: bold;
+      text-shadow: 0 0 5px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="gameContainer">
+    <canvas id="gameCanvas"></canvas>
+    <div id="hud" class="hidden">
+      <span id="scoreHud">Score: 0</span>
+      <span id="livesHud">Lives: 3</span>
+    </div>
+    
+    <div id="startScreen">
+      <h1>SPACE BUD</h1>
+      <p class="subtitle">Dudley's Galactic Adventure</p>
+      <button id="startBtn">START GAME</button>
+      <div class="controls">
+        <p>Mobile: Tap left/right to move, tap center to shoot</p>
+        <p>Desktop: Arrow keys to move, Space to shoot</p>
+      </div>
+    </div>
+    
+    <div id="gameOverScreen" class="hidden">
+      <h2>GAME OVER</h2>
+      <p class="score-display">Score: <span id="finalScore">0</span></p>
+      <p class="subtitle" id="highScoreText"></p>
+      <button id="restartBtn">PLAY AGAIN</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const startScreen = document.getElementById('startScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const hud = document.getElementById('hud');
+    const scoreHud = document.getElementById('scoreHud');
+    const livesHud = document.getElementById('livesHud');
+    const finalScore = document.getElementById('finalScore');
+    const highScoreText = document.getElementById('highScoreText');
+
+    // Responsive canvas sizing
+    function resizeCanvas() {
+      const maxWidth = Math.min(window.innerWidth - 20, 400);
+      const maxHeight = Math.min(window.innerHeight - 20, 600);
+      canvas.width = maxWidth;
+      canvas.height = maxHeight;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Game state
+    let gameRunning = false;
+    let score = 0;
+    let lives = 3;
+    let level = 1;
+    let highScore = parseInt(localStorage.getItem('spaceBudHighScore') || '0');
+
+    // Player
+    const player = {
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      speed: 5,
+      color: '#4ade80'
+    };
+
+    // Game objects
+    let bullets = [];
+    let enemies = [];
+    let particles = [];
+    let stars = [];
+    let powerups = [];
+
+    // Controls
+    let keys = { left: false, right: false, shoot: false };
+    let lastShot = 0;
+    const shootCooldown = 250;
+
+    // Initialize stars background
+    function initStars() {
+      stars = [];
+      for (let i = 0; i < 50; i++) {
+        stars.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          size: Math.random() * 2 + 1,
+          speed: Math.random() * 2 + 0.5
+        });
+      }
+    }
+
+    // Initialize game
+    function initGame() {
+      player.x = canvas.width / 2 - player.width / 2;
+      player.y = canvas.height - player.height - 20;
+      bullets = [];
+      enemies = [];
+      particles = [];
+      powerups = [];
+      score = 0;
+      lives = 3;
+      level = 1;
+      initStars();
+    }
+
+    // Spawn enemy
+    function spawnEnemy() {
+      const types = ['basic', 'fast', 'tank'];
+      const type = types[Math.floor(Math.random() * Math.min(types.length, level))];
+      
+      const configs = {
+        basic: { width: 35, height: 35, speed: 2, health: 1, color: '#ef4444', points: 10 },
+        fast: { width: 25, height: 25, speed: 4, health: 1, color: '#f97316', points: 20 },
+        tank: { width: 50, height: 50, speed: 1, health: 3, color: '#dc2626', points: 50 }
+      };
+      
+      const config = configs[type];
+      enemies.push({
+        x: Math.random() * (canvas.width - config.width),
+        y: -config.height,
+        ...config,
+        type
+      });
+    }
+
+    // Create explosion particles
+    function createExplosion(x, y, color) {
+      for (let i = 0; i < 10; i++) {
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * 6,
+          vy: (Math.random() - 0.5) * 6,
+          size: Math.random() * 4 + 2,
+          color,
+          life: 1
+        });
+      }
+    }
+
+    // Shoot bullet
+    function shoot() {
+      const now = Date.now();
+      if (now - lastShot < shootCooldown) return;
+      lastShot = now;
+      
+      bullets.push({
+        x: player.x + player.width / 2 - 3,
+        y: player.y,
+        width: 6,
+        height: 15,
+        speed: 8,
+        color: '#22d3ee'
+      });
+    }
+
+    // Update game
+    function update() {
+      if (!gameRunning) return;
+
+      // Player movement
+      if (keys.left && player.x > 0) player.x -= player.speed;
+      if (keys.right && player.x < canvas.width - player.width) player.x += player.speed;
+      if (keys.shoot) shoot();
+
+      // Update stars
+      stars.forEach(star => {
+        star.y += star.speed;
+        if (star.y > canvas.height) {
+          star.y = 0;
+          star.x = Math.random() * canvas.width;
+        }
+      });
+
+      // Update bullets
+      bullets = bullets.filter(b => {
+        b.y -= b.speed;
+        return b.y > -b.height;
+      });
+
+      // Update enemies
+      enemies = enemies.filter(e => {
+        e.y += e.speed;
+        
+        // Check collision with player
+        if (rectCollision(player, e)) {
+          lives--;
+          livesHud.textContent = `Lives: ${lives}`;
+          createExplosion(e.x + e.width/2, e.y + e.height/2, e.color);
+          if (lives <= 0) endGame();
+          return false;
+        }
+        
+        // Check if passed screen
+        if (e.y > canvas.height) {
+          return false;
+        }
+        
+        return true;
+      });
+
+      // Bullet-enemy collisions
+      bullets.forEach((b, bi) => {
+        enemies.forEach((e, ei) => {
+          if (rectCollision(b, e)) {
+            e.health--;
+            bullets.splice(bi, 1);
+            
+            if (e.health <= 0) {
+              score += e.points;
+              scoreHud.textContent = `Score: ${score}`;
+              createExplosion(e.x + e.width/2, e.y + e.height/2, e.color);
+              enemies.splice(ei, 1);
+              
+              // Level up
+              if (score > level * 200) {
+                level++;
+              }
+            }
+          }
+        });
+      });
+
+      // Update particles
+      particles = particles.filter(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.03;
+        return p.life > 0;
+      });
+
+      // Spawn enemies
+      if (Math.random() < 0.02 + level * 0.005) {
+        spawnEnemy();
+      }
+    }
+
+    // Collision detection
+    function rectCollision(a, b) {
+      return a.x < b.x + b.width &&
+             a.x + a.width > b.x &&
+             a.y < b.y + b.height &&
+             a.y + a.height > b.y;
+    }
+
+    // Draw game
+    function draw() {
+      // Clear canvas
+      ctx.fillStyle = '#0a0a1a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw stars
+      stars.forEach(star => {
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.3 + star.size * 0.2})`;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      if (!gameRunning) return;
+
+      // Draw player (Dudley Bud - cannabis leaf shape)
+      ctx.fillStyle = player.color;
+      ctx.beginPath();
+      ctx.moveTo(player.x + player.width/2, player.y);
+      ctx.lineTo(player.x + player.width, player.y + player.height * 0.7);
+      ctx.lineTo(player.x + player.width * 0.7, player.y + player.height);
+      ctx.lineTo(player.x + player.width * 0.3, player.y + player.height);
+      ctx.lineTo(player.x, player.y + player.height * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      
+      // Player glow
+      ctx.shadowColor = '#4ade80';
+      ctx.shadowBlur = 15;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Draw bullets
+      bullets.forEach(b => {
+        ctx.fillStyle = b.color;
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 10;
+        ctx.fillRect(b.x, b.y, b.width, b.height);
+        ctx.shadowBlur = 0;
+      });
+
+      // Draw enemies
+      enemies.forEach(e => {
+        ctx.fillStyle = e.color;
+        ctx.shadowColor = e.color;
+        ctx.shadowBlur = 8;
+        
+        if (e.type === 'tank') {
+          // Hexagon for tank
+          ctx.beginPath();
+          const cx = e.x + e.width/2;
+          const cy = e.y + e.height/2;
+          for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2 - Math.PI/2;
+            const px = cx + Math.cos(angle) * e.width/2;
+            const py = cy + Math.sin(angle) * e.height/2;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          // Diamond for basic/fast
+          ctx.beginPath();
+          ctx.moveTo(e.x + e.width/2, e.y);
+          ctx.lineTo(e.x + e.width, e.y + e.height/2);
+          ctx.lineTo(e.x + e.width/2, e.y + e.height);
+          ctx.lineTo(e.x, e.y + e.height/2);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+      });
+
+      // Draw particles
+      particles.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    // Game loop
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Start game
+    function startGame() {
+      initGame();
+      gameRunning = true;
+      startScreen.classList.add('hidden');
+      gameOverScreen.classList.add('hidden');
+      hud.classList.remove('hidden');
+      scoreHud.textContent = `Score: ${score}`;
+      livesHud.textContent = `Lives: ${lives}`;
+    }
+
+    // End game
+    function endGame() {
+      gameRunning = false;
+      hud.classList.add('hidden');
+      gameOverScreen.classList.remove('hidden');
+      finalScore.textContent = score;
+      
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('spaceBudHighScore', highScore.toString());
+        highScoreText.textContent = 'NEW HIGH SCORE!';
+      } else {
+        highScoreText.textContent = `High Score: ${highScore}`;
+      }
+    }
+
+    // Event listeners
+    document.getElementById('startBtn').addEventListener('click', startGame);
+    document.getElementById('restartBtn').addEventListener('click', startGame);
+
+    // Keyboard controls
+    document.addEventListener('keydown', e => {
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+      if (e.code === 'Space') { keys.shoot = true; e.preventDefault(); }
+    });
+
+    document.addEventListener('keyup', e => {
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+      if (e.code === 'Space') keys.shoot = false;
+    });
+
+    // Touch controls
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      
+      if (x < canvas.width * 0.33) {
+        keys.left = true;
+      } else if (x > canvas.width * 0.66) {
+        keys.right = true;
+      } else {
+        keys.shoot = true;
+      }
+    });
+
+    canvas.addEventListener('touchend', e => {
+      keys.left = false;
+      keys.right = false;
+      keys.shoot = false;
+    });
+
+    // Start game loop
+    initStars();
+    gameLoop();
+  </script>
+</body>
+</html>
