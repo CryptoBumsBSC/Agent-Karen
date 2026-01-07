@@ -523,13 +523,28 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   { question: "What type of community is Dudley Bud building?", options: ["Pump and dump", "Creative and educational", "Mining pool", "Exchange platform"], correctIndex: 1, category: 'dudley', points: 15 },
 ];
 
-interface ActiveTrivia {
-  question: TriviaQuestion;
-  startTime: number;
-  answered: Set<number>;
+interface RoundScore {
+  oderId: number;
+  username: string;
+  firstName: string;
+  points: number;
+  correct: number;
+  attempts: number;
 }
 
-const activeTrivias: Map<number, ActiveTrivia> = new Map(); // chatId -> active trivia
+interface ActiveTrivia {
+  currentQuestion: TriviaQuestion;
+  questionStartTime: number;
+  answeredCurrent: Set<number>; // Users who answered current question
+  questionResolved: boolean; // True once someone answers correctly or time expires
+  totalQuestions: number;
+  currentIndex: number; // 0-based, which question we're on
+  roundScoreboard: Map<number, RoundScore>; // userId -> score for this round
+  roundStartTime: number;
+  timeoutId?: NodeJS.Timeout;
+}
+
+const activeTrivias: Map<number, ActiveTrivia> = new Map(); // chatId -> active trivia round
 
 // AI-generated trivia question cache
 const aiTriviaCache: TriviaQuestion[] = [];
@@ -1528,7 +1543,82 @@ Stay safe, fam!`;
     }
   }
 
-  // /trivia - Start a trivia question
+  // Helper to ask the next question in a round
+  async function askNextQuestion(chatId: number, bot: Bot<MyContext>) {
+    const trivia = activeTrivias.get(chatId);
+    if (!trivia) return;
+
+    // Clear any existing timeout
+    if (trivia.timeoutId) {
+      clearTimeout(trivia.timeoutId);
+    }
+
+    // Check if round is complete
+    if (trivia.currentIndex >= trivia.totalQuestions) {
+      await endTriviaRound(chatId, bot);
+      return;
+    }
+
+    // Get next question
+    const question = await getTriviaQuestion(openai);
+    trivia.currentQuestion = question;
+    trivia.questionStartTime = Date.now();
+    trivia.answeredCurrent = new Set();
+    trivia.questionResolved = false;
+    trivia.currentIndex++;
+
+    const categoryLabel = question.category === 'cannabis' ? 'Cannabis' : question.category === 'crypto' ? 'Crypto' : 'Dudley Bud';
+    const optionsText = question.options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
+    
+    await bot.api.sendMessage(chatId,
+      `QUESTION ${trivia.currentIndex}/${trivia.totalQuestions} [${categoryLabel}]\n\n${question.question}\n\n${optionsText}\n\nAnswer with /answer 1-4 | Worth ${question.points} points | 45 seconds`
+    );
+
+    // Auto-advance after 45 seconds
+    trivia.timeoutId = setTimeout(async () => {
+      const current = activeTrivias.get(chatId);
+      if (current && current.questionStartTime === trivia.questionStartTime) {
+        try {
+          await bot.api.sendMessage(chatId, `Time's up! The answer was: ${question.options[question.correctIndex]}`);
+          await new Promise(r => setTimeout(r, 2000)); // 2 second pause
+          await askNextQuestion(chatId, bot);
+        } catch (e) {}
+      }
+    }, 45000);
+  }
+
+  // Helper to end a trivia round and show results
+  async function endTriviaRound(chatId: number, bot: Bot<MyContext>) {
+    const trivia = activeTrivias.get(chatId);
+    if (!trivia) return;
+
+    if (trivia.timeoutId) {
+      clearTimeout(trivia.timeoutId);
+    }
+
+    // Build results
+    const scores = Array.from(trivia.roundScoreboard.values())
+      .sort((a, b) => b.points - a.points);
+
+    let resultsText = `TRIVIA ROUND COMPLETE!\n\n`;
+    if (scores.length === 0) {
+      resultsText += "No one scored any points this round.";
+    } else {
+      resultsText += "ROUND RESULTS:\n";
+      scores.slice(0, 10).forEach((s, i) => {
+        const medal = i === 0 ? "[1st]" : i === 1 ? "[2nd]" : i === 2 ? "[3rd]" : `[${i + 1}]`;
+        resultsText += `${medal} ${s.firstName}: ${s.points} pts (${s.correct}/${s.attempts})\n`;
+      });
+    }
+
+    const duration = Math.round((Date.now() - trivia.roundStartTime) / 1000);
+    resultsText += `\nRound duration: ${duration} seconds\nStart a new game with /trivia or /trivia 5`;
+
+    await bot.api.sendMessage(chatId, resultsText);
+    activeTrivias.delete(chatId);
+  }
+
+  // /trivia - Start a trivia round
   bot.command("trivia", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
     if (ctx.chat.type === "private") {
@@ -1538,46 +1628,55 @@ Stay safe, fam!`;
 
     // Check if there's already an active trivia
     const existing = activeTrivias.get(ctx.chat.id);
-    if (existing && Date.now() - existing.startTime < 60000) {
-      await ctx.reply("There's already an active trivia question! Answer with /answer 1-4");
+    if (existing) {
+      await ctx.reply(`There's an active trivia round! Question ${existing.currentIndex}/${existing.totalQuestions}\nAnswer with /answer 1-4`);
       return;
     }
 
-    // Get a question (AI-generated or fallback to static)
-    await ctx.reply("Generating trivia question...");
-    const question = await getTriviaQuestion(openai);
-    
-    // Store active trivia
-    activeTrivias.set(ctx.chat.id, {
-      question,
-      startTime: Date.now(),
-      answered: new Set(),
-    });
+    // Parse question count from command
+    const argText = ctx.message?.text?.replace("/trivia", "").trim();
+    let questionCount = parseInt(argText || "") || 1;
+    questionCount = Math.max(1, Math.min(25, questionCount)); // Clamp 1-25
 
-    const categoryEmoji = question.category === 'cannabis' ? 'Cannabis' : question.category === 'crypto' ? 'Crypto' : 'Dudley Bud';
+    await ctx.reply(`Starting trivia round with ${questionCount} question${questionCount > 1 ? 's' : ''}...`);
     
-    let optionsText = question.options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
-    
-    await ctx.reply(
-      `TRIVIA TIME! [${categoryEmoji}]\n\n${question.question}\n\n${optionsText}\n\nAnswer with /answer 1, /answer 2, etc.\nWorth ${question.points} points!\n\n(60 seconds to answer)`
-    );
-    
-    // Pre-fill cache in background for next time
+    // Pre-fill cache in background
     prefillTriviaCache(openai).catch(() => {});
 
-    // Auto-expire after 60 seconds
-    setTimeout(async () => {
-      const trivia = activeTrivias.get(ctx.chat!.id);
-      if (trivia && trivia.startTime === existing?.startTime) {
-        return; // Already new question
-      }
-      if (trivia) {
-        activeTrivias.delete(ctx.chat!.id);
+    // Get first question
+    const firstQuestion = await getTriviaQuestion(openai);
+    
+    // Initialize round
+    activeTrivias.set(ctx.chat.id, {
+      currentQuestion: firstQuestion,
+      questionStartTime: Date.now(),
+      answeredCurrent: new Set(),
+      questionResolved: false,
+      totalQuestions: questionCount,
+      currentIndex: 1,
+      roundScoreboard: new Map(),
+      roundStartTime: Date.now(),
+    });
+
+    const categoryLabel = firstQuestion.category === 'cannabis' ? 'Cannabis' : firstQuestion.category === 'crypto' ? 'Crypto' : 'Dudley Bud';
+    const optionsText = firstQuestion.options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
+    
+    await ctx.reply(
+      `QUESTION 1/${questionCount} [${categoryLabel}]\n\n${firstQuestion.question}\n\n${optionsText}\n\nAnswer with /answer 1-4 | Worth ${firstQuestion.points} points | 45 seconds`
+    );
+
+    // Auto-advance after 45 seconds
+    const trivia = activeTrivias.get(ctx.chat.id)!;
+    trivia.timeoutId = setTimeout(async () => {
+      const current = activeTrivias.get(ctx.chat!.id);
+      if (current && current.questionStartTime === trivia.questionStartTime) {
         try {
-          await ctx.reply(`Time's up! The correct answer was: ${question.options[question.correctIndex]}`);
+          await ctx.reply(`Time's up! The answer was: ${firstQuestion.options[firstQuestion.correctIndex]}`);
+          await new Promise(r => setTimeout(r, 2000));
+          await askNextQuestion(ctx.chat!.id, bot);
         } catch (e) {}
       }
-    }, 60000);
+    }, 45000);
   });
 
   // /answer - Answer the trivia question
@@ -1586,13 +1685,19 @@ Stay safe, fam!`;
     
     const trivia = activeTrivias.get(ctx.chat.id);
     if (!trivia) {
-      await ctx.reply("No active trivia! Start one with /trivia");
+      await ctx.reply("No active trivia! Start one with /trivia or /trivia 5");
       return;
     }
 
-    // Check if user already answered
-    if (trivia.answered.has(ctx.from.id)) {
-      await ctx.reply("You already answered this question!");
+    // Check if question is already resolved (someone already got it right)
+    if (trivia.questionResolved) {
+      await ctx.reply("This question is already solved! Next question coming up...");
+      return;
+    }
+
+    // Check if user already answered this question
+    if (trivia.answeredCurrent.has(ctx.from.id)) {
+      await ctx.reply("You already answered this question! Wait for the next one.");
       return;
     }
 
@@ -1604,40 +1709,64 @@ Stay safe, fam!`;
       return;
     }
 
-    trivia.answered.add(ctx.from.id);
+    trivia.answeredCurrent.add(ctx.from.id);
     
     const telegramUserId = ctx.from.id.toString();
-    const chatId = ctx.chat.id.toString();
+    const chatIdStr = ctx.chat.id.toString();
     const username = ctx.from.username || "";
     const firstName = ctx.from.first_name || "Friend";
 
-    // Get or create member score
-    const score = await getOrCreateMemberScore(telegramUserId, chatId, username, firstName);
+    // Get or create member score (persistent database)
+    const score = await getOrCreateMemberScore(telegramUserId, chatIdStr, username, firstName);
 
-    const isCorrect = (answerNum - 1) === trivia.question.correctIndex;
+    // Get or create round scoreboard entry
+    let roundScore = trivia.roundScoreboard.get(ctx.from.id);
+    if (!roundScore) {
+      roundScore = { oderId: ctx.from.id, username, firstName, points: 0, correct: 0, attempts: 0 };
+      trivia.roundScoreboard.set(ctx.from.id, roundScore);
+    }
+
+    const isCorrect = (answerNum - 1) === trivia.currentQuestion.correctIndex;
+    roundScore.attempts++;
     
     if (isCorrect) {
+      // Mark question as resolved to prevent race conditions
+      trivia.questionResolved = true;
+      
       // Award points
-      const newPoints = (score.triviaPoints || 0) + trivia.question.points;
+      const earnedPoints = trivia.currentQuestion.points;
+      roundScore.points += earnedPoints;
+      roundScore.correct++;
+
+      // Update persistent database
+      const newPoints = (score.triviaPoints || 0) + earnedPoints;
       const newCorrect = (score.triviaCorrect || 0) + 1;
       const newAttempts = (score.triviaAttempts || 0) + 1;
       
       await db.update(memberScores)
         .set({ triviaPoints: newPoints, triviaCorrect: newCorrect, triviaAttempts: newAttempts })
-        .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatId)));
+        .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatIdStr)));
 
-      await ctx.reply(`CORRECT! ${firstName} earned ${trivia.question.points} points!\n\nYour total: ${newPoints} points`);
+      await ctx.reply(`CORRECT! ${firstName} earned ${earnedPoints} points! (Round: ${roundScore.points} pts)`);
       
-      // End this trivia since someone got it right
-      activeTrivias.delete(ctx.chat.id);
+      // Clear timeout and advance to next question
+      if (trivia.timeoutId) {
+        clearTimeout(trivia.timeoutId);
+        trivia.timeoutId = undefined;
+      }
+      
+      // Short delay then next question
+      setTimeout(async () => {
+        await askNextQuestion(ctx.chat!.id, bot);
+      }, 2000);
     } else {
       // Wrong answer
       const newAttempts = (score.triviaAttempts || 0) + 1;
       await db.update(memberScores)
         .set({ triviaAttempts: newAttempts })
-        .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatId)));
+        .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatIdStr)));
 
-      await ctx.reply(`Wrong! ${firstName}, try again or wait for someone else to get it.`);
+      await ctx.reply(`Wrong! ${firstName}, try again or wait for the timer.`);
     }
   });
 
