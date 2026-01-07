@@ -2278,6 +2278,53 @@ Stay safe, fam!`;
     }
   });
 
+  // /budify - Admin command to create bud avatar for a user
+  bot.command("budify", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can create bud avatars!");
+      return;
+    }
+    
+    // Get username from command or reply
+    let targetUsername = ctx.message?.text?.replace("/budify", "").trim().replace("@", "");
+    
+    // If no username provided, check if replying to someone
+    if (!targetUsername && ctx.message?.reply_to_message?.from) {
+      targetUsername = ctx.message.reply_to_message.from.username || ctx.message.reply_to_message.from.first_name || "";
+    }
+    
+    if (!targetUsername) {
+      await ctx.reply("Usage: /budify @username\nOr reply to someone's message with /budify");
+      return;
+    }
+    
+    await ctx.reply(`Creating bud avatar for ${targetUsername}... This takes a moment!`);
+    
+    try {
+      const { imageUrl, strain, nickname, funnyComment } = await generateBudAvatar(targetUsername);
+      
+      const caption = `BUD AVATAR UNLOCKED!\n\n` +
+        `@${targetUsername} is now...\n` +
+        `"${nickname}"\n\n` +
+        `Strain: ${strain.name}\n` +
+        `Color: ${strain.color.toUpperCase()}\n\n` +
+        `${funnyComment}`;
+      
+      if (imageUrl) {
+        await ctx.replyWithPhoto(imageUrl, { caption });
+      } else {
+        await ctx.reply(`${caption}\n\n(Image generation failed, but the vibes are still immaculate!)`);
+      }
+    } catch (error) {
+      console.error("Budify error:", error);
+      await ctx.reply("Couldn't create bud avatar right now. Try again later!");
+    }
+  });
+
   // /leaderboard - Show top active members
   bot.command("leaderboard", async (ctx) => {
     if (!ctx.chat) return;
@@ -2642,6 +2689,49 @@ function startRecipeScheduler() {
   // Check every minute
   setInterval(checkAndPost, 60 * 1000);
   console.log("Recipe scheduler started - will post daily at 4 PM Pacific");
+}
+
+// === BUD AVATAR SYSTEM ===
+const BUD_STRAINS = [
+  { name: "Purple Haze", color: "purple", nicknames: ["Haze Master", "Purple Prince", "Violet Vibes", "Grape Guru", "Amethyst Angel"] },
+  { name: "Blue Dream", color: "blue", nicknames: ["Dream Weaver", "Blue Baron", "Sky High", "Azure Ace", "Blueberry Boss"] },
+  { name: "Orange Kush", color: "orange", nicknames: ["Citrus King", "Orange Oracle", "Tangerine Terror", "Sunset Sage", "Mango Maverick"] },
+  { name: "Sour Diesel", color: "yellow", nicknames: ["Diesel Demon", "Yellow Yeti", "Lemon Legend", "Golden Guru", "Sunny Savage"] },
+  { name: "Northern Lights", color: "teal", nicknames: ["Aurora Ace", "Northern Knight", "Teal Titan", "Cosmic Captain", "Glacier God"] }
+];
+
+async function generateBudAvatar(username: string): Promise<{ imageUrl: string | null; strain: typeof BUD_STRAINS[0]; nickname: string; funnyComment: string }> {
+  const strain = BUD_STRAINS[Math.floor(Math.random() * BUD_STRAINS.length)];
+  const nickname = strain.nicknames[Math.floor(Math.random() * strain.nicknames.length)];
+  
+  // Generate a funny comment using AI
+  let funnyComment = "";
+  try {
+    const commentResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Generate ONE short funny, witty comment (max 15 words) about someone getting their cannabis bud avatar. Be playful and cannabis-themed. No hashtags." },
+        { role: "user", content: `User ${username} just got assigned the ${strain.name} strain with nickname "${nickname}"` }
+      ],
+      max_tokens: 40
+    });
+    funnyComment = commentResponse.choices[0]?.message?.content || "Welcome to the bud fam!";
+  } catch {
+    funnyComment = "Another legend joins the garden!";
+  }
+
+  try {
+    const response = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: `A cute cartoon cannabis bud character trading card. The bud is ${strain.color} colored (${strain.name} strain). Kawaii style with big friendly eyes and a smile. The card has "${username}" written at the bottom and "${nickname}" as a title at the top. Trading card border with sparkles. Colorful, fun, collectible card game style. The bud character looks friendly and chill.`,
+      n: 1,
+      size: "1024x1024"
+    });
+    return { imageUrl: response.data?.[0]?.url || null, strain, nickname, funnyComment };
+  } catch (error) {
+    console.error("Error generating bud avatar:", error);
+    return { imageUrl: null, strain, nickname, funnyComment };
+  }
 }
 
 // === BIRTHDAY CELEBRATION ===
