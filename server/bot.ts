@@ -487,6 +487,30 @@ const ADMIN_INACTIVE_HOURS = 24;
 // === ACTIVE CHATS TRACKING (for scheduled posts) ===
 const activeChats: Set<number> = new Set();
 
+// === GIVEAWAY SYSTEM ===
+interface Giveaway {
+  chatId: number;
+  prize: string;
+  entries: Map<number, { username: string; firstName: string }>;
+  createdBy: number;
+  createdAt: number;
+  active: boolean;
+}
+
+const activeGiveaways: Map<number, Giveaway> = new Map(); // chatId -> giveaway
+
+// Check if user is chat owner/creator
+async function isOwner(ctx: MyContext): Promise<boolean> {
+  if (!ctx.chat || !ctx.from) return false;
+  
+  try {
+    const member = await ctx.api.getChatMember(ctx.chat.id, ctx.from.id);
+    return member.status === "creator";
+  } catch {
+    return false;
+  }
+}
+
 // === CANNABIS RECIPES (from chef-420.com inspiration) ===
 const CANNABIS_RECIPES = [
   {
@@ -710,7 +734,9 @@ export function createBot(): Bot<MyContext> {
     { command: "roast", description: "Roast someone" },
     { command: "ask", description: "Ask me anything" },
     { command: "karen", description: "Toggle Karen mode" },
-    { command: "safety", description: "Safety reminders" }
+    { command: "safety", description: "Safety reminders" },
+    { command: "enter", description: "Enter active giveaway" },
+    { command: "entries", description: "Check giveaway entries" }
   ]).catch(err => console.error("Failed to set commands:", err));
 
   // Session middleware
@@ -856,6 +882,139 @@ Stay safe, fam!`;
     
     const roast = await generateRoast(target, "Dudley Bud community chat");
     await ctx.reply(roast);
+  });
+
+  // === GIVEAWAY COMMANDS (Owner Only) ===
+  
+  // /giveaway - Start a new giveaway (OWNER ONLY)
+  bot.command("giveaway", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can start giveaways!");
+      return;
+    }
+    
+    const prize = ctx.message?.text?.replace("/giveaway", "").trim();
+    if (!prize) {
+      await ctx.reply("Usage: /giveaway [prize description]\n\nExample: /giveaway 1 Whitelist Spot + Exclusive NFT");
+      return;
+    }
+    
+    // Check if there's already an active giveaway
+    if (activeGiveaways.has(ctx.chat.id) && activeGiveaways.get(ctx.chat.id)?.active) {
+      await ctx.reply("There's already an active giveaway! Use /endgiveaway to end it first, or /pickwinner to pick a winner.");
+      return;
+    }
+    
+    // Create new giveaway
+    const giveaway: Giveaway = {
+      chatId: ctx.chat.id,
+      prize,
+      entries: new Map(),
+      createdBy: ctx.from.id,
+      createdAt: Date.now(),
+      active: true
+    };
+    
+    activeGiveaways.set(ctx.chat.id, giveaway);
+    
+    await ctx.reply(`GIVEAWAY TIME!\n\nPrize: ${prize}\n\nTo enter, type /enter\n\nGood luck everyone!`);
+  });
+
+  // /enter - Enter the active giveaway
+  bot.command("enter", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const giveaway = activeGiveaways.get(ctx.chat.id);
+    if (!giveaway || !giveaway.active) {
+      await ctx.reply("No active giveaway right now! Stay tuned for the next one.");
+      return;
+    }
+    
+    // Check if already entered
+    if (giveaway.entries.has(ctx.from.id)) {
+      await ctx.reply(`${ctx.from.first_name}, you're already in! Good luck!`);
+      return;
+    }
+    
+    // Add entry
+    giveaway.entries.set(ctx.from.id, {
+      username: ctx.from.username || "",
+      firstName: ctx.from.first_name || "Anonymous"
+    });
+    
+    await ctx.reply(`${ctx.from.first_name} is in! Total entries: ${giveaway.entries.size}`);
+  });
+
+  // /entries - Check how many entries (anyone can use)
+  bot.command("entries", async (ctx) => {
+    if (!ctx.chat) return;
+    
+    const giveaway = activeGiveaways.get(ctx.chat.id);
+    if (!giveaway || !giveaway.active) {
+      await ctx.reply("No active giveaway right now!");
+      return;
+    }
+    
+    await ctx.reply(`Current giveaway: ${giveaway.prize}\n\nTotal entries: ${giveaway.entries.size}\n\nUse /enter to join!`);
+  });
+
+  // /pickwinner - Randomly pick a winner (OWNER ONLY)
+  bot.command("pickwinner", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can pick winners!");
+      return;
+    }
+    
+    const giveaway = activeGiveaways.get(ctx.chat.id);
+    if (!giveaway || !giveaway.active) {
+      await ctx.reply("No active giveaway to pick a winner from!");
+      return;
+    }
+    
+    if (giveaway.entries.size === 0) {
+      await ctx.reply("No entries yet! Can't pick a winner from an empty pool.");
+      return;
+    }
+    
+    // Random selection
+    const entriesArray = Array.from(giveaway.entries.entries());
+    const randomIndex = Math.floor(Math.random() * entriesArray.length);
+    const [winnerId, winnerInfo] = entriesArray[randomIndex];
+    
+    // End the giveaway
+    giveaway.active = false;
+    
+    const winnerMention = winnerInfo.username 
+      ? `@${winnerInfo.username}` 
+      : winnerInfo.firstName;
+    
+    await ctx.reply(`WINNER ANNOUNCEMENT!\n\nCongratulations ${winnerMention}!\n\nYou won: ${giveaway.prize}\n\nTotal entries: ${giveaway.entries.size}\n\nThanks everyone for participating!`);
+  });
+
+  // /endgiveaway - End giveaway without picking winner (OWNER ONLY)
+  bot.command("endgiveaway", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can end giveaways!");
+      return;
+    }
+    
+    const giveaway = activeGiveaways.get(ctx.chat.id);
+    if (!giveaway || !giveaway.active) {
+      await ctx.reply("No active giveaway to end!");
+      return;
+    }
+    
+    giveaway.active = false;
+    await ctx.reply(`Giveaway ended.\n\nPrize: ${giveaway.prize}\nTotal entries: ${giveaway.entries.size}\n\nNo winner was picked.`);
   });
 
   // /ask - Ask AI anything (with live crypto/NFT/cannabis data)
