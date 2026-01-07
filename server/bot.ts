@@ -325,6 +325,84 @@ async function searchToken(query: string): Promise<CoinData | null> {
   }
 }
 
+// Detect crypto/NFT keywords in a question
+function detectCryptoQuery(text: string): { isCrypto: boolean; tokens: string[] } {
+  const lowerText = text.toLowerCase();
+  
+  // Common crypto keywords
+  const cryptoKeywords = ["price", "worth", "cost", "value", "trading", "market", "pump", "dump", "moon", "ath", "all time high"];
+  const hasCryptoIntent = cryptoKeywords.some(k => lowerText.includes(k));
+  
+  // Known popular tokens to detect
+  const knownTokens = [
+    "bitcoin", "btc", "ethereum", "eth", "solana", "sol", "cardano", "ada",
+    "dogecoin", "doge", "shiba", "shib", "pepe", "bonk", "wif", "floki",
+    "xrp", "ripple", "bnb", "binance", "polygon", "matic", "avalanche", "avax",
+    "chainlink", "link", "polkadot", "dot", "litecoin", "ltc", "uniswap", "uni",
+    "aave", "maker", "mkr", "arbitrum", "arb", "optimism", "op", "base",
+    "sui", "aptos", "apt", "near", "cosmos", "atom", "tron", "trx",
+    "toncoin", "ton", "stellar", "xlm", "monero", "xmr", "hedera", "hbar"
+  ];
+  
+  const foundTokens: string[] = [];
+  for (const token of knownTokens) {
+    if (lowerText.includes(token)) {
+      foundTokens.push(token);
+    }
+  }
+  
+  return {
+    isCrypto: hasCryptoIntent || foundTokens.length > 0,
+    tokens: foundTokens
+  };
+}
+
+// Fetch trending coins
+async function fetchTrendingCoins(): Promise<string> {
+  try {
+    const response = await fetch("https://api.coingecko.com/api/v3/search/trending");
+    if (!response.ok) return "";
+    
+    const data = await response.json() as any;
+    const trending = data.coins?.slice(0, 7).map((c: any) => 
+      `${c.item.name} (${c.item.symbol})`
+    ).join(", ");
+    
+    return trending ? `Trending coins: ${trending}` : "";
+  } catch {
+    return "";
+  }
+}
+
+// Fetch NFT data
+async function fetchNFTData(query: string): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/nfts/list?per_page=100`
+    );
+    if (!response.ok) return null;
+    
+    const nfts = await response.json() as any[];
+    const match = nfts.find((n: any) => 
+      n.name.toLowerCase().includes(query.toLowerCase()) ||
+      n.id.toLowerCase().includes(query.toLowerCase())
+    );
+    
+    if (!match) return null;
+    
+    // Get NFT details
+    const detailResponse = await fetch(
+      `https://api.coingecko.com/api/v3/nfts/${match.id}`
+    );
+    if (!detailResponse.ok) return `Found NFT: ${match.name}`;
+    
+    const detail = await detailResponse.json() as any;
+    return `${detail.name} NFT - Floor: ${detail.floor_price?.usd ? '$' + detail.floor_price.usd.toFixed(2) : 'N/A'}, 24h Volume: ${detail.volume_24h?.usd ? '$' + detail.volume_24h.usd.toFixed(0) : 'N/A'}`;
+  } catch {
+    return null;
+  }
+}
+
 function formatMarketReport(topCoins: CoinData[], memeCoins: CoinData[], trending: string): string {
   const formatCoin = (coin: CoinData) => {
     const arrow = coin.change24h >= 0 ? "+" : "";
@@ -738,7 +816,7 @@ Stay safe, fam!`;
     await ctx.reply(roast);
   });
 
-  // /ask - Ask AI anything about Dudley Bud
+  // /ask - Ask AI anything (with live crypto/NFT data)
   bot.command("ask", async (ctx) => {
     const question = ctx.message?.text?.replace("/ask", "").trim();
     if (!question) {
@@ -747,8 +825,56 @@ Stay safe, fam!`;
     }
     
     await ctx.reply("Thinking...");
-    const response = await getAIResponse(question, "User asking a question about Dudley Bud");
-    await ctx.reply(response);
+    
+    // Check if question is about crypto/NFT
+    const { isCrypto, tokens } = detectCryptoQuery(question);
+    let liveData = "";
+    
+    if (isCrypto) {
+      // Fetch live data for detected tokens
+      const tokenDataPromises = tokens.slice(0, 3).map(async (t) => {
+        const data = await searchToken(t);
+        if (data) {
+          const arrow = data.change24h >= 0 ? "+" : "";
+          const priceStr = data.price >= 1 ? `$${data.price.toFixed(2)}` : `$${data.price.toFixed(6)}`;
+          return `${data.name}: ${priceStr} (${arrow}${data.change24h.toFixed(1)}%)`;
+        }
+        return null;
+      });
+      
+      const tokenResults = (await Promise.all(tokenDataPromises)).filter(Boolean);
+      if (tokenResults.length > 0) {
+        liveData += `\n\nLIVE PRICES:\n${tokenResults.join("\n")}`;
+      }
+      
+      // Check for NFT mentions
+      const nftKeywords = ["nft", "bored ape", "bayc", "azuki", "pudgy", "doodles", "cryptopunks", "mutant ape", "mayc"];
+      const hasNFT = nftKeywords.some(k => question.toLowerCase().includes(k));
+      if (hasNFT) {
+        const nftData = await fetchNFTData(question);
+        if (nftData) {
+          liveData += `\n\n${nftData}`;
+        }
+      }
+      
+      // Get trending if asking about trending/hot coins
+      if (question.toLowerCase().includes("trending") || question.toLowerCase().includes("hot")) {
+        const trending = await fetchTrendingCoins();
+        if (trending) {
+          liveData += `\n\n${trending}`;
+        }
+      }
+    }
+    
+    // Get AI response with context about live data
+    const context = isCrypto 
+      ? "User asking about crypto/NFT. Include the live data in your response naturally."
+      : "User asking a question about Dudley Bud";
+    
+    const aiResponse = await getAIResponse(question, context);
+    const fullResponse = aiResponse + liveData;
+    
+    await ctx.reply(fullResponse);
   });
 
   // === NEW MEMBER HANDLER ===
