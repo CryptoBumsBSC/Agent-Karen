@@ -89,11 +89,16 @@ const FACTS = [
 ];
 
 const CHARACTERS = [
-  { name: "Dudley Bud", desc: "The main character, a chill cannabis bud" },
-  { name: "Blaze", desc: "Dudley's adventurous friend" },
-  { name: "Kush", desc: "The wise elder bud" },
-  { name: "Sativa", desc: "The energetic uplifting character" },
-  { name: "Indica", desc: "The relaxed, mellow character" }
+  { name: "Dudley-Bud", desc: "The Boss, the Weed King, the Dudleyverse leader - the project lead" },
+  { name: "WeedWacker-Ryan", desc: "Dudley's best friend, has a secret crush on Agent Karen" },
+  { name: "Agent Karen", desc: "Always hunting Roach and following Dudley and the crew" },
+  { name: "Roach", desc: "Shit-talking cockroach that lives off crumbs under Dudley's couch" },
+  { name: "Basil", desc: "The pot-smoking basil plant" },
+  { name: "Crunch Wrap", desc: "The pot-smoking cool casual friend, always looking out for everyone and always hungry" },
+  { name: "Gunja-Mai", desc: "Dudley-Bud's grandmother" },
+  { name: "Blinky", desc: "Friend and advisor to Dudley and the crew" },
+  { name: "Nova", desc: "Wild pony stallion" },
+  { name: "Pinko", desc: "Agent Karen's boss - cross-dressing pink-haired billy goat who works for some dodgy government department" }
 ];
 
 const ROASTS = [
@@ -195,7 +200,7 @@ COMMUNITY MANAGER DUTIES:
 Key project info:
 ${PROJECT_INFO}
 
-Characters: Dudley Bud (main character), Blaze (adventurous), Kush (wise elder), Sativa (energetic), Indica (relaxed).
+Characters: Dudley-Bud (the Boss/Weed King), WeedWacker-Ryan (Dudley's bestie, crushes on Karen), Agent Karen (hunts Roach), Roach (shit-talking cockroach), Basil (pot-smoking plant), Crunch Wrap (hungry chill friend), Gunja-Mai (grandma), Blinky (advisor), Nova (wild pony), Pinko (Karen's boss, pink-haired billy goat).
 
 IMPORTANT: Only mention NFT disclaimers when someone asks about investing or profits. For casual chat, just be friendly!`
         },
