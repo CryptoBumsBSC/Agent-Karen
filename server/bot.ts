@@ -1,5 +1,8 @@
 import { Bot, Context, session } from "grammy";
 import OpenAI from "openai";
+import { db } from "./db";
+import { communityProfiles } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 
 // === BOT TOKEN ===
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -987,6 +990,166 @@ ${CHARACTERS.map(c => `${c.name} - ${c.desc}`).join("\n")}`;
     }
   });
 
+  // === COMMUNITY PROFILE COMMANDS ===
+  
+  // /setbirthday - Set your birthday (MM-DD format)
+  bot.command("setbirthday", async (ctx) => {
+    if (!ctx.from) return;
+    
+    const birthday = ctx.message?.text?.replace("/setbirthday", "").trim();
+    if (!birthday) {
+      await ctx.reply("Usage: /setbirthday MM-DD\n\nExample: /setbirthday 04-20\n\nI'll remember and celebrate your birthday!");
+      return;
+    }
+    
+    // Validate format MM-DD
+    const parts = birthday.split("-");
+    if (parts.length !== 2) {
+      await ctx.reply("Please use MM-DD format.\n\nExample: /setbirthday 04-20");
+      return;
+    }
+    
+    const month = parseInt(parts[0]);
+    const day = parseInt(parts[1]);
+    
+    if (isNaN(month) || isNaN(day) || month < 1 || month > 12 || day < 1 || day > 31) {
+      await ctx.reply("Invalid date! Use MM-DD format with valid month (01-12) and day (01-31).\n\nExample: /setbirthday 04-20");
+      return;
+    }
+    
+    const formattedBirthday = `${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+    const telegramUserId = ctx.from.id.toString();
+    const chatId = ctx.chat?.id?.toString() || "";
+    
+    try {
+      const existing = await db.select().from(communityProfiles).where(eq(communityProfiles.telegramUserId, telegramUserId)).limit(1);
+      
+      if (existing.length > 0) {
+        await db.update(communityProfiles)
+          .set({ birthday: formattedBirthday, username: ctx.from.username || "", firstName: ctx.from.first_name || "" })
+          .where(eq(communityProfiles.telegramUserId, telegramUserId));
+      } else {
+        await db.insert(communityProfiles).values({
+          telegramUserId,
+          chatId,
+          username: ctx.from.username || "",
+          firstName: ctx.from.first_name || "",
+          birthday: formattedBirthday
+        });
+      }
+      
+      await ctx.reply(`Birthday saved! I'll celebrate you on ${formattedBirthday}!`);
+    } catch (error) {
+      console.error("Error saving birthday:", error);
+      await ctx.reply("Couldn't save your birthday right now. Try again later!");
+    }
+  });
+
+  // /setlocation - Set where you're from
+  bot.command("setlocation", async (ctx) => {
+    if (!ctx.from) return;
+    
+    const location = ctx.message?.text?.replace("/setlocation", "").trim();
+    if (!location) {
+      await ctx.reply("Usage: /setlocation [your location]\n\nExample: /setlocation California, USA\n\nI'll remember where you're from!");
+      return;
+    }
+    
+    const telegramUserId = ctx.from.id.toString();
+    const chatId = ctx.chat?.id?.toString() || "";
+    
+    try {
+      const existing = await db.select().from(communityProfiles).where(eq(communityProfiles.telegramUserId, telegramUserId)).limit(1);
+      
+      if (existing.length > 0) {
+        await db.update(communityProfiles)
+          .set({ location, username: ctx.from.username || "", firstName: ctx.from.first_name || "" })
+          .where(eq(communityProfiles.telegramUserId, telegramUserId));
+      } else {
+        await db.insert(communityProfiles).values({
+          telegramUserId,
+          chatId,
+          username: ctx.from.username || "",
+          firstName: ctx.from.first_name || "",
+          location
+        });
+      }
+      
+      await ctx.reply(`Location saved! I'll remember you're from ${location}!`);
+    } catch (error) {
+      console.error("Error saving location:", error);
+      await ctx.reply("Couldn't save your location right now. Try again later!");
+    }
+  });
+
+  // /setlikes - Set what you like
+  bot.command("setlikes", async (ctx) => {
+    if (!ctx.from) return;
+    
+    const likes = ctx.message?.text?.replace("/setlikes", "").trim();
+    if (!likes) {
+      await ctx.reply("Usage: /setlikes [things you like]\n\nExample: /setlikes indica strains, gaming, pizza\n\nI'll remember what you're into!");
+      return;
+    }
+    
+    const telegramUserId = ctx.from.id.toString();
+    const chatId = ctx.chat?.id?.toString() || "";
+    
+    try {
+      const existing = await db.select().from(communityProfiles).where(eq(communityProfiles.telegramUserId, telegramUserId)).limit(1);
+      
+      if (existing.length > 0) {
+        await db.update(communityProfiles)
+          .set({ likes, username: ctx.from.username || "", firstName: ctx.from.first_name || "" })
+          .where(eq(communityProfiles.telegramUserId, telegramUserId));
+      } else {
+        await db.insert(communityProfiles).values({
+          telegramUserId,
+          chatId,
+          username: ctx.from.username || "",
+          firstName: ctx.from.first_name || "",
+          likes
+        });
+      }
+      
+      await ctx.reply(`Got it! I'll remember you're into: ${likes}`);
+    } catch (error) {
+      console.error("Error saving likes:", error);
+      await ctx.reply("Couldn't save that right now. Try again later!");
+    }
+  });
+
+  // /myprofile - View your community profile
+  bot.command("myprofile", async (ctx) => {
+    if (!ctx.from) return;
+    
+    const telegramUserId = ctx.from.id.toString();
+    
+    try {
+      const profile = await db.select().from(communityProfiles).where(eq(communityProfiles.telegramUserId, telegramUserId)).limit(1);
+      
+      if (profile.length === 0) {
+        await ctx.reply("You don't have a profile yet!\n\nSet one up with:\n/setbirthday MM-DD\n/setlocation [where you're from]\n/setlikes [what you like]");
+        return;
+      }
+      
+      const p = profile[0];
+      const name = p.username ? `@${p.username}` : p.firstName || "Community Member";
+      
+      let profileText = `COMMUNITY PROFILE\n\nName: ${name}`;
+      if (p.location) profileText += `\nFrom: ${p.location}`;
+      if (p.likes) profileText += `\nLikes: ${p.likes}`;
+      if (p.birthday) profileText += `\nBirthday: ${p.birthday}`;
+      
+      profileText += "\n\nUpdate anytime with /setbirthday, /setlocation, /setlikes";
+      
+      await ctx.reply(profileText);
+    } catch (error) {
+      console.error("Error fetching profile:", error);
+      await ctx.reply("Couldn't load your profile right now. Try again later!");
+    }
+  });
+
   // /safety - Safety reminders
   bot.command("safety", async (ctx) => {
     const safetyText = `SAFETY REMINDERS:
@@ -1755,6 +1918,139 @@ function startRecipeScheduler() {
   console.log("Recipe scheduler started - will post daily at 4 PM Pacific");
 }
 
+// === BIRTHDAY CELEBRATION ===
+let lastBirthdayCheckDate = "";
+
+async function generateBirthdayCakeImage(username: string): Promise<string | null> {
+  try {
+    const response = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: `A delicious colorful birthday cake with lit candles, decorated with "Happy Birthday ${username}!" written in icing. Cannabis-themed decorations like small leaf shapes made of green frosting. Cheerful party atmosphere with confetti. Photorealistic, appetizing, celebratory.`,
+      n: 1,
+      size: "1024x1024"
+    });
+    return response.data[0]?.url || null;
+  } catch (error) {
+    console.error("Error generating birthday cake image:", error);
+    return null;
+  }
+}
+
+async function checkBirthdays() {
+  if (!botInstance) return;
+  
+  // Get today's date in MM-DD format (Pacific time)
+  const pacificFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  
+  const now = new Date();
+  const parts = pacificFormatter.formatToParts(now);
+  const month = parts.find(p => p.type === "month")?.value || "";
+  const day = parts.find(p => p.type === "day")?.value || "";
+  const todayMMDD = `${month}-${day}`;
+  
+  const currentYear = new Date().getFullYear();
+  
+  try {
+    // Find all profiles with today's birthday who haven't been celebrated this year
+    const birthdayProfiles = await db.select()
+      .from(communityProfiles)
+      .where(eq(communityProfiles.birthday, todayMMDD));
+    
+    for (const profile of birthdayProfiles) {
+      // Skip if already celebrated this year
+      if (profile.lastBirthdayYear === currentYear) continue;
+      
+      // Skip if no chat ID stored
+      if (!profile.chatId) continue;
+      
+      const chatId = parseInt(profile.chatId);
+      if (isNaN(chatId)) continue;
+      
+      const userName = profile.username ? `@${profile.username}` : profile.firstName || "our friend";
+      const displayName = profile.firstName || profile.username || "friend";
+      
+      // Generate birthday cake image
+      const cakeImageUrl = await generateBirthdayCakeImage(displayName);
+      
+      // Create personalized birthday message
+      let birthdayMessage = `HAPPY BIRTHDAY ${userName}!\n\n`;
+      birthdayMessage += `The whole Dudley Bud crew is celebrating you today!`;
+      
+      if (profile.location) {
+        birthdayMessage += `\n\nSending birthday vibes all the way to ${profile.location}!`;
+      }
+      
+      if (profile.likes) {
+        birthdayMessage += `\n\nWe know you love ${profile.likes} - hope your day is filled with all your favorites!`;
+      }
+      
+      birthdayMessage += `\n\nHave an amazing day! LFG!`;
+      
+      try {
+        // Send cake image if available
+        if (cakeImageUrl) {
+          await botInstance.api.sendPhoto(chatId, cakeImageUrl, { caption: birthdayMessage });
+        } else {
+          // Fallback to text only
+          await botInstance.api.sendMessage(chatId, birthdayMessage);
+        }
+        
+        // Mark as celebrated this year
+        await db.update(communityProfiles)
+          .set({ lastBirthdayYear: currentYear })
+          .where(eq(communityProfiles.telegramUserId, profile.telegramUserId));
+        
+        console.log(`Celebrated birthday for ${displayName} in chat ${chatId}`);
+      } catch (err: any) {
+        console.error(`Failed to send birthday to chat ${chatId}:`, err);
+        if (err.description?.includes("chat not found") || err.description?.includes("bot was blocked")) {
+          activeChats.delete(chatId);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error checking birthdays:", error);
+  }
+}
+
+// Schedule birthday check at 9 AM Pacific
+function startBirthdayScheduler() {
+  const checkAndCelebrate = () => {
+    const pacificFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false
+    });
+    
+    const dateFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+    
+    const now = new Date();
+    const timeStr = pacificFormatter.format(now);
+    const dateStr = dateFormatter.format(now);
+    const [hour, minute] = timeStr.split(":").map(Number);
+    
+    // Check at 9 AM Pacific (09:00)
+    if (hour === 9 && minute === 0 && lastBirthdayCheckDate !== dateStr) {
+      lastBirthdayCheckDate = dateStr;
+      checkBirthdays();
+    }
+  };
+  
+  // Check every minute
+  setInterval(checkAndCelebrate, 60 * 1000);
+  console.log("Birthday scheduler started - will check daily at 9 AM Pacific");
+}
+
 // === START BOT ===
 export async function startBot() {
   if (!BOT_TOKEN) {
@@ -1784,11 +2080,14 @@ export async function startBot() {
 
   // Start the recipe scheduler
   startRecipeScheduler();
+  
+  // Start the birthday scheduler
+  startBirthdayScheduler();
 
   await bot.start({
     onStart: () => {
       console.log("AgentKarenBot is running with AI capabilities!");
-      console.log("Features: Smart Q&A, Market Reports, Roasts, Auto-engage, Daily Recipes");
+      console.log("Features: Smart Q&A, Market Reports, Roasts, Auto-engage, Daily Recipes, Birthday Celebrations");
     },
   });
 }
