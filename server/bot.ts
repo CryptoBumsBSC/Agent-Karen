@@ -1026,7 +1026,7 @@ ${CHARACTERS.map(c => `${c.name} - ${c.desc}`).join("\n")}`;
       
       if (existing.length > 0) {
         await db.update(communityProfiles)
-          .set({ birthday: formattedBirthday, username: ctx.from.username || "", firstName: ctx.from.first_name || "" })
+          .set({ birthday: formattedBirthday, chatId, username: ctx.from.username || "", firstName: ctx.from.first_name || "" })
           .where(eq(communityProfiles.telegramUserId, telegramUserId));
       } else {
         await db.insert(communityProfiles).values({
@@ -1063,7 +1063,7 @@ ${CHARACTERS.map(c => `${c.name} - ${c.desc}`).join("\n")}`;
       
       if (existing.length > 0) {
         await db.update(communityProfiles)
-          .set({ location, username: ctx.from.username || "", firstName: ctx.from.first_name || "" })
+          .set({ location, chatId, username: ctx.from.username || "", firstName: ctx.from.first_name || "" })
           .where(eq(communityProfiles.telegramUserId, telegramUserId));
       } else {
         await db.insert(communityProfiles).values({
@@ -1100,7 +1100,7 @@ ${CHARACTERS.map(c => `${c.name} - ${c.desc}`).join("\n")}`;
       
       if (existing.length > 0) {
         await db.update(communityProfiles)
-          .set({ likes, username: ctx.from.username || "", firstName: ctx.from.first_name || "" })
+          .set({ likes, chatId, username: ctx.from.username || "", firstName: ctx.from.first_name || "" })
           .where(eq(communityProfiles.telegramUserId, telegramUserId));
       } else {
         await db.insert(communityProfiles).values({
