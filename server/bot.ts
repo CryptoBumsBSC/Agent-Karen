@@ -212,6 +212,25 @@ async function generateRoast(targetName: string, context: string): Promise<strin
   }
 }
 
+async function generateDadJoke(): Promise<string> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a dad joke master. Generate ONE fresh, original dad joke. Cannabis/stoner themed jokes are welcome but not required. Keep it clean and punny. Just the joke, no intro.`
+        },
+        { role: "user", content: `Tell me a fresh dad joke` }
+      ],
+      max_tokens: 60,
+    });
+    return response.choices[0]?.message?.content || getRandomItem(JOKES);
+  } catch (error) {
+    return getRandomItem(JOKES);
+  }
+}
+
 // === CRYPTO MARKET DATA ===
 interface CoinData {
   name: string;
@@ -926,9 +945,9 @@ Got questions? Just ask!`;
     await ctx.reply(PROJECT_INFO);
   });
 
-  // /joke - Random joke
+  // /joke - Fresh dad joke
   bot.command("joke", async (ctx) => {
-    const joke = getRandomItem(JOKES);
+    const joke = await generateDadJoke();
     const response = ctx.session.karenMode ? karenResponse(joke) : joke;
     await ctx.reply(response);
   });
@@ -1602,6 +1621,14 @@ Got questions? Just ask! We're here to help!`;
 
     const lowerText = text.toLowerCase();
     const firstName = ctx.from?.first_name || "friend";
+    
+    // Instant dad joke when someone types "joke"
+    if (lowerText === "joke" || lowerText === "jokes" || lowerText.includes("tell me a joke") || lowerText.includes("got a joke")) {
+      const joke = await generateDadJoke();
+      const response = ctx.session.karenMode ? karenResponse(joke) : joke;
+      await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
+      return;
+    }
     
     // Determine if bot should respond
     let shouldRespond = false;
