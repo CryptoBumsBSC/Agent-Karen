@@ -374,6 +374,31 @@ async function fetchTrendingCoins(): Promise<string> {
   }
 }
 
+// Detect cannabis-related queries
+function detectCannabisQuery(text: string): { isRecipe: boolean; isMedical: boolean; keywords: string[] } {
+  const lowerText = text.toLowerCase();
+  
+  // Recipe keywords
+  const recipeKeywords = ["recipe", "edible", "edibles", "brownie", "cookie", "gummy", "gummies", "butter", "cannabutter", "oil", "infused", "cooking", "baking", "food", "drink", "tincture", "make", "how to cook"];
+  const isRecipe = recipeKeywords.some(k => lowerText.includes(k)) && 
+    (lowerText.includes("cannabis") || lowerText.includes("weed") || lowerText.includes("thc") || lowerText.includes("cbd") || lowerText.includes("marijuana"));
+  
+  // Medical keywords
+  const medicalKeywords = ["medical", "medicine", "pain", "anxiety", "sleep", "insomnia", "depression", "ptsd", "seizure", "epilepsy", "nausea", "cancer", "arthritis", "inflammation", "chronic", "treatment", "therapy", "dosage", "strain", "indica", "sativa", "hybrid", "cbd", "thc", "health", "benefit", "side effect", "symptom"];
+  const isMedical = medicalKeywords.some(k => lowerText.includes(k)) && 
+    (lowerText.includes("cannabis") || lowerText.includes("weed") || lowerText.includes("marijuana") || lowerText.includes("thc") || lowerText.includes("cbd") || lowerText.includes("medical"));
+  
+  const foundKeywords: string[] = [];
+  for (const k of [...recipeKeywords, ...medicalKeywords]) {
+    if (lowerText.includes(k)) foundKeywords.push(k);
+  }
+  
+  return { isRecipe, isMedical, keywords: foundKeywords };
+}
+
+// Medical cannabis disclaimer
+const MEDICAL_DISCLAIMER = `\n\n--- DISCLAIMER ---\nThis is NOT medical advice. DYOR (Do Your Own Research). Always consult a licensed healthcare provider before using cannabis for medical purposes. Laws vary by location. Stay informed, stay safe!`;
+
 // Fetch NFT data
 async function fetchNFTData(query: string): Promise<string | null> {
   try {
@@ -529,6 +554,23 @@ const CANNABIS_RECIPES = [
 // Get random recipe
 function getRandomRecipe() {
   return CANNABIS_RECIPES[Math.floor(Math.random() * CANNABIS_RECIPES.length)];
+}
+
+// Get recipe based on search query (for /ask command)
+function getCannabisRecipe(query: string): string {
+  const lowerQuery = query.toLowerCase();
+  
+  // Try to match specific recipe by keywords
+  for (const recipe of CANNABIS_RECIPES) {
+    const nameLower = recipe.name.toLowerCase();
+    if (nameLower.split(" ").some(word => lowerQuery.includes(word) && word.length > 3)) {
+      return `${recipe.name}\n\n${recipe.description}\n\nIngredients:\n${recipe.ingredients.map(i => `- ${i}`).join("\n")}\n\nInstructions: ${recipe.steps}\n\nTip: Start low, go slow!`;
+    }
+  }
+  
+  // Return random recipe if no specific match
+  const random = CANNABIS_RECIPES[Math.floor(Math.random() * CANNABIS_RECIPES.length)];
+  return `${random.name}\n\n${random.description}\n\nIngredients:\n${random.ingredients.map(i => `- ${i}`).join("\n")}\n\nInstructions: ${random.steps}\n\nTip: Start low, go slow!`;
 }
 
 // Format recipe for posting
@@ -816,20 +858,34 @@ Stay safe, fam!`;
     await ctx.reply(roast);
   });
 
-  // /ask - Ask AI anything (with live crypto/NFT data)
+  // /ask - Ask AI anything (with live crypto/NFT/cannabis data)
   bot.command("ask", async (ctx) => {
     const question = ctx.message?.text?.replace("/ask", "").trim();
     if (!question) {
-      await ctx.reply("What would you like to know? Use: /ask [your question]");
+      await ctx.reply("What would you like to know? Use: /ask [your question]\n\nExamples:\n- /ask what's bitcoin worth?\n- /ask cannabis brownie recipe\n- /ask does CBD help with anxiety?");
       return;
     }
     
     await ctx.reply("Thinking...");
     
-    // Check if question is about crypto/NFT
+    // Check query types
     const { isCrypto, tokens } = detectCryptoQuery(question);
+    const { isRecipe, isMedical } = detectCannabisQuery(question);
     let liveData = "";
+    let disclaimer = "";
     
+    // Handle cannabis recipe queries
+    if (isRecipe) {
+      const recipe = getCannabisRecipe(question);
+      liveData += `\n\nRECIPE:\n${recipe}`;
+    }
+    
+    // Handle medical cannabis queries - add disclaimer
+    if (isMedical) {
+      disclaimer = MEDICAL_DISCLAIMER;
+    }
+    
+    // Handle crypto queries
     if (isCrypto) {
       // Fetch live data for detected tokens
       const tokenDataPromises = tokens.slice(0, 3).map(async (t) => {
@@ -866,13 +922,14 @@ Stay safe, fam!`;
       }
     }
     
-    // Get AI response with context about live data
-    const context = isCrypto 
-      ? "User asking about crypto/NFT. Include the live data in your response naturally."
-      : "User asking a question about Dudley Bud";
+    // Get AI response with context
+    let context = "User asking a question about Dudley Bud";
+    if (isCrypto) context = "User asking about crypto/NFT. Provide helpful market commentary.";
+    if (isRecipe) context = "User asking about cannabis recipes/edibles. Be helpful and emphasize safe dosing.";
+    if (isMedical) context = "User asking about medical cannabis. Provide general educational info but emphasize consulting professionals.";
     
     const aiResponse = await getAIResponse(question, context);
-    const fullResponse = aiResponse + liveData;
+    const fullResponse = aiResponse + liveData + disclaimer;
     
     await ctx.reply(fullResponse);
   });
