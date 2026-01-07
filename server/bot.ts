@@ -2555,14 +2555,15 @@ Got questions? Just ask! We're here to help!`;
     
     if (shouldRespond) {
       let response: string;
+      const displayName = username ? `@${username}` : firstName;
       
       if (useKarenAttitude) {
         // When someone mentions "karen", answer their question/message helpfully (like /ask) but with Karen personality
         // Remove "karen" from the message to get the actual question
         const questionText = text.replace(/karen/gi, '').trim() || text;
-        response = await getAIResponse(questionText, `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. User: ${firstName}`);
+        response = await getAIResponse(questionText, `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`);
       } else {
-        response = await getAIResponse(text, `${responseContext}. User: ${firstName}. Keep response brief and friendly.`);
+        response = await getAIResponse(text, `${responseContext}. Address them as ${displayName}. Keep response brief and friendly.`);
       }
       
       await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
