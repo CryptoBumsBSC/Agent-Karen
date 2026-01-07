@@ -549,18 +549,54 @@ const activeTrivias: Map<number, ActiveTrivia> = new Map(); // chatId -> active 
 // AI-generated trivia question cache
 const aiTriviaCache: TriviaQuestion[] = [];
 const usedQuestionHashes: Set<string> = new Set(); // Track used questions to avoid repeats
+const usedStaticIndices: Set<number> = new Set(); // Track used static questions
 let lastAiGenerationTime = 0;
-const AI_TRIVIA_COOLDOWN = 30000; // 30 seconds between AI generations to save costs
+const AI_TRIVIA_COOLDOWN = 5000; // 5 seconds between AI generations for faster multi-round games
+
+// Dudley Bud ecosystem knowledge for AI context
+const DUDLEY_ECOSYSTEM = `
+Dudley Bud Universe:
+- Characters: Dudley Bud (main), Blaze, Kush, Sativa, Indica (the crew)
+- Built on Base blockchain (Layer 2 on Ethereum)
+- Focus: Creative storytelling, entertainment, NOT financial returns
+- Community values: Education, safety, scam awareness, fun
+- AgentKarenBot is the AI community manager
+- NFTs are for collecting and entertainment only
+- Project emphasizes cannabis culture meets Web3 creativity
+`;
 
 // Generate AI trivia question
 async function generateAiTriviaQuestion(openai: OpenAI): Promise<TriviaQuestion | null> {
-  const categories = ['cannabis', 'crypto', 'dudley'] as const;
-  const category = categories[Math.floor(Math.random() * categories.length)];
+  // Rotate through more topic variety
+  const topics = [
+    'cannabis_strains', 'cannabis_science', 'cannabis_history', 'cannabis_culture',
+    'crypto_basics', 'crypto_slang', 'nft_culture', 'web3_tech', 'defi_basics',
+    'dudley_characters', 'dudley_community', 'blockchain_basics', 'base_chain'
+  ] as const;
   
-  const categoryPrompts = {
-    cannabis: "Generate a trivia question about cannabis culture, strains, terpenes, history, or science. Keep it educational and fun.",
-    crypto: "Generate a trivia question about cryptocurrency, blockchain, NFTs, Web3, DeFi, or crypto culture. Include terms like WAGMI, diamond hands, rug pull, etc.",
-    dudley: "Generate a trivia question about cannabis-themed NFT projects, Web3 communities, or creative storytelling in the crypto space. Focus on entertainment value."
+  const topic = topics[Math.floor(Math.random() * topics.length)];
+  
+  const topicPrompts: Record<string, string> = {
+    cannabis_strains: "Generate a trivia question about cannabis strains (Indica, Sativa, hybrids, famous strains like OG Kush, Blue Dream, etc.)",
+    cannabis_science: "Generate a trivia question about cannabis science (THC, CBD, CBN, terpenes, endocannabinoid system, etc.)",
+    cannabis_history: "Generate a trivia question about cannabis history (legalization, 420 origin, famous advocates, prohibition era, etc.)",
+    cannabis_culture: "Generate a trivia question about cannabis culture (methods of consumption, terminology, famous movies/music, etc.)",
+    crypto_basics: "Generate a trivia question about cryptocurrency basics (Bitcoin, Ethereum, wallets, mining, staking, etc.)",
+    crypto_slang: "Generate a trivia question about crypto slang (WAGMI, NGMI, diamond hands, paper hands, rug pull, moon, ape in, etc.)",
+    nft_culture: "Generate a trivia question about NFT culture (profile pictures, minting, gas fees, marketplaces, famous collections, etc.)",
+    web3_tech: "Generate a trivia question about Web3 technology (smart contracts, DAOs, DApps, decentralization, etc.)",
+    defi_basics: "Generate a trivia question about DeFi (liquidity pools, yield farming, DEX vs CEX, stablecoins, etc.)",
+    dudley_characters: `Generate a trivia question about a cannabis-themed NFT character universe. Characters include a main bud named Dudley, and friends Blaze, Kush, Sativa, and Indica.`,
+    dudley_community: "Generate a trivia question about NFT community values (DYOR, scam awareness, diamond hands mentality, community over profit, etc.)",
+    blockchain_basics: "Generate a trivia question about blockchain basics (blocks, nodes, consensus, Layer 1 vs Layer 2, etc.)",
+    base_chain: "Generate a trivia question about Base blockchain (Coinbase's L2, low fees, Ethereum security, etc.)"
+  };
+
+  // Map topics to categories
+  const categoryMap: Record<string, 'cannabis' | 'crypto' | 'dudley'> = {
+    cannabis_strains: 'cannabis', cannabis_science: 'cannabis', cannabis_history: 'cannabis', cannabis_culture: 'cannabis',
+    crypto_basics: 'crypto', crypto_slang: 'crypto', nft_culture: 'crypto', web3_tech: 'crypto', defi_basics: 'crypto',
+    dudley_characters: 'dudley', dudley_community: 'dudley', blockchain_basics: 'crypto', base_chain: 'crypto'
   };
 
   try {
@@ -569,21 +605,25 @@ async function generateAiTriviaQuestion(openai: OpenAI): Promise<TriviaQuestion 
       messages: [
         {
           role: "system",
-          content: `You are a trivia question generator for a cannabis/crypto community. Generate fun, educational trivia questions.
-          
+          content: `You are a trivia question generator for the Dudley Bud community - a cannabis/crypto Web3 project.
+${DUDLEY_ECOSYSTEM}
+
 IMPORTANT: Respond ONLY with valid JSON in this exact format:
 {"question": "Your question here?", "options": ["Option A", "Option B", "Option C", "Option D"], "correctIndex": 0}
 
-The correctIndex is 0-3 indicating which option is correct (0=first, 1=second, etc).
-Make questions interesting but not too obscure. Keep options short (1-4 words each).`
+Rules:
+- correctIndex is 0-3 (0=first option is correct)
+- Make questions fun and educational, not too hard
+- Keep options short (1-4 words each)
+- Generate UNIQUE questions - be creative and varied`
         },
         {
           role: "user",
-          content: categoryPrompts[category]
+          content: topicPrompts[topic]
         }
       ],
       max_tokens: 150,
-      temperature: 0.9
+      temperature: 1.0 // Higher temperature for more variety
     });
 
     const content = response.choices[0]?.message?.content?.trim();
@@ -596,18 +636,26 @@ Make questions interesting but not too obscure. Keep options short (1-4 words ea
       return null;
     }
 
-    // Create question hash to avoid duplicates
-    const hash = parsed.question.toLowerCase().slice(0, 50);
+    // Create question hash to avoid duplicates (use more of the question)
+    const hash = parsed.question.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 80);
     if (usedQuestionHashes.has(hash)) {
       return null;
     }
     usedQuestionHashes.add(hash);
 
+    // Clear old hashes after 100 to allow recycling eventually
+    if (usedQuestionHashes.size > 100) {
+      const arr = Array.from(usedQuestionHashes);
+      for (let i = 0; i < 50; i++) {
+        usedQuestionHashes.delete(arr[i]);
+      }
+    }
+
     return {
       question: parsed.question,
       options: parsed.options,
       correctIndex: parsed.correctIndex,
-      category: category,
+      category: categoryMap[topic] || 'crypto',
       points: Math.random() < 0.5 ? 10 : 15
     };
   } catch (error) {
@@ -634,8 +682,22 @@ async function getTriviaQuestion(openai: OpenAI): Promise<TriviaQuestion> {
     }
   }
   
-  // Fallback to static questions
-  return TRIVIA_QUESTIONS[Math.floor(Math.random() * TRIVIA_QUESTIONS.length)];
+  // Fallback to static questions - avoid repeats
+  // Reset if we've used most of them
+  if (usedStaticIndices.size >= TRIVIA_QUESTIONS.length - 2) {
+    usedStaticIndices.clear();
+  }
+  
+  // Find an unused static question
+  let attempts = 0;
+  let idx = Math.floor(Math.random() * TRIVIA_QUESTIONS.length);
+  while (usedStaticIndices.has(idx) && attempts < 20) {
+    idx = Math.floor(Math.random() * TRIVIA_QUESTIONS.length);
+    attempts++;
+  }
+  usedStaticIndices.add(idx);
+  
+  return TRIVIA_QUESTIONS[idx];
 }
 
 // Pre-generate some AI questions in background
