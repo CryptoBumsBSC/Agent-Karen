@@ -1,8 +1,8 @@
 import { Bot, Context, session } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { communityProfiles, memberScores } from "@shared/schema";
+import { eq, and, desc } from "drizzle-orm";
 
 // === BOT TOKEN ===
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -488,6 +488,49 @@ const ADMIN_INACTIVE_HOURS = 24;
 // === ACTIVE CHATS TRACKING (for scheduled posts) ===
 const activeChats: Set<number> = new Set();
 
+// === TRIVIA SYSTEM ===
+interface TriviaQuestion {
+  question: string;
+  options: string[];
+  correctIndex: number;
+  category: 'cannabis' | 'crypto' | 'dudley';
+  points: number;
+}
+
+const TRIVIA_QUESTIONS: TriviaQuestion[] = [
+  // Cannabis questions
+  { question: "What is the main psychoactive compound in cannabis?", options: ["CBD", "THC", "CBN", "CBG"], correctIndex: 1, category: 'cannabis', points: 10 },
+  { question: "Which cannabis strain type is known for energizing effects?", options: ["Indica", "Sativa", "Ruderalis", "Hemp"], correctIndex: 1, category: 'cannabis', points: 10 },
+  { question: "What is the cannabis plant's flowering stage light cycle?", options: ["24/0", "18/6", "12/12", "20/4"], correctIndex: 2, category: 'cannabis', points: 15 },
+  { question: "Which terpene gives cannabis its citrus smell?", options: ["Myrcene", "Limonene", "Pinene", "Linalool"], correctIndex: 1, category: 'cannabis', points: 15 },
+  { question: "What does '420' refer to in cannabis culture?", options: ["Police code", "Time to smoke", "THC percentage", "California bill"], correctIndex: 1, category: 'cannabis', points: 10 },
+  { question: "Which state was first to legalize recreational cannabis?", options: ["California", "Colorado", "Washington", "Oregon"], correctIndex: 1, category: 'cannabis', points: 15 },
+  { question: "What is kief?", options: ["Cannabis oil", "Trichome crystals", "Stem fibers", "Leaf extract"], correctIndex: 1, category: 'cannabis', points: 10 },
+  { question: "Which terpene is known for calming, lavender-like effects?", options: ["Caryophyllene", "Humulene", "Linalool", "Terpinolene"], correctIndex: 2, category: 'cannabis', points: 15 },
+  // Crypto questions
+  { question: "Who created Bitcoin?", options: ["Vitalik Buterin", "Satoshi Nakamoto", "Charlie Lee", "CZ"], correctIndex: 1, category: 'crypto', points: 10 },
+  { question: "What blockchain is Dudley Bud built on?", options: ["Ethereum", "Solana", "Base", "Polygon"], correctIndex: 2, category: 'crypto', points: 10 },
+  { question: "What does NFT stand for?", options: ["New File Token", "Non-Fungible Token", "Network Fund Transfer", "Native Finance Tech"], correctIndex: 1, category: 'crypto', points: 10 },
+  { question: "What is a 'rug pull' in crypto?", options: ["Market crash", "Scam exit", "Price pump", "Whale dump"], correctIndex: 1, category: 'crypto', points: 15 },
+  { question: "What does WAGMI mean?", options: ["We're All Getting Money In", "We're All Gonna Make It", "Wallet And Gas Mining Interface", "Web3 Asset Growth Index"], correctIndex: 1, category: 'crypto', points: 10 },
+  { question: "What is 'gas' in crypto?", options: ["Fuel for mining", "Transaction fee", "Token burn", "Staking reward"], correctIndex: 1, category: 'crypto', points: 10 },
+  { question: "What does DYOR mean?", options: ["Do Your Own Research", "Dump Your Old Reserves", "Digital Yield Optimization Rate", "Decentralized Yield Operations"], correctIndex: 0, category: 'crypto', points: 10 },
+  { question: "What is a 'diamond hands' holder?", options: ["Jewelry collector", "Long-term holder", "Day trader", "Paper hands"], correctIndex: 1, category: 'crypto', points: 10 },
+  // Dudley Bud questions
+  { question: "What is Dudley Bud's main mission?", options: ["Get rich quick", "Creative storytelling", "Day trading", "Mining crypto"], correctIndex: 1, category: 'dudley', points: 15 },
+  { question: "Are Dudley Bud NFTs meant for financial returns?", options: ["Yes, guaranteed profits", "No, entertainment only", "Maybe, depends on market", "Only for whales"], correctIndex: 1, category: 'dudley', points: 15 },
+  { question: "Which is NOT a Dudley Bud character?", options: ["Blaze", "Kush", "Sativa", "Bitcoin Bob"], correctIndex: 3, category: 'dudley', points: 10 },
+  { question: "What type of community is Dudley Bud building?", options: ["Pump and dump", "Creative and educational", "Mining pool", "Exchange platform"], correctIndex: 1, category: 'dudley', points: 15 },
+];
+
+interface ActiveTrivia {
+  question: TriviaQuestion;
+  startTime: number;
+  answered: Set<number>;
+}
+
+const activeTrivias: Map<number, ActiveTrivia> = new Map(); // chatId -> active trivia
+
 // === GIVEAWAY SYSTEM ===
 interface Giveaway {
   chatId: number;
@@ -632,7 +675,7 @@ function isSpam(chatId: number, userId: number, message: string): boolean {
 }
 
 // Update leaderboard
-function updateLeaderboard(chatId: number, userId: number, username: string, firstName: string) {
+async function updateLeaderboard(chatId: number, userId: number, username: string, firstName: string) {
   if (!leaderboardData.has(chatId)) {
     leaderboardData.set(chatId, new Map());
   }
@@ -645,6 +688,40 @@ function updateLeaderboard(chatId: number, userId: number, username: string, fir
   user.messageCount++;
   user.username = username; // Update in case it changed
   user.firstName = firstName;
+  
+  // Also persist to database for long-term tracking
+  try {
+    const telegramUserId = userId.toString();
+    const chatIdStr = chatId.toString();
+    
+    const existing = await db.select().from(memberScores)
+      .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatIdStr)))
+      .limit(1);
+    
+    if (existing.length > 0) {
+      await db.update(memberScores)
+        .set({ 
+          messageCount: (existing[0].messageCount || 0) + 1,
+          username, 
+          firstName, 
+          lastActive: new Date() 
+        })
+        .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatIdStr)));
+    } else {
+      await db.insert(memberScores).values({
+        telegramUserId,
+        chatId: chatIdStr,
+        username,
+        firstName,
+        triviaPoints: 0,
+        triviaCorrect: 0,
+        triviaAttempts: 0,
+        messageCount: 1,
+      });
+    }
+  } catch (e) {
+    // Silent fail for message tracking - don't interrupt chat
+  }
 }
 
 // Get top users for leaderboard
@@ -901,7 +978,11 @@ export function createBot(): Bot<MyContext> {
     { command: "karen", description: "Toggle Karen mode" },
     { command: "safety", description: "Safety reminders" },
     { command: "enter", description: "Enter active giveaway" },
-    { command: "entries", description: "Check giveaway entries" }
+    { command: "entries", description: "Check giveaway entries" },
+    { command: "trivia", description: "Start a trivia question" },
+    { command: "answer", description: "Answer trivia (1-4)" },
+    { command: "leaderboard", description: "Show top members" },
+    { command: "myscore", description: "Check your trivia score" }
   ]).catch(err => console.error("Failed to set commands:", err));
 
   // Session middleware
@@ -1312,6 +1393,226 @@ Stay safe, fam!`;
     
     giveaway.active = false;
     await ctx.reply(`Giveaway ended.\n\nPrize: ${giveaway.prize}\nTotal entries: ${giveaway.entries.size}\n\nNo winner was picked.`);
+  });
+
+  // === TRIVIA COMMANDS ===
+
+  // Helper function to get or create member score
+  async function getOrCreateMemberScore(telegramUserId: string, chatId: string, username: string, firstName: string) {
+    const existing = await db.select().from(memberScores)
+      .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatId)))
+      .limit(1);
+    
+    if (existing.length > 0) {
+      await db.update(memberScores)
+        .set({ username, firstName, lastActive: new Date() })
+        .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatId)));
+      return existing[0];
+    } else {
+      const [newScore] = await db.insert(memberScores).values({
+        telegramUserId,
+        chatId,
+        username,
+        firstName,
+        triviaPoints: 0,
+        triviaCorrect: 0,
+        triviaAttempts: 0,
+        messageCount: 0,
+      }).returning();
+      return newScore;
+    }
+  }
+
+  // /trivia - Start a trivia question
+  bot.command("trivia", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") {
+      await ctx.reply("Trivia works best in group chats!");
+      return;
+    }
+
+    // Check if there's already an active trivia
+    const existing = activeTrivias.get(ctx.chat.id);
+    if (existing && Date.now() - existing.startTime < 60000) {
+      await ctx.reply("There's already an active trivia question! Answer with /answer 1-4");
+      return;
+    }
+
+    // Pick a random question
+    const question = TRIVIA_QUESTIONS[Math.floor(Math.random() * TRIVIA_QUESTIONS.length)];
+    
+    // Store active trivia
+    activeTrivias.set(ctx.chat.id, {
+      question,
+      startTime: Date.now(),
+      answered: new Set(),
+    });
+
+    const categoryEmoji = question.category === 'cannabis' ? 'Cannabis' : question.category === 'crypto' ? 'Crypto' : 'Dudley Bud';
+    
+    let optionsText = question.options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
+    
+    await ctx.reply(
+      `TRIVIA TIME! [${categoryEmoji}]\n\n${question.question}\n\n${optionsText}\n\nAnswer with /answer 1, /answer 2, etc.\nWorth ${question.points} points!\n\n(60 seconds to answer)`
+    );
+
+    // Auto-expire after 60 seconds
+    setTimeout(async () => {
+      const trivia = activeTrivias.get(ctx.chat!.id);
+      if (trivia && trivia.startTime === existing?.startTime) {
+        return; // Already new question
+      }
+      if (trivia) {
+        activeTrivias.delete(ctx.chat!.id);
+        try {
+          await ctx.reply(`Time's up! The correct answer was: ${question.options[question.correctIndex]}`);
+        } catch (e) {}
+      }
+    }, 60000);
+  });
+
+  // /answer - Answer the trivia question
+  bot.command("answer", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const trivia = activeTrivias.get(ctx.chat.id);
+    if (!trivia) {
+      await ctx.reply("No active trivia! Start one with /trivia");
+      return;
+    }
+
+    // Check if user already answered
+    if (trivia.answered.has(ctx.from.id)) {
+      await ctx.reply("You already answered this question!");
+      return;
+    }
+
+    const answerText = ctx.message?.text?.replace("/answer", "").trim();
+    const answerNum = parseInt(answerText || "");
+    
+    if (isNaN(answerNum) || answerNum < 1 || answerNum > 4) {
+      await ctx.reply("Please answer with /answer 1, /answer 2, /answer 3, or /answer 4");
+      return;
+    }
+
+    trivia.answered.add(ctx.from.id);
+    
+    const telegramUserId = ctx.from.id.toString();
+    const chatId = ctx.chat.id.toString();
+    const username = ctx.from.username || "";
+    const firstName = ctx.from.first_name || "Friend";
+
+    // Get or create member score
+    const score = await getOrCreateMemberScore(telegramUserId, chatId, username, firstName);
+
+    const isCorrect = (answerNum - 1) === trivia.question.correctIndex;
+    
+    if (isCorrect) {
+      // Award points
+      const newPoints = (score.triviaPoints || 0) + trivia.question.points;
+      const newCorrect = (score.triviaCorrect || 0) + 1;
+      const newAttempts = (score.triviaAttempts || 0) + 1;
+      
+      await db.update(memberScores)
+        .set({ triviaPoints: newPoints, triviaCorrect: newCorrect, triviaAttempts: newAttempts })
+        .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatId)));
+
+      await ctx.reply(`CORRECT! ${firstName} earned ${trivia.question.points} points!\n\nYour total: ${newPoints} points`);
+      
+      // End this trivia since someone got it right
+      activeTrivias.delete(ctx.chat.id);
+    } else {
+      // Wrong answer
+      const newAttempts = (score.triviaAttempts || 0) + 1;
+      await db.update(memberScores)
+        .set({ triviaAttempts: newAttempts })
+        .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatId)));
+
+      await ctx.reply(`Wrong! ${firstName}, try again or wait for someone else to get it.`);
+    }
+  });
+
+  // /myscore - Check your trivia score
+  bot.command("myscore", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const telegramUserId = ctx.from.id.toString();
+    const chatId = ctx.chat.id.toString();
+    
+    const scores = await db.select().from(memberScores)
+      .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatId)))
+      .limit(1);
+
+    if (scores.length === 0) {
+      await ctx.reply("You haven't played trivia yet! Start with /trivia");
+      return;
+    }
+
+    const score = scores[0];
+    const accuracy = score.triviaAttempts && score.triviaAttempts > 0 
+      ? Math.round(((score.triviaCorrect || 0) / score.triviaAttempts) * 100) 
+      : 0;
+
+    await ctx.reply(
+      `Your Trivia Stats:\n\n` +
+      `Points: ${score.triviaPoints || 0}\n` +
+      `Correct: ${score.triviaCorrect || 0}\n` +
+      `Attempts: ${score.triviaAttempts || 0}\n` +
+      `Accuracy: ${accuracy}%\n` +
+      `Messages: ${score.messageCount || 0}`
+    );
+  });
+
+  // /leaderboard - Show top members
+  bot.command("leaderboard", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const chatId = ctx.chat.id.toString();
+    
+    // Get top trivia scores (ordered by points descending)
+    const topTrivia = await db.select().from(memberScores)
+      .where(eq(memberScores.chatId, chatId))
+      .orderBy(desc(memberScores.triviaPoints))
+      .limit(5);
+    
+    // Get top by messages (separate query, ordered by message count descending)
+    const topMessages = await db.select().from(memberScores)
+      .where(eq(memberScores.chatId, chatId))
+      .orderBy(desc(memberScores.messageCount))
+      .limit(5);
+
+    if (topTrivia.length === 0 && topMessages.length === 0) {
+      await ctx.reply("No scores yet! Be the first to play /trivia or just start chatting!");
+      return;
+    }
+
+    let triviaText = "TRIVIA LEADERBOARD\n\n";
+    if (topTrivia.length > 0 && topTrivia[0].triviaPoints && topTrivia[0].triviaPoints > 0) {
+      topTrivia.forEach((s, i) => {
+        if ((s.triviaPoints || 0) > 0) {
+          const medal = i === 0 ? "1st" : i === 1 ? "2nd" : i === 2 ? "3rd" : `${i + 1}th`;
+          const name = s.username ? `@${s.username}` : s.firstName || "Anonymous";
+          triviaText += `${medal}: ${name} - ${s.triviaPoints || 0} pts\n`;
+        }
+      });
+    } else {
+      triviaText += "No trivia scores yet! Start with /trivia\n";
+    }
+
+    let activityText = "\nMOST ACTIVE\n\n";
+    if (topMessages.length > 0 && topMessages[0].messageCount && topMessages[0].messageCount > 0) {
+      topMessages.forEach((s, i) => {
+        if ((s.messageCount || 0) > 0) {
+          const medal = i === 0 ? "1st" : i === 1 ? "2nd" : i === 2 ? "3rd" : `${i + 1}th`;
+          const name = s.username ? `@${s.username}` : s.firstName || "Anonymous";
+          activityText += `${medal}: ${name} - ${s.messageCount || 0} msgs\n`;
+        }
+      });
+    } else {
+      activityText += "No activity tracked yet!\n";
+    }
+
+    await ctx.reply(triviaText + activityText);
   });
 
   // === ADMIN MODERATION COMMANDS ===
