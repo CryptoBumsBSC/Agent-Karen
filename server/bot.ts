@@ -1899,56 +1899,78 @@ Stay safe, fam!`;
     );
   });
 
-  // /leaderboard - Show top members
+  // /leaderboard - Show daily leaderboard + weekly/monthly top winners
   bot.command("leaderboard", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
     
     const chatId = ctx.chat.id.toString();
     
-    // Get top trivia scores (ordered by points descending)
-    const topTrivia = await db.select().from(memberScores)
-      .where(eq(memberScores.chatId, chatId))
-      .orderBy(desc(memberScores.triviaPoints))
-      .limit(5);
+    // Get current period strings
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const weekNum = getWeekNumber(now);
+    const weekStr = `${now.getFullYear()}-W${weekNum}`;
+    const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     
-    // Get top by messages (separate query, ordered by message count descending)
-    const topMessages = await db.select().from(memberScores)
-      .where(eq(memberScores.chatId, chatId))
-      .orderBy(desc(memberScores.messageCount))
-      .limit(5);
-
-    if (topTrivia.length === 0 && topMessages.length === 0) {
-      await ctx.reply("No scores yet! Be the first to play /trivia or just start chatting!");
+    // Get all scores for this chat
+    const allScores = await db.select().from(memberScores)
+      .where(eq(memberScores.chatId, chatId));
+    
+    if (allScores.length === 0) {
+      await ctx.reply("No scores yet! Be the first to play /trivia");
       return;
     }
-
-    let triviaText = "TRIVIA LEADERBOARD\n\n";
-    if (topTrivia.length > 0 && topTrivia[0].triviaPoints && topTrivia[0].triviaPoints > 0) {
-      topTrivia.forEach((s, i) => {
-        if ((s.triviaPoints || 0) > 0) {
-          const medal = i === 0 ? "1st" : i === 1 ? "2nd" : i === 2 ? "3rd" : `${i + 1}th`;
-          const name = s.username ? `@${s.username}` : s.firstName || "Anonymous";
-          triviaText += `${medal}: ${name} - ${s.triviaPoints || 0} pts\n`;
-        }
+    
+    // Filter for today's scores (only those who played today)
+    const todayScores = allScores
+      .filter(s => s.dailyResetDate === todayStr && (s.dailyPoints || 0) > 0)
+      .sort((a, b) => (b.dailyPoints || 0) - (a.dailyPoints || 0))
+      .slice(0, 10);
+    
+    // Find weekly top winner (only from this week)
+    const weeklyScores = allScores
+      .filter(s => s.weeklyResetDate === weekStr && (s.weeklyPoints || 0) > 0)
+      .sort((a, b) => (b.weeklyPoints || 0) - (a.weeklyPoints || 0));
+    const weeklyTop = weeklyScores.length > 0 ? weeklyScores[0] : null;
+    
+    // Find monthly top winner (only from this month)
+    const monthlyScores = allScores
+      .filter(s => s.monthlyResetDate === monthStr && (s.monthlyPoints || 0) > 0)
+      .sort((a, b) => (b.monthlyPoints || 0) - (a.monthlyPoints || 0));
+    const monthlyTop = monthlyScores.length > 0 ? monthlyScores[0] : null;
+    
+    // Build leaderboard message
+    let text = "DAILY TRIVIA LEADERBOARD\n\n";
+    
+    if (todayScores.length > 0) {
+      todayScores.forEach((s, i) => {
+        const medal = i === 0 ? "1st" : i === 1 ? "2nd" : i === 2 ? "3rd" : `${i + 1}th`;
+        const name = s.username ? `@${s.username}` : s.firstName || "Anonymous";
+        text += `${medal}: ${name} - ${s.dailyPoints} pts\n`;
       });
     } else {
-      triviaText += "No trivia scores yet! Start with /trivia\n";
+      text += "No scores yet today! Start with /trivia\n";
     }
-
-    let activityText = "\nMOST ACTIVE\n\n";
-    if (topMessages.length > 0 && topMessages[0].messageCount && topMessages[0].messageCount > 0) {
-      topMessages.forEach((s, i) => {
-        if ((s.messageCount || 0) > 0) {
-          const medal = i === 0 ? "1st" : i === 1 ? "2nd" : i === 2 ? "3rd" : `${i + 1}th`;
-          const name = s.username ? `@${s.username}` : s.firstName || "Anonymous";
-          activityText += `${medal}: ${name} - ${s.messageCount || 0} msgs\n`;
-        }
-      });
+    
+    text += "\n--- TOP WINNERS ---\n";
+    
+    // Weekly top
+    if (weeklyTop) {
+      const weekName = weeklyTop.username ? `@${weeklyTop.username}` : weeklyTop.firstName || "Anonymous";
+      text += `\nWeek Champion: ${weekName} (${weeklyTop.weeklyPoints} pts)`;
     } else {
-      activityText += "No activity tracked yet!\n";
+      text += "\nWeek Champion: None yet this week";
     }
-
-    await ctx.reply(triviaText + activityText);
+    
+    // Monthly top
+    if (monthlyTop) {
+      const monthName = monthlyTop.username ? `@${monthlyTop.username}` : monthlyTop.firstName || "Anonymous";
+      text += `\nMonth Champion: ${monthName} (${monthlyTop.monthlyPoints} pts)`;
+    } else {
+      text += "\nMonth Champion: None yet this month";
+    }
+    
+    await ctx.reply(text);
   });
 
   // === ADMIN MODERATION COMMANDS ===
