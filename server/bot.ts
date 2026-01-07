@@ -2557,8 +2557,10 @@ Got questions? Just ask! We're here to help!`;
       let response: string;
       
       if (useKarenAttitude) {
-        // Full Karen attitude response
-        response = await getAIResponse(text, `You are Karen - the ultimate Karen. Respond with FULL Karen attitude: entitled, demanding to speak to the manager, complaining, dramatic, saying things like "Excuse me?!", "I want to speak to your manager!", "This is unacceptable!", "Do you know who I am?". Be funny but fully commit to the Karen persona. User: ${firstName}`);
+        // When someone mentions "karen", answer their question/message helpfully (like /ask) but with Karen personality
+        // Remove "karen" from the message to get the actual question
+        const questionText = text.replace(/karen/gi, '').trim() || text;
+        response = await getAIResponse(questionText, `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. User: ${firstName}`);
       } else {
         response = await getAIResponse(text, `${responseContext}. User: ${firstName}. Keep response brief and friendly.`);
       }
