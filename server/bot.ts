@@ -1560,6 +1560,46 @@ Got questions? Just ask! We're here to help!`;
       if (!adminCheckTimers.has(chatId)) {
         startAdminActivityChecker(chatId);
       }
+      
+      // Update leaderboard for all users
+      if (ctx.from?.id) {
+        updateLeaderboard(chatId, ctx.from.id, ctx.from.username || "", ctx.from.first_name || "Anonymous");
+      }
+      
+      // SPAM DETECTION - Auto-mute spammers with escalating punishment
+      if (ctx.from?.id && !ctx.from.is_bot) {
+        // Check if user is admin (admins are exempt from spam detection)
+        const userIsAdmin = await isAdmin(ctx);
+        
+        if (!userIsAdmin && isSpam(chatId, ctx.from.id, text)) {
+          const { muteSeconds, offenseCount, notifyAdmin } = addOffense(chatId, ctx.from.id);
+          
+          try {
+            // Delete the spam message
+            await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+            
+            // Mute the user
+            const muteUntil = Math.floor(Date.now() / 1000) + muteSeconds;
+            await ctx.api.restrictChatMember(chatId, ctx.from.id, {
+              permissions: { can_send_messages: false },
+              until_date: muteUntil
+            });
+            
+            const firstName = ctx.from.first_name || "User";
+            await ctx.reply(`SPAM DETECTED!\n\n${firstName} has been muted for ${formatDuration(muteSeconds)}.\n\nThis is offense #${offenseCount}.`);
+            
+            // Notify admins after 2nd offense
+            if (notifyAdmin) {
+              await ctx.reply(`ATTENTION ADMINS: ${firstName} has ${offenseCount} spam offenses. This user may need a permanent ban.`);
+            }
+          } catch (error) {
+            console.log("Couldn't auto-moderate spam - check bot permissions");
+          }
+          
+          // Stop processing this spam message
+          return;
+        }
+      }
     }
 
     // Scam detection
