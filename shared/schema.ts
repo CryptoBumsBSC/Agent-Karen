@@ -63,6 +63,20 @@ export const communityProfiles = pgTable("community_profiles", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Member scores for trivia and activity tracking
+export const memberScores = pgTable("member_scores", {
+  id: serial("id").primaryKey(),
+  telegramUserId: text("telegram_user_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  username: text("username"),
+  firstName: text("first_name"),
+  triviaPoints: integer("trivia_points").default(0),
+  triviaCorrect: integer("trivia_correct").default(0),
+  triviaAttempts: integer("trivia_attempts").default(0),
+  messageCount: integer("message_count").default(0),
+  lastActive: timestamp("last_active").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
 export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true });
@@ -70,6 +84,7 @@ export const insertConversationSchema = createInsertSchema(conversations).omit({
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
 export const insertUserMemorySchema = createInsertSchema(userMemory).omit({ id: true });
 export const insertCommunityProfileSchema = createInsertSchema(communityProfiles).omit({ id: true, createdAt: true });
+export const insertMemberScoreSchema = createInsertSchema(memberScores).omit({ id: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -78,6 +93,7 @@ export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type UserMemory = typeof userMemory.$inferSelect;
 export type CommunityProfile = typeof communityProfiles.$inferSelect;
+export type MemberScore = typeof memberScores.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
