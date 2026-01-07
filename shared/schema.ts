@@ -75,6 +75,12 @@ export const memberScores = pgTable("member_scores", {
   triviaAttempts: integer("trivia_attempts").default(0),
   messageCount: integer("message_count").default(0),
   lastActive: timestamp("last_active").default(sql`CURRENT_TIMESTAMP`),
+  dailyPoints: integer("daily_points").default(0),
+  dailyResetDate: text("daily_reset_date"),
+  weeklyPoints: integer("weekly_points").default(0),
+  weeklyResetDate: text("weekly_reset_date"),
+  monthlyPoints: integer("monthly_points").default(0),
+  monthlyResetDate: text("monthly_reset_date"),
 });
 
 // === BASE SCHEMAS ===
