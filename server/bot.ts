@@ -244,9 +244,8 @@ interface CoinData {
 
 async function fetchCryptoMarket(): Promise<{ topCoins: CoinData[], memeCoins: CoinData[], trending: string }> {
   try {
-    // Fetch top coins from CoinGecko
     const response = await fetch(
-      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=20&sparkline=false"
+      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=25&sparkline=false"
     );
     
     if (!response.ok) {
@@ -255,8 +254,8 @@ async function fetchCryptoMarket(): Promise<{ topCoins: CoinData[], memeCoins: C
     
     const data = await response.json() as any[];
     
-    // Top 7 by market cap
-    const topCoins: CoinData[] = data.slice(0, 7).map((coin: any) => ({
+    // Top 10 by market cap
+    const topCoins: CoinData[] = data.slice(0, 10).map((coin: any) => ({
       name: coin.name,
       symbol: coin.symbol.toUpperCase(),
       price: coin.current_price,
@@ -264,10 +263,10 @@ async function fetchCryptoMarket(): Promise<{ topCoins: CoinData[], memeCoins: C
     }));
     
     // Meme coins (filter known meme coins)
-    const memeSymbols = ["doge", "shib", "pepe", "floki", "bonk", "wif", "brett"];
+    const memeSymbols = ["doge", "shib", "pepe", "floki", "bonk", "wif", "brett", "turbo", "wojak"];
     const memeCoins: CoinData[] = data
       .filter((coin: any) => memeSymbols.includes(coin.symbol.toLowerCase()))
-      .slice(0, 7)
+      .slice(0, 5)
       .map((coin: any) => ({
         name: coin.name,
         symbol: coin.symbol.toUpperCase(),
@@ -275,7 +274,6 @@ async function fetchCryptoMarket(): Promise<{ topCoins: CoinData[], memeCoins: C
         change24h: coin.price_change_percentage_24h || 0
       }));
     
-    // Generate trending message
     const avgChange = topCoins.reduce((sum, c) => sum + c.change24h, 0) / topCoins.length;
     const trending = avgChange > 0 ? "Markets looking green today!" : "Markets taking a breather.";
     
@@ -287,6 +285,43 @@ async function fetchCryptoMarket(): Promise<{ topCoins: CoinData[], memeCoins: C
       memeCoins: [],
       trending: "Market data temporarily unavailable"
     };
+  }
+}
+
+// Search for a specific token
+async function searchToken(query: string): Promise<CoinData | null> {
+  try {
+    const searchResponse = await fetch(
+      `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`
+    );
+    
+    if (!searchResponse.ok) return null;
+    
+    const searchData = await searchResponse.json() as any;
+    const coin = searchData.coins?.[0];
+    if (!coin) return null;
+    
+    // Get detailed price data
+    const priceResponse = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${coin.id}&vs_currencies=usd&include_24hr_change=true`
+    );
+    
+    if (!priceResponse.ok) return null;
+    
+    const priceData = await priceResponse.json() as any;
+    const coinPrice = priceData[coin.id];
+    
+    if (!coinPrice) return null;
+    
+    return {
+      name: coin.name,
+      symbol: coin.symbol.toUpperCase(),
+      price: coinPrice.usd || 0,
+      change24h: coinPrice.usd_24h_change || 0
+    };
+  } catch (error) {
+    console.error("Token search error:", error);
+    return null;
   }
 }
 
@@ -334,8 +369,94 @@ const AUTO_ENGAGE_MESSAGES = [
 const autoEngageTimers: Map<number, NodeJS.Timeout> = new Map();
 const AUTO_ENGAGE_MINUTES = 30; // Quiet time before auto-engage
 
+// === ADMIN ACTIVITY TRACKING ===
+interface AdminActivity {
+  oderId: number;
+  username: string;
+  firstName: string;
+  lastActive: number;
+}
+
+const adminActivity: Map<number, Map<number, AdminActivity>> = new Map(); // chatId -> (userId -> activity)
+const adminCheckTimers: Map<number, NodeJS.Timeout> = new Map();
+const ADMIN_INACTIVE_HOURS = 24;
+
 // Forward declaration - will be set when bot is created
 let botInstance: Bot<MyContext> | null = null;
+
+// Update admin activity when they send a message
+function updateAdminActivity(chatId: number, userId: number, username: string, firstName: string) {
+  if (!adminActivity.has(chatId)) {
+    adminActivity.set(chatId, new Map());
+  }
+  
+  const chatAdmins = adminActivity.get(chatId)!;
+  chatAdmins.set(userId, {
+    oderId: userId,
+    username,
+    firstName,
+    lastActive: Date.now()
+  });
+}
+
+// Check and call out inactive admins
+async function checkInactiveAdmins(chatId: number) {
+  if (!botInstance) return;
+  
+  try {
+    // Get current admins from Telegram
+    const admins = await botInstance.api.getChatAdministrators(chatId);
+    const now = Date.now();
+    const inactiveThreshold = ADMIN_INACTIVE_HOURS * 60 * 60 * 1000;
+    
+    const chatAdmins = adminActivity.get(chatId) || new Map();
+    const inactiveAdmins: string[] = [];
+    
+    for (const admin of admins) {
+      // Skip bots
+      if (admin.user.is_bot) continue;
+      
+      const userId = admin.user.id;
+      const activity = chatAdmins.get(userId);
+      
+      // If no activity recorded or inactive for 24+ hours
+      if (!activity || (now - activity.lastActive) > inactiveThreshold) {
+        const mention = admin.user.username 
+          ? `@${admin.user.username}` 
+          : admin.user.first_name;
+        inactiveAdmins.push(mention);
+      }
+    }
+    
+    if (inactiveAdmins.length > 0) {
+      const message = `Hey ${inactiveAdmins.join(", ")} - haven't seen you in a while! The community misses you. Drop in when you can!`;
+      await botInstance.api.sendMessage(chatId, message);
+    }
+  } catch (error) {
+    console.error("Error checking admin activity:", error);
+  }
+}
+
+// Start admin activity checker for a chat (runs every 24 hours)
+function startAdminActivityChecker(chatId: number) {
+  // Clear existing timer
+  const existingTimer = adminCheckTimers.get(chatId);
+  if (existingTimer) {
+    clearInterval(existingTimer);
+  }
+  
+  // Check every 24 hours
+  const timer = setInterval(() => {
+    checkInactiveAdmins(chatId);
+  }, 24 * 60 * 60 * 1000);
+  
+  adminCheckTimers.set(chatId, timer);
+  
+  // Also do an initial check after 1 minute (to let activity tracking populate)
+  setTimeout(() => {
+    checkInactiveAdmins(chatId);
+  }, 60 * 1000);
+}
 
 function resetAutoEngageTimer(chatId: number) {
   if (!botInstance) return;
@@ -473,12 +594,32 @@ Stay safe, fam!`;
     await ctx.reply(safetyText);
   });
 
-  // /market - Crypto market report
+  // /market - Crypto market report (top 10 or specific token)
   bot.command("market", async (ctx) => {
-    await ctx.reply("Fetching market data...");
-    const { topCoins, memeCoins, trending } = await fetchCryptoMarket();
-    const report = formatMarketReport(topCoins, memeCoins, trending);
-    await ctx.reply(report);
+    const query = ctx.message?.text?.replace("/market", "").trim();
+    
+    if (query) {
+      // Search for specific token
+      await ctx.reply(`Searching for ${query}...`);
+      const token = await searchToken(query);
+      
+      if (token) {
+        const arrow = token.change24h >= 0 ? "+" : "";
+        const priceStr = token.price >= 1 
+          ? `$${token.price.toFixed(2)}` 
+          : `$${token.price.toFixed(8)}`;
+        const report = `${token.name} (${token.symbol})\n\nPrice: ${priceStr}\n24h Change: ${arrow}${token.change24h.toFixed(2)}%`;
+        await ctx.reply(report);
+      } else {
+        await ctx.reply(`Couldn't find "${query}". Try the full name or symbol (e.g., bitcoin, eth, solana)`);
+      }
+    } else {
+      // Default: Top 10 market report
+      await ctx.reply("Fetching top 10 crypto prices...");
+      const { topCoins, memeCoins, trending } = await fetchCryptoMarket();
+      const report = formatMarketReport(topCoins, memeCoins, trending);
+      await ctx.reply(report);
+    }
   });
 
   // /roast - Roast someone
@@ -541,6 +682,16 @@ Got questions? Just ask! We're here to help!`;
     ctx.session.lastActivityTime = Date.now();
     if (chatId && chatId < 0) { // Only for group chats (negative IDs)
       resetAutoEngageTimer(chatId);
+      
+      // Track admin activity - update when any user messages
+      if (ctx.from?.id) {
+        updateAdminActivity(chatId, ctx.from.id, ctx.from.username || "", ctx.from.first_name || "");
+      }
+      
+      // Start admin checker if not already running
+      if (!adminCheckTimers.has(chatId)) {
+        startAdminActivityChecker(chatId);
+      }
     }
 
     // Scam detection
