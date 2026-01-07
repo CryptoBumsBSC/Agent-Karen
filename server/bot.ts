@@ -531,6 +531,111 @@ interface ActiveTrivia {
 
 const activeTrivias: Map<number, ActiveTrivia> = new Map(); // chatId -> active trivia
 
+// AI-generated trivia question cache
+const aiTriviaCache: TriviaQuestion[] = [];
+const usedQuestionHashes: Set<string> = new Set(); // Track used questions to avoid repeats
+let lastAiGenerationTime = 0;
+const AI_TRIVIA_COOLDOWN = 30000; // 30 seconds between AI generations to save costs
+
+// Generate AI trivia question
+async function generateAiTriviaQuestion(openai: OpenAI): Promise<TriviaQuestion | null> {
+  const categories = ['cannabis', 'crypto', 'dudley'] as const;
+  const category = categories[Math.floor(Math.random() * categories.length)];
+  
+  const categoryPrompts = {
+    cannabis: "Generate a trivia question about cannabis culture, strains, terpenes, history, or science. Keep it educational and fun.",
+    crypto: "Generate a trivia question about cryptocurrency, blockchain, NFTs, Web3, DeFi, or crypto culture. Include terms like WAGMI, diamond hands, rug pull, etc.",
+    dudley: "Generate a trivia question about cannabis-themed NFT projects, Web3 communities, or creative storytelling in the crypto space. Focus on entertainment value."
+  };
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a trivia question generator for a cannabis/crypto community. Generate fun, educational trivia questions.
+          
+IMPORTANT: Respond ONLY with valid JSON in this exact format:
+{"question": "Your question here?", "options": ["Option A", "Option B", "Option C", "Option D"], "correctIndex": 0}
+
+The correctIndex is 0-3 indicating which option is correct (0=first, 1=second, etc).
+Make questions interesting but not too obscure. Keep options short (1-4 words each).`
+        },
+        {
+          role: "user",
+          content: categoryPrompts[category]
+        }
+      ],
+      max_tokens: 150,
+      temperature: 0.9
+    });
+
+    const content = response.choices[0]?.message?.content?.trim();
+    if (!content) return null;
+
+    // Parse JSON response
+    const parsed = JSON.parse(content);
+    
+    if (!parsed.question || !Array.isArray(parsed.options) || parsed.options.length !== 4 || typeof parsed.correctIndex !== 'number') {
+      return null;
+    }
+
+    // Create question hash to avoid duplicates
+    const hash = parsed.question.toLowerCase().slice(0, 50);
+    if (usedQuestionHashes.has(hash)) {
+      return null;
+    }
+    usedQuestionHashes.add(hash);
+
+    return {
+      question: parsed.question,
+      options: parsed.options,
+      correctIndex: parsed.correctIndex,
+      category: category,
+      points: Math.random() < 0.5 ? 10 : 15
+    };
+  } catch (error) {
+    console.log("AI trivia generation failed, using fallback");
+    return null;
+  }
+}
+
+// Get a trivia question (AI or fallback to static)
+async function getTriviaQuestion(openai: OpenAI): Promise<TriviaQuestion> {
+  const now = Date.now();
+  
+  // Try to use cached AI question first
+  if (aiTriviaCache.length > 0) {
+    return aiTriviaCache.pop()!;
+  }
+  
+  // Generate new AI question if cooldown passed
+  if (now - lastAiGenerationTime > AI_TRIVIA_COOLDOWN) {
+    lastAiGenerationTime = now;
+    const aiQuestion = await generateAiTriviaQuestion(openai);
+    if (aiQuestion) {
+      return aiQuestion;
+    }
+  }
+  
+  // Fallback to static questions
+  return TRIVIA_QUESTIONS[Math.floor(Math.random() * TRIVIA_QUESTIONS.length)];
+}
+
+// Pre-generate some AI questions in background
+async function prefillTriviaCache(openai: OpenAI) {
+  if (aiTriviaCache.length >= 5) return; // Already have enough
+  
+  for (let i = 0; i < 3; i++) {
+    const question = await generateAiTriviaQuestion(openai);
+    if (question) {
+      aiTriviaCache.push(question);
+    }
+    await new Promise(r => setTimeout(r, 2000)); // 2 second delay between generations
+  }
+}
+
 // === GIVEAWAY SYSTEM ===
 interface Giveaway {
   chatId: number;
@@ -1438,8 +1543,9 @@ Stay safe, fam!`;
       return;
     }
 
-    // Pick a random question
-    const question = TRIVIA_QUESTIONS[Math.floor(Math.random() * TRIVIA_QUESTIONS.length)];
+    // Get a question (AI-generated or fallback to static)
+    await ctx.reply("Generating trivia question...");
+    const question = await getTriviaQuestion(openai);
     
     // Store active trivia
     activeTrivias.set(ctx.chat.id, {
@@ -1455,6 +1561,9 @@ Stay safe, fam!`;
     await ctx.reply(
       `TRIVIA TIME! [${categoryEmoji}]\n\n${question.question}\n\n${optionsText}\n\nAnswer with /answer 1, /answer 2, etc.\nWorth ${question.points} points!\n\n(60 seconds to answer)`
     );
+    
+    // Pre-fill cache in background for next time
+    prefillTriviaCache(openai).catch(() => {});
 
     // Auto-expire after 60 seconds
     setTimeout(async () => {
