@@ -5,11 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Space Bud Invaders</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       background: #0a0a1a;
       display: flex;
@@ -19,92 +15,31 @@
       overflow: hidden;
       font-family: 'Segoe UI', sans-serif;
     }
-    #gameContainer {
-      position: relative;
-      touch-action: none;
-    }
-    #gameCanvas {
-      display: block;
-      border: 2px solid #4ade80;
-      border-radius: 8px;
-    }
+    #gameContainer { position: relative; touch-action: none; }
+    #gameCanvas { display: block; border: 2px solid #4ade80; border-radius: 8px; }
     #startScreen, #gameOverScreen, #winScreen {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      background: rgba(10, 10, 26, 0.95);
-      border-radius: 8px;
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      background: rgba(10, 10, 26, 0.95); border-radius: 8px;
     }
-    h1 {
-      color: #4ade80;
-      font-size: 1.8rem;
-      margin-bottom: 0.5rem;
-      text-shadow: 0 0 20px #4ade80;
-      text-align: center;
-    }
-    h2 {
-      color: #22c55e;
-      font-size: 1.5rem;
-      margin-bottom: 1rem;
-    }
-    .subtitle {
-      color: #86efac;
-      font-size: 1rem;
-      margin-bottom: 2rem;
-      text-align: center;
-    }
-    .score-display {
-      color: #fbbf24;
-      font-size: 1.5rem;
-      margin: 1rem 0;
-    }
+    h1 { color: #4ade80; font-size: 1.6rem; margin-bottom: 0.5rem; text-shadow: 0 0 20px #4ade80; text-align: center; }
+    h2 { color: #22c55e; font-size: 1.4rem; margin-bottom: 1rem; }
+    .subtitle { color: #86efac; font-size: 0.95rem; margin-bottom: 1.5rem; text-align: center; padding: 0 1rem; }
+    .score-display { color: #fbbf24; font-size: 1.4rem; margin: 1rem 0; }
     button {
-      background: linear-gradient(135deg, #22c55e, #16a34a);
-      color: white;
-      border: none;
-      padding: 1rem 2rem;
-      font-size: 1.2rem;
-      border-radius: 8px;
-      cursor: pointer;
-      margin: 0.5rem;
-      transition: transform 0.2s, box-shadow 0.2s;
+      background: linear-gradient(135deg, #22c55e, #16a34a); color: white; border: none;
+      padding: 0.9rem 1.8rem; font-size: 1.1rem; border-radius: 8px; cursor: pointer; margin: 0.5rem;
     }
-    button:hover {
-      transform: scale(1.05);
-      box-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
-    }
-    .controls {
-      color: #9ca3af;
-      font-size: 0.85rem;
-      margin-top: 1.5rem;
-      text-align: center;
-      padding: 0 1rem;
-    }
-    .hidden {
-      display: none !important;
-    }
+    button:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(34, 197, 94, 0.5); }
+    .controls { color: #9ca3af; font-size: 0.8rem; margin-top: 1.2rem; text-align: center; padding: 0 1rem; }
+    .hidden { display: none !important; }
     #hud {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      right: 10px;
-      display: flex;
-      justify-content: space-between;
-      color: #4ade80;
-      font-size: 1rem;
-      font-weight: bold;
-      text-shadow: 0 0 5px rgba(0,0,0,0.8);
-      pointer-events: none;
+      position: absolute; top: 8px; left: 10px; right: 10px;
+      display: flex; justify-content: space-between;
+      color: #4ade80; font-size: 0.9rem; font-weight: bold;
+      text-shadow: 0 0 5px rgba(0,0,0,0.8); pointer-events: none;
     }
-    .level-display {
-      color: #60a5fa;
-    }
+    .level-display { color: #60a5fa; }
   </style>
 </head>
 <body>
@@ -118,11 +53,10 @@
     
     <div id="startScreen">
       <h1>SPACE BUD INVADERS</h1>
-      <p class="subtitle">Defend Earth from the Scammer Aliens!</p>
+      <p class="subtitle">Dudley defends Earth from evil alien buds!</p>
       <button id="startBtn">START GAME</button>
       <div class="controls">
-        <p>Mobile: Tap left/right sides to move</p>
-        <p>Tap center to shoot</p>
+        <p>Tap left/right to move, center to shoot</p>
         <p>Desktop: Arrow keys + Space</p>
       </div>
     </div>
@@ -155,129 +89,176 @@
     const waveScore = document.getElementById('waveScore');
     const highScoreText = document.getElementById('highScoreText');
 
-    // Responsive canvas sizing
     function resizeCanvas() {
-      const maxWidth = Math.min(window.innerWidth - 20, 400);
-      const maxHeight = Math.min(window.innerHeight - 20, 600);
+      const maxWidth = Math.min(window.innerWidth - 16, 380);
+      const maxHeight = Math.min(window.innerHeight - 16, 580);
       canvas.width = maxWidth;
       canvas.height = maxHeight;
     }
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Game state
     let gameRunning = false;
     let score = 0;
     let lives = 3;
     let wave = 1;
     let highScore = parseInt(localStorage.getItem('spaceBudHighScore') || '0');
 
-    // Player
-    const player = {
-      x: 0,
-      y: 0,
-      width: 40,
-      height: 30,
-      speed: 5,
-      color: '#4ade80'
-    };
+    const player = { x: 0, y: 0, width: 36, height: 40, speed: 5 };
 
-    // Invaders grid
     let invaders = [];
     let invaderDirection = 1;
     let invaderSpeed = 1;
-    let invaderDropAmount = 20;
-    let invaderShootChance = 0.005;
-
-    // Bullets
     let playerBullets = [];
     let enemyBullets = [];
     let particles = [];
     let stars = [];
 
-    // Shields/barriers
-    let shields = [];
-
-    // Controls
     let keys = { left: false, right: false, shoot: false };
     let lastShot = 0;
-    const shootCooldown = 400;
+    const shootCooldown = 350;
 
-    // Invader types with colors
-    const invaderTypes = [
-      { color: '#ef4444', points: 30, rows: [0] },      // Red - top row
-      { color: '#f97316', points: 20, rows: [1, 2] },   // Orange - middle rows
-      { color: '#eab308', points: 10, rows: [3, 4] }    // Yellow - bottom rows
+    // Bud strain colors for enemies
+    const budStrains = [
+      { name: 'Purple Haze', color: '#a855f7', darkColor: '#7c3aed', points: 30 },
+      { name: 'Blue Dream', color: '#3b82f6', darkColor: '#2563eb', points: 25 },
+      { name: 'Orange Kush', color: '#f97316', darkColor: '#ea580c', points: 20 },
+      { name: 'Sour Diesel', color: '#eab308', darkColor: '#ca8a04', points: 15 },
+      { name: 'Northern Lights', color: '#14b8a6', darkColor: '#0d9488', points: 10 }
     ];
 
-    // Initialize stars background
     function initStars() {
       stars = [];
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 40; i++) {
         stars.push({
           x: Math.random() * canvas.width,
           y: Math.random() * canvas.height,
-          size: Math.random() * 2 + 1,
-          speed: Math.random() * 0.5 + 0.2
+          size: Math.random() * 2 + 0.5,
+          speed: Math.random() * 0.4 + 0.1
         });
       }
     }
 
-    // Create invader grid
+    // Draw a cannabis bud shape
+    function drawBud(x, y, width, height, color, darkColor, glow = false) {
+      if (glow) {
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 12;
+      }
+      
+      const cx = x + width / 2;
+      const cy = y + height / 2;
+      
+      // Main bud body (oval cluster shape)
+      ctx.fillStyle = color;
+      
+      // Center large nugget
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, width * 0.35, height * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Top cluster
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - height * 0.25, width * 0.25, height * 0.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Left cluster
+      ctx.beginPath();
+      ctx.ellipse(cx - width * 0.2, cy + height * 0.1, width * 0.2, height * 0.22, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Right cluster
+      ctx.beginPath();
+      ctx.ellipse(cx + width * 0.2, cy + height * 0.1, width * 0.2, height * 0.22, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Small sugar leaves (darker accents)
+      ctx.fillStyle = darkColor;
+      ctx.beginPath();
+      ctx.ellipse(cx - width * 0.15, cy - height * 0.15, width * 0.08, height * 0.12, -0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx + width * 0.18, cy - height * 0.1, width * 0.07, height * 0.1, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.shadowBlur = 0;
+    }
+
+    // Draw player bud (Dudley - green defender)
+    function drawPlayerBud(x, y, width, height) {
+      ctx.shadowColor = '#4ade80';
+      ctx.shadowBlur = 15;
+      
+      const cx = x + width / 2;
+      const cy = y + height / 2;
+      
+      // Main green bud
+      ctx.fillStyle = '#4ade80';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + height * 0.05, width * 0.38, height * 0.42, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - height * 0.22, width * 0.28, height * 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.ellipse(cx - width * 0.22, cy + height * 0.12, width * 0.2, height * 0.24, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.ellipse(cx + width * 0.22, cy + height * 0.12, width * 0.2, height * 0.24, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Darker accents
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - height * 0.08, width * 0.12, height * 0.15, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Eyes (cute face)
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(cx - width * 0.12, cy - height * 0.05, 3, 0, Math.PI * 2);
+      ctx.arc(cx + width * 0.12, cy - height * 0.05, 3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.shadowBlur = 0;
+    }
+
     function createInvaders() {
       invaders = [];
       const rows = 5;
-      const cols = Math.floor((canvas.width - 60) / 45);
-      const invaderWidth = 30;
-      const invaderHeight = 25;
-      const padding = 10;
-      const startX = (canvas.width - (cols * (invaderWidth + padding))) / 2;
-      const startY = 60;
+      const cols = Math.floor((canvas.width - 50) / 42);
+      const invWidth = 28;
+      const invHeight = 30;
+      const padding = 8;
+      const startX = (canvas.width - (cols * (invWidth + padding))) / 2;
+      const startY = 55;
 
       for (let row = 0; row < rows; row++) {
+        const strain = budStrains[row % budStrains.length];
         for (let col = 0; col < cols; col++) {
-          const type = invaderTypes.find(t => t.rows.includes(row)) || invaderTypes[2];
           invaders.push({
-            x: startX + col * (invaderWidth + padding),
-            y: startY + row * (invaderHeight + padding),
-            width: invaderWidth,
-            height: invaderHeight,
-            color: type.color,
-            points: type.points,
+            x: startX + col * (invWidth + padding),
+            y: startY + row * (invHeight + padding),
+            width: invWidth,
+            height: invHeight,
+            color: strain.color,
+            darkColor: strain.darkColor,
+            points: strain.points,
             row: row
           });
         }
       }
 
-      // Increase difficulty per wave
-      invaderSpeed = 1 + (wave - 1) * 0.3;
-      invaderShootChance = 0.005 + (wave - 1) * 0.002;
+      invaderSpeed = 1 + (wave - 1) * 0.25;
       invaderDirection = 1;
     }
 
-    // Create shields
-    function createShields() {
-      shields = [];
-      const shieldCount = 4;
-      const shieldWidth = 50;
-      const spacing = canvas.width / (shieldCount + 1);
-      
-      for (let i = 0; i < shieldCount; i++) {
-        shields.push({
-          x: spacing * (i + 1) - shieldWidth / 2,
-          y: canvas.height - 120,
-          width: shieldWidth,
-          height: 30,
-          health: 4,
-          color: '#22c55e'
-        });
-      }
-    }
-
-    // Initialize game
     function initGame() {
       player.x = canvas.width / 2 - player.width / 2;
-      player.y = canvas.height - player.height - 20;
+      player.y = canvas.height - player.height - 15;
       playerBullets = [];
       enemyBullets = [];
       particles = [];
@@ -286,10 +267,8 @@
       wave = 1;
       initStars();
       createInvaders();
-      createShields();
     }
 
-    // Create explosion particles
     function createExplosion(x, y, color, count = 8) {
       for (let i = 0; i < count; i++) {
         particles.push({
@@ -303,122 +282,80 @@
       }
     }
 
-    // Player shoot
     function shoot() {
       const now = Date.now();
       if (now - lastShot < shootCooldown) return;
       lastShot = now;
       
+      // Seed bullet (green)
       playerBullets.push({
-        x: player.x + player.width / 2 - 3,
+        x: player.x + player.width / 2 - 4,
         y: player.y,
-        width: 6,
-        height: 15,
-        speed: 8,
-        color: '#22d3ee'
+        width: 8,
+        height: 12,
+        speed: 7,
+        color: '#86efac'
       });
     }
 
-    // Enemy shoot
     function enemyShoot(invader) {
       enemyBullets.push({
-        x: invader.x + invader.width / 2 - 2,
+        x: invader.x + invader.width / 2 - 3,
         y: invader.y + invader.height,
-        width: 4,
-        height: 12,
-        speed: 4 + wave * 0.5,
-        color: '#f43f5e'
+        width: 6,
+        height: 10,
+        speed: 3.5 + wave * 0.4,
+        color: invader.color
       });
     }
 
-    // Update game
     function update() {
       if (!gameRunning) return;
 
-      // Player movement
       if (keys.left && player.x > 0) player.x -= player.speed;
       if (keys.right && player.x < canvas.width - player.width) player.x += player.speed;
       if (keys.shoot) shoot();
 
-      // Update stars
       stars.forEach(star => {
         star.y += star.speed;
-        if (star.y > canvas.height) {
-          star.y = 0;
-          star.x = Math.random() * canvas.width;
-        }
+        if (star.y > canvas.height) { star.y = 0; star.x = Math.random() * canvas.width; }
       });
 
-      // Update player bullets
-      playerBullets = playerBullets.filter(b => {
-        b.y -= b.speed;
-        return b.y > -b.height;
-      });
+      playerBullets = playerBullets.filter(b => { b.y -= b.speed; return b.y > -b.height; });
 
-      // Update enemy bullets
       enemyBullets = enemyBullets.filter(b => {
         b.y += b.speed;
-        
-        // Hit player
         if (rectCollision(b, player)) {
           lives--;
           livesHud.textContent = `Lives: ${lives}`;
-          createExplosion(player.x + player.width/2, player.y + player.height/2, player.color, 12);
-          if (lives <= 0) {
-            endGame();
-          }
+          createExplosion(player.x + player.width/2, player.y + player.height/2, '#4ade80', 10);
+          if (lives <= 0) endGame();
           return false;
         }
-        
-        // Hit shields
-        for (let i = shields.length - 1; i >= 0; i--) {
-          if (rectCollision(b, shields[i])) {
-            shields[i].health--;
-            if (shields[i].health <= 0) {
-              createExplosion(shields[i].x + shields[i].width/2, shields[i].y + shields[i].height/2, shields[i].color);
-              shields.splice(i, 1);
-            }
-            return false;
-          }
-        }
-        
         return b.y < canvas.height;
       });
 
-      // Move invaders
       let hitEdge = false;
       let lowestY = 0;
       
       invaders.forEach(inv => {
         inv.x += invaderSpeed * invaderDirection;
-        if (inv.x <= 0 || inv.x + inv.width >= canvas.width) {
-          hitEdge = true;
-        }
-        if (inv.y + inv.height > lowestY) {
-          lowestY = inv.y + inv.height;
-        }
+        if (inv.x <= 0 || inv.x + inv.width >= canvas.width) hitEdge = true;
+        if (inv.y + inv.height > lowestY) lowestY = inv.y + inv.height;
       });
 
       if (hitEdge) {
         invaderDirection *= -1;
-        invaders.forEach(inv => {
-          inv.y += invaderDropAmount;
-        });
+        invaders.forEach(inv => { inv.y += 18; });
       }
 
-      // Invaders reached bottom
-      if (lowestY > player.y - 20) {
-        endGame();
-        return;
-      }
+      if (lowestY > player.y - 15) { endGame(); return; }
 
-      // Invaders shoot randomly
-      if (invaders.length > 0 && Math.random() < invaderShootChance) {
+      if (invaders.length > 0 && Math.random() < 0.004 + wave * 0.002) {
         const shooter = invaders[Math.floor(Math.random() * invaders.length)];
         enemyShoot(shooter);
       }
 
-      // Player bullets hit invaders
       playerBullets.forEach((b, bi) => {
         for (let i = invaders.length - 1; i >= 0; i--) {
           if (rectCollision(b, invaders[i])) {
@@ -430,82 +367,26 @@
             break;
           }
         }
-        
-        // Hit shields
-        for (let i = shields.length - 1; i >= 0; i--) {
-          if (rectCollision(b, shields[i])) {
-            playerBullets.splice(bi, 1);
-            break;
-          }
-        }
       });
 
-      // Check wave complete
-      if (invaders.length === 0) {
-        waveComplete();
-        return;
-      }
+      if (invaders.length === 0) { waveComplete(); return; }
 
-      // Update particles
       particles = particles.filter(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.03;
+        p.x += p.vx; p.y += p.vy; p.life -= 0.035;
         return p.life > 0;
       });
     }
 
-    // Collision detection
     function rectCollision(a, b) {
-      return a.x < b.x + b.width &&
-             a.x + a.width > b.x &&
-             a.y < b.y + b.height &&
-             a.y + a.height > b.y;
+      return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
     }
 
-    // Draw invader shape
-    function drawInvader(inv) {
-      ctx.fillStyle = inv.color;
-      ctx.shadowColor = inv.color;
-      ctx.shadowBlur = 8;
-      
-      const x = inv.x;
-      const y = inv.y;
-      const w = inv.width;
-      const h = inv.height;
-      
-      // Classic space invader shape
-      ctx.beginPath();
-      ctx.moveTo(x + w * 0.3, y);
-      ctx.lineTo(x + w * 0.7, y);
-      ctx.lineTo(x + w * 0.7, y + h * 0.3);
-      ctx.lineTo(x + w, y + h * 0.3);
-      ctx.lineTo(x + w, y + h * 0.7);
-      ctx.lineTo(x + w * 0.8, y + h * 0.7);
-      ctx.lineTo(x + w * 0.8, y + h);
-      ctx.lineTo(x + w * 0.6, y + h);
-      ctx.lineTo(x + w * 0.6, y + h * 0.7);
-      ctx.lineTo(x + w * 0.4, y + h * 0.7);
-      ctx.lineTo(x + w * 0.4, y + h);
-      ctx.lineTo(x + w * 0.2, y + h);
-      ctx.lineTo(x + w * 0.2, y + h * 0.7);
-      ctx.lineTo(x, y + h * 0.7);
-      ctx.lineTo(x, y + h * 0.3);
-      ctx.lineTo(x + w * 0.3, y + h * 0.3);
-      ctx.closePath();
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-
-    // Draw game
     function draw() {
-      // Clear canvas
       ctx.fillStyle = '#0a0a1a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw stars
       stars.forEach(star => {
-        ctx.fillStyle = `rgba(255, 255, 255, ${0.3 + star.size * 0.2})`;
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.3 + star.size * 0.15})`;
         ctx.beginPath();
         ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
         ctx.fill();
@@ -513,47 +394,33 @@
 
       if (!gameRunning) return;
 
-      // Draw shields
-      shields.forEach(s => {
-        const alpha = s.health / 4;
-        ctx.fillStyle = s.color;
-        ctx.globalAlpha = alpha;
-        ctx.fillRect(s.x, s.y, s.width, s.height);
-        ctx.globalAlpha = 1;
+      // Draw player (Dudley bud)
+      drawPlayerBud(player.x, player.y, player.width, player.height);
+
+      // Draw enemy buds
+      invaders.forEach(inv => {
+        drawBud(inv.x, inv.y, inv.width, inv.height, inv.color, inv.darkColor, true);
       });
 
-      // Draw player (spaceship)
-      ctx.fillStyle = player.color;
-      ctx.shadowColor = '#4ade80';
-      ctx.shadowBlur = 15;
-      ctx.beginPath();
-      ctx.moveTo(player.x + player.width/2, player.y);
-      ctx.lineTo(player.x + player.width, player.y + player.height);
-      ctx.lineTo(player.x + player.width * 0.7, player.y + player.height * 0.7);
-      ctx.lineTo(player.x + player.width * 0.3, player.y + player.height * 0.7);
-      ctx.lineTo(player.x, player.y + player.height);
-      ctx.closePath();
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // Draw invaders
-      invaders.forEach(inv => drawInvader(inv));
-
-      // Draw player bullets
+      // Draw player bullets (seeds)
       playerBullets.forEach(b => {
         ctx.fillStyle = b.color;
         ctx.shadowColor = b.color;
-        ctx.shadowBlur = 10;
-        ctx.fillRect(b.x, b.y, b.width, b.height);
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.ellipse(b.x + b.width/2, b.y + b.height/2, b.width/2, b.height/2, 0, 0, Math.PI * 2);
+        ctx.fill();
         ctx.shadowBlur = 0;
       });
 
-      // Draw enemy bullets
+      // Draw enemy bullets (colored seeds)
       enemyBullets.forEach(b => {
         ctx.fillStyle = b.color;
         ctx.shadowColor = b.color;
-        ctx.shadowBlur = 8;
-        ctx.fillRect(b.x, b.y, b.width, b.height);
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.ellipse(b.x + b.width/2, b.y + b.height/2, b.width/2, b.height/2, 0, 0, Math.PI * 2);
+        ctx.fill();
         ctx.shadowBlur = 0;
       });
 
@@ -568,14 +435,8 @@
       });
     }
 
-    // Game loop
-    function gameLoop() {
-      update();
-      draw();
-      requestAnimationFrame(gameLoop);
-    }
+    function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
 
-    // Start game
     function startGame() {
       initGame();
       gameRunning = true;
@@ -588,19 +449,16 @@
       livesHud.textContent = `Lives: ${lives}`;
     }
 
-    // Wave complete
     function waveComplete() {
       gameRunning = false;
       waveScore.textContent = score;
       winScreen.classList.remove('hidden');
     }
 
-    // Next wave
     function nextWave() {
       wave++;
       winScreen.classList.add('hidden');
       createInvaders();
-      createShields();
       enemyBullets = [];
       playerBullets = [];
       player.x = canvas.width / 2 - player.width / 2;
@@ -608,7 +466,6 @@
       levelHud.textContent = `Wave ${wave}`;
     }
 
-    // End game
     function endGame() {
       gameRunning = false;
       hud.classList.add('hidden');
@@ -624,12 +481,10 @@
       }
     }
 
-    // Event listeners
     document.getElementById('startBtn').addEventListener('click', startGame);
     document.getElementById('restartBtn').addEventListener('click', startGame);
     document.getElementById('nextWaveBtn').addEventListener('click', nextWave);
 
-    // Keyboard controls
     document.addEventListener('keydown', e => {
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
       if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
@@ -642,29 +497,19 @@
       if (e.code === 'Space') keys.shoot = false;
     });
 
-    // Touch controls
     canvas.addEventListener('touchstart', e => {
       e.preventDefault();
       const touch = e.touches[0];
       const rect = canvas.getBoundingClientRect();
       const x = touch.clientX - rect.left;
       
-      if (x < canvas.width * 0.33) {
-        keys.left = true;
-      } else if (x > canvas.width * 0.66) {
-        keys.right = true;
-      } else {
-        keys.shoot = true;
-      }
+      if (x < canvas.width * 0.33) keys.left = true;
+      else if (x > canvas.width * 0.66) keys.right = true;
+      else keys.shoot = true;
     });
 
-    canvas.addEventListener('touchend', e => {
-      keys.left = false;
-      keys.right = false;
-      keys.shoot = false;
-    });
+    canvas.addEventListener('touchend', e => { keys.left = false; keys.right = false; keys.shoot = false; });
 
-    // Start game loop
     initStars();
     gameLoop();
   </script>

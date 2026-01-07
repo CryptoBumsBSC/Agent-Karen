@@ -1908,10 +1908,10 @@ Stay safe, fam!`;
     
     await ctx.reply(
       "SPACE BUD INVADERS\n\n" +
-      "Defend Earth from the Scammer Aliens!\n" +
-      "Destroy waves of invaders and rack up points.\n\n" +
+      "Help Dudley defend Earth from evil alien buds!\n" +
+      "Blast waves of Purple Haze, Blue Dream, Orange Kush and more!\n\n" +
       "Controls:\n" +
-      "- Mobile: Tap left/right to move, center to shoot\n" +
+      "- Tap left/right to move, center to shoot\n" +
       "- Desktop: Arrow keys + Space",
       {
         reply_markup: {
