@@ -29,15 +29,29 @@ The frontend follows a pages-based structure with shared components. Key pages i
 ### Backend Architecture
 - **Runtime**: Node.js with Express (used for health checks and API routes)
 - **Bot Framework**: grammY for Telegram bot functionality
+- **AI Integration**: OpenAI GPT-4o-mini for intelligent responses
 - **Database ORM**: Drizzle ORM with PostgreSQL
 - **Type Safety**: Zod for runtime validation, drizzle-zod for schema integration
 
 The server primarily runs the Telegram bot with a lightweight HTTP server for health checks.
 
+### Bot Features (AgentKarenBot)
+- **AI-Powered Q&A**: /ask command answers questions about Dudley Bud using OpenAI
+- **Market Reports**: /market fetches live crypto prices from CoinGecko API
+- **AI Roasts**: /roast generates witty roasts for community members
+- **Smart Responses**: Auto-responds when mentioned or when questions are asked
+- **Scam Detection**: Monitors for suspicious messages and crypto addresses
+- **Auto-Engage**: Sends friendly prompts when chat is quiet for 30+ minutes
+- **Karen Mode**: Toggle fun "Karen" personality mode with /karen
+- **User Memory**: Tracks message history and interactions per user session
+
 ### Database Design
-Two main tables:
+Main tables:
 - **characters**: Stores character information (name, description, role, imageUrl)
 - **content_items**: Stores various content types (jokes, facts, legal info, scam terms, project info)
+- **conversations**: AI chat conversation tracking
+- **messages**: Individual messages within conversations
+- **user_memory**: Per-user interaction tracking for the bot
 
 Schema is defined in `shared/schema.ts` and shared between frontend and backend.
 
