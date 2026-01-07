@@ -381,6 +381,97 @@ const adminActivity: Map<number, Map<number, AdminActivity>> = new Map(); // cha
 const adminCheckTimers: Map<number, NodeJS.Timeout> = new Map();
 const ADMIN_INACTIVE_HOURS = 24;
 
+// === ACTIVE CHATS TRACKING (for scheduled posts) ===
+const activeChats: Set<number> = new Set();
+
+// === CANNABIS RECIPES (from chef-420.com inspiration) ===
+const CANNABIS_RECIPES = [
+  {
+    name: "Classic Cannabutter",
+    description: "The foundation of cannabis cooking! Perfect for brownies, cookies, and more.",
+    ingredients: ["1 cup butter", "1 cup water", "7-10g decarbed cannabis flower"],
+    steps: "Simmer butter and water, add decarbed cannabis, cook on low for 2-3 hours, strain and refrigerate."
+  },
+  {
+    name: "Canna-Infused Honey",
+    description: "Sweet and versatile - perfect for tea, toast, or drizzling on desserts!",
+    ingredients: ["1 cup honey", "3.5g decarbed cannabis", "Cheesecloth"],
+    steps: "Combine honey and cannabis in double boiler, simmer 40 mins, strain through cheesecloth. Store in jar."
+  },
+  {
+    name: "Green Dragon Tincture",
+    description: "Fast-acting and discreet! Add to drinks or use sublingually.",
+    ingredients: ["7g decarbed cannabis", "4oz high-proof alcohol (Everclear)", "Mason jar"],
+    steps: "Combine in jar, shake daily for 2-3 weeks, strain. A few drops go a long way!"
+  },
+  {
+    name: "Cannabis Coconut Oil",
+    description: "Versatile for cooking, baking, or even topicals!",
+    ingredients: ["1 cup coconut oil", "7g decarbed cannabis flower"],
+    steps: "Melt oil in slow cooker, add cannabis, cook on low 4-6 hours, strain. Great for edibles!"
+  },
+  {
+    name: "Pot Brownies (Classic)",
+    description: "The OG edible that started it all!",
+    ingredients: ["1/2 cup cannabutter", "1 cup sugar", "2 eggs", "1/3 cup cocoa", "1/2 cup flour"],
+    steps: "Mix all ingredients, pour into greased 8x8 pan, bake 25-30 mins at 350F. Start low, go slow!"
+  },
+  {
+    name: "Cannabis-Infused Gummies",
+    description: "Tasty, portable, and easy to dose!",
+    ingredients: ["1 cup fruit juice", "1/4 cup cannabis tincture", "2 tbsp gelatin", "Honey to taste"],
+    steps: "Heat juice, whisk in gelatin, add tincture and honey, pour into molds, refrigerate 2 hours."
+  },
+  {
+    name: "Wake & Bake Pancakes",
+    description: "Start your morning right with these fluffy cannabis pancakes!",
+    ingredients: ["2 cups pancake mix", "3 tbsp melted cannabutter", "1.5 cups milk", "1 egg"],
+    steps: "Mix all ingredients, cook on griddle until golden. Top with maple syrup!"
+  },
+  {
+    name: "Canna-Chocolate Truffles",
+    description: "Elegant, delicious, and perfect for sharing!",
+    ingredients: ["8oz dark chocolate", "1/2 cup heavy cream", "2 tbsp cannabutter", "Cocoa powder"],
+    steps: "Melt chocolate with cream and cannabutter, chill, roll into balls, dust with cocoa."
+  },
+  {
+    name: "Green Goddess Salad Dressing",
+    description: "Healthy and herbaceous - cannabis meets veggies!",
+    ingredients: ["1/4 cup canna-olive oil", "2 tbsp lemon juice", "1 avocado", "Fresh herbs"],
+    steps: "Blend all ingredients until smooth. Drizzle over your favorite salad!"
+  },
+  {
+    name: "Cannabis Hot Chocolate",
+    description: "Cozy, comforting, and uplifting for cold nights!",
+    ingredients: ["2 cups milk", "2 tbsp cocoa", "1 tbsp cannabutter", "Marshmallows"],
+    steps: "Heat milk, whisk in cocoa and cannabutter until smooth. Top with marshmallows!"
+  }
+];
+
+// Get random recipe
+function getRandomRecipe() {
+  return CANNABIS_RECIPES[Math.floor(Math.random() * CANNABIS_RECIPES.length)];
+}
+
+// Format recipe for posting
+function formatRecipePost(recipe: typeof CANNABIS_RECIPES[0]): string {
+  return `DAILY RECIPE from chef-420.com
+
+${recipe.name}
+
+${recipe.description}
+
+INGREDIENTS:
+${recipe.ingredients.map(i => `- ${i}`).join("\n")}
+
+HOW TO MAKE IT:
+${recipe.steps}
+
+Remember: Always dose responsibly! Start low, go slow.
+
+More recipes at chef-420.com`;
+}
+
 // Forward declaration - will be set when bot is created
 let botInstance: Bot<MyContext> | null = null;
 
@@ -683,6 +774,9 @@ Got questions? Just ask! We're here to help!`;
     if (chatId && chatId < 0) { // Only for group chats (negative IDs)
       resetAutoEngageTimer(chatId);
       
+      // Track this chat for scheduled posts (recipes, etc.)
+      activeChats.add(chatId);
+      
       // Track admin activity - update when any user messages
       if (ctx.from?.id) {
         updateAdminActivity(chatId, ctx.from.id, ctx.from.username || "", ctx.from.first_name || "");
@@ -774,6 +868,65 @@ Got questions? Just ask! We're here to help!`;
   return bot;
 }
 
+// === SCHEDULED RECIPE POSTING ===
+function postDailyRecipe() {
+  if (!botInstance) return;
+  
+  const recipe = getRandomRecipe();
+  const message = formatRecipePost(recipe);
+  
+  // Post to all active chats
+  for (const chatId of Array.from(activeChats)) {
+    botInstance.api.sendMessage(chatId, message).catch((err) => {
+      console.error(`Failed to send recipe to chat ${chatId}:`, err);
+      // Remove chat if we can't send to it
+      if (err.description?.includes("chat not found") || err.description?.includes("bot was blocked")) {
+        activeChats.delete(chatId);
+      }
+    });
+  }
+  
+  console.log(`Posted daily recipe to ${activeChats.size} chats: ${recipe.name}`);
+}
+
+// Track if we've posted today to prevent duplicates
+let lastRecipePostDate = "";
+
+// Schedule recipe at 4 PM Pacific (handles PST/PDT automatically)
+function startRecipeScheduler() {
+  const checkAndPost = () => {
+    // Get current Pacific time using Intl (handles DST automatically)
+    const pacificFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false
+    });
+    
+    const dateFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+    
+    const now = new Date();
+    const timeStr = pacificFormatter.format(now); // "16:00" format
+    const dateStr = dateFormatter.format(now);
+    const [hour, minute] = timeStr.split(":").map(Number);
+    
+    // Check if it's 4 PM Pacific (16:00) and we haven't posted today
+    if (hour === 16 && minute === 0 && lastRecipePostDate !== dateStr) {
+      lastRecipePostDate = dateStr;
+      postDailyRecipe();
+    }
+  };
+  
+  // Check every minute
+  setInterval(checkAndPost, 60 * 1000);
+  console.log("Recipe scheduler started - will post daily at 4 PM Pacific");
+}
+
 // === START BOT ===
 export async function startBot() {
   if (!BOT_TOKEN) {
@@ -801,10 +954,13 @@ export async function startBot() {
     console.error("Bot error:", err);
   });
 
+  // Start the recipe scheduler
+  startRecipeScheduler();
+
   await bot.start({
     onStart: () => {
       console.log("AgentKarenBot is running with AI capabilities!");
-      console.log("Features: Smart Q&A, Market Reports, Roasts, Auto-engage");
+      console.log("Features: Smart Q&A, Market Reports, Roasts, Auto-engage, Daily Recipes");
     },
   });
 }

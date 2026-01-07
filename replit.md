@@ -37,11 +37,13 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 
 ### Bot Features (AgentKarenBot)
 - **AI-Powered Q&A**: /ask command answers questions about Dudley Bud using OpenAI
-- **Market Reports**: /market fetches live crypto prices from CoinGecko API
+- **Market Reports**: /market fetches live crypto prices (top 10 or specific token search)
 - **AI Roasts**: /roast generates witty roasts for community members
 - **Smart Responses**: Auto-responds when mentioned or when questions are asked
 - **Scam Detection**: Monitors for suspicious messages and crypto addresses
 - **Auto-Engage**: Sends friendly prompts when chat is quiet for 30+ minutes
+- **Admin Tracking**: Calls out admins inactive for 24+ hours with friendly reminders
+- **Daily Recipes**: Posts cannabis recipes from chef-420.com at 4 PM Pacific daily
 - **Karen Mode**: Toggle fun "Karen" personality mode with /karen
 - **User Memory**: Tracks message history and interactions per user session
 
