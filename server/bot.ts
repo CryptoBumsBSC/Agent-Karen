@@ -1899,6 +1899,30 @@ Stay safe, fam!`;
     );
   });
 
+  // /play - Launch Space Bud Invaders game
+  bot.command("play", async (ctx) => {
+    if (!ctx.chat) return;
+    
+    // Use the deployment URL - update this after publishing
+    const gameUrl = "https://dudley-bud-web3-universe-dankprof.replit.app/game.html";
+    
+    await ctx.reply(
+      "SPACE BUD INVADERS\n\n" +
+      "Defend Earth from the Scammer Aliens!\n" +
+      "Destroy waves of invaders and rack up points.\n\n" +
+      "Controls:\n" +
+      "- Mobile: Tap left/right to move, center to shoot\n" +
+      "- Desktop: Arrow keys + Space",
+      {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "PLAY NOW", url: gameUrl }
+          ]]
+        }
+      }
+    );
+  });
+
   // /leaderboard - Show daily leaderboard + weekly/monthly top winners
   bot.command("leaderboard", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
