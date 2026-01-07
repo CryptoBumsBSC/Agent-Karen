@@ -1182,6 +1182,258 @@ Stay safe, fam!`;
     await ctx.reply(`Giveaway ended.\n\nPrize: ${giveaway.prize}\nTotal entries: ${giveaway.entries.size}\n\nNo winner was picked.`);
   });
 
+  // === ADMIN MODERATION COMMANDS ===
+
+  // /ban - Ban a user (admin only)
+  bot.command("ban", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can ban users!");
+      return;
+    }
+    
+    // Get user from reply
+    const targetUser = ctx.message?.reply_to_message?.from;
+    if (!targetUser) {
+      await ctx.reply("Reply to a user's message to ban them!");
+      return;
+    }
+    
+    if (targetUser.is_bot) {
+      await ctx.reply("I can't ban bots!");
+      return;
+    }
+    
+    try {
+      await ctx.api.banChatMember(ctx.chat.id, targetUser.id);
+      await ctx.reply(`Banned ${targetUser.first_name}. They can no longer join this group.`);
+    } catch (error) {
+      await ctx.reply("Couldn't ban that user. Make sure I have admin permissions!");
+    }
+  });
+
+  // /kick - Kick a user (admin only)
+  bot.command("kick", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can kick users!");
+      return;
+    }
+    
+    const targetUser = ctx.message?.reply_to_message?.from;
+    if (!targetUser) {
+      await ctx.reply("Reply to a user's message to kick them!");
+      return;
+    }
+    
+    if (targetUser.is_bot) {
+      await ctx.reply("I can't kick bots!");
+      return;
+    }
+    
+    try {
+      // Ban then immediately unban = kick
+      await ctx.api.banChatMember(ctx.chat.id, targetUser.id);
+      await ctx.api.unbanChatMember(ctx.chat.id, targetUser.id);
+      await ctx.reply(`Kicked ${targetUser.first_name}. They can rejoin if they have the link.`);
+    } catch (error) {
+      await ctx.reply("Couldn't kick that user. Make sure I have admin permissions!");
+    }
+  });
+
+  // /mute - Mute a user (admin only)
+  bot.command("mute", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can mute users!");
+      return;
+    }
+    
+    const targetUser = ctx.message?.reply_to_message?.from;
+    if (!targetUser) {
+      await ctx.reply("Reply to a user's message to mute them!");
+      return;
+    }
+    
+    if (targetUser.is_bot) {
+      await ctx.reply("I can't mute bots!");
+      return;
+    }
+    
+    // Get duration from command (default 1 hour)
+    const args = ctx.message?.text?.split(" ").slice(1) || [];
+    let muteMinutes = 60;
+    if (args[0]) {
+      const parsed = parseInt(args[0]);
+      if (!isNaN(parsed) && parsed > 0) muteMinutes = parsed;
+    }
+    
+    try {
+      const muteUntil = Math.floor(Date.now() / 1000) + (muteMinutes * 60);
+      await ctx.api.restrictChatMember(ctx.chat.id, targetUser.id, {
+        permissions: { can_send_messages: false },
+        until_date: muteUntil
+      });
+      await ctx.reply(`Muted ${targetUser.first_name} for ${muteMinutes} minutes.`);
+    } catch (error) {
+      await ctx.reply("Couldn't mute that user. Make sure I have admin permissions!");
+    }
+  });
+
+  // /unmute - Unmute a user (admin only)
+  bot.command("unmute", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can unmute users!");
+      return;
+    }
+    
+    const targetUser = ctx.message?.reply_to_message?.from;
+    if (!targetUser) {
+      await ctx.reply("Reply to a user's message to unmute them!");
+      return;
+    }
+    
+    try {
+      await ctx.api.restrictChatMember(ctx.chat.id, targetUser.id, {
+        permissions: {
+          can_send_messages: true,
+          can_send_audios: true,
+          can_send_documents: true,
+          can_send_photos: true,
+          can_send_videos: true,
+          can_send_video_notes: true,
+          can_send_voice_notes: true,
+          can_send_polls: true,
+          can_send_other_messages: true,
+          can_add_web_page_previews: true
+        }
+      });
+      await ctx.reply(`Unmuted ${targetUser.first_name}. They can send messages again.`);
+    } catch (error) {
+      await ctx.reply("Couldn't unmute that user. Make sure I have admin permissions!");
+    }
+  });
+
+  // /warn - Warn a user (admin only) - adds offense
+  bot.command("warn", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can warn users!");
+      return;
+    }
+    
+    const targetUser = ctx.message?.reply_to_message?.from;
+    if (!targetUser) {
+      await ctx.reply("Reply to a user's message to warn them!");
+      return;
+    }
+    
+    if (targetUser.is_bot) {
+      await ctx.reply("I can't warn bots!");
+      return;
+    }
+    
+    const reason = ctx.message?.text?.replace("/warn", "").trim() || "Breaking community rules";
+    const { muteSeconds, offenseCount, notifyAdmin } = addOffense(ctx.chat.id, targetUser.id);
+    
+    // Apply mute
+    try {
+      const muteUntil = Math.floor(Date.now() / 1000) + muteSeconds;
+      await ctx.api.restrictChatMember(ctx.chat.id, targetUser.id, {
+        permissions: { can_send_messages: false },
+        until_date: muteUntil
+      });
+      
+      await ctx.reply(`WARNING #${offenseCount} for ${targetUser.first_name}\n\nReason: ${reason}\n\nMuted for: ${formatDuration(muteSeconds)}`);
+      
+      // Notify admins after 2nd offense
+      if (notifyAdmin) {
+        await ctx.reply(`ATTENTION ADMINS: ${targetUser.first_name} has ${offenseCount} offenses. Consider taking further action.`);
+      }
+    } catch (error) {
+      await ctx.reply(`Warning #${offenseCount} for ${targetUser.first_name}.\n\nReason: ${reason}\n\n(Note: Couldn't apply mute - check bot permissions)`);
+    }
+  });
+
+  // /poll - Create a poll (admin only)
+  bot.command("poll", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can create polls!");
+      return;
+    }
+    
+    const pollText = ctx.message?.text?.replace("/poll", "").trim();
+    if (!pollText) {
+      await ctx.reply("Usage: /poll Question? | Option 1 | Option 2 | Option 3\n\nExample: /poll What's the best strain? | Sativa | Indica | Hybrid");
+      return;
+    }
+    
+    const parts = pollText.split("|").map(p => p.trim()).filter(p => p);
+    if (parts.length < 3) {
+      await ctx.reply("Need at least 2 options!\n\nUsage: /poll Question? | Option 1 | Option 2");
+      return;
+    }
+    
+    const question = parts[0];
+    const options = parts.slice(1);
+    
+    if (options.length > 10) {
+      await ctx.reply("Maximum 10 options allowed!");
+      return;
+    }
+    
+    try {
+      await ctx.api.sendPoll(ctx.chat.id, question, options, { is_anonymous: false });
+    } catch (error) {
+      await ctx.reply("Couldn't create poll. Make sure options are valid!");
+    }
+  });
+
+  // /leaderboard - Show top active members
+  bot.command("leaderboard", async (ctx) => {
+    if (!ctx.chat) return;
+    
+    const topUsers = getTopUsers(ctx.chat.id, 10);
+    
+    if (topUsers.length === 0) {
+      await ctx.reply("No activity recorded yet! Keep chatting to climb the leaderboard.");
+      return;
+    }
+    
+    const medals = ["1st", "2nd", "3rd"];
+    let leaderboardText = "TOP COMMUNITY MEMBERS\n\n";
+    
+    topUsers.forEach((user, index) => {
+      const rank = medals[index] || `${index + 1}th`;
+      const name = user.username ? `@${user.username}` : user.firstName;
+      leaderboardText += `${rank} - ${name} (${user.messageCount} messages)\n`;
+    });
+    
+    leaderboardText += "\nKeep participating to climb up!";
+    
+    await ctx.reply(leaderboardText);
+  });
+
   // /ask - Ask AI anything (with live crypto/NFT/cannabis data)
   bot.command("ask", async (ctx) => {
     const question = ctx.message?.text?.replace("/ask", "").trim();
