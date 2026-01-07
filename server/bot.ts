@@ -482,6 +482,7 @@ interface AdminActivity {
 
 const adminActivity: Map<number, Map<number, AdminActivity>> = new Map(); // chatId -> (userId -> activity)
 const adminCheckTimers: Map<number, NodeJS.Timeout> = new Map();
+const adminLastAlerted: Map<number, Map<number, number>> = new Map(); // chatId -> (userId -> lastAlertedTime)
 const ADMIN_INACTIVE_HOURS = 24;
 
 // === ACTIVE CHATS TRACKING (for scheduled posts) ===
@@ -634,7 +635,7 @@ function updateAdminActivity(chatId: number, userId: number, username: string, f
   });
 }
 
-// Check and call out inactive admins
+// Check and call out inactive admins (only once per 24 hours per admin)
 async function checkInactiveAdmins(chatId: number) {
   if (!botInstance) return;
   
@@ -645,6 +646,13 @@ async function checkInactiveAdmins(chatId: number) {
     const inactiveThreshold = ADMIN_INACTIVE_HOURS * 60 * 60 * 1000;
     
     const chatAdmins = adminActivity.get(chatId) || new Map();
+    
+    // Get or create alert tracking for this chat
+    if (!adminLastAlerted.has(chatId)) {
+      adminLastAlerted.set(chatId, new Map());
+    }
+    const chatAlerts = adminLastAlerted.get(chatId)!;
+    
     const inactiveAdmins: string[] = [];
     
     for (const admin of admins) {
@@ -653,13 +661,23 @@ async function checkInactiveAdmins(chatId: number) {
       
       const userId = admin.user.id;
       const activity = chatAdmins.get(userId);
+      const lastAlerted = chatAlerts.get(userId) || 0;
       
-      // If no activity recorded or inactive for 24+ hours
-      if (!activity || (now - activity.lastActive) > inactiveThreshold) {
+      // Check if admin is inactive (no activity or 24+ hours since last message)
+      const isInactive = !activity || (now - activity.lastActive) > inactiveThreshold;
+      
+      // Check if we already alerted about this admin in the last 24 hours
+      const alreadyAlerted = (now - lastAlerted) < inactiveThreshold;
+      
+      // Only alert if inactive AND we haven't alerted about them recently
+      if (isInactive && !alreadyAlerted) {
         const mention = admin.user.username 
           ? `@${admin.user.username}` 
           : admin.user.first_name;
         inactiveAdmins.push(mention);
+        
+        // Mark as alerted
+        chatAlerts.set(userId, now);
       }
     }
     
@@ -680,17 +698,12 @@ function startAdminActivityChecker(chatId: number) {
     clearInterval(existingTimer);
   }
   
-  // Check every 24 hours
+  // Check every 24 hours (no initial check - wait for first 24h cycle)
   const timer = setInterval(() => {
     checkInactiveAdmins(chatId);
   }, 24 * 60 * 60 * 1000);
   
   adminCheckTimers.set(chatId, timer);
-  
-  // Also do an initial check after 1 minute (to let activity tracking populate)
-  setTimeout(() => {
-    checkInactiveAdmins(chatId);
-  }, 60 * 1000);
 }
 
 function resetAutoEngageTimer(chatId: number) {
