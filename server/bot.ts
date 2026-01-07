@@ -169,18 +169,39 @@ async function getAIResponse(prompt: string, context: string): Promise<string> {
       messages: [
         {
           role: "system",
-          content: `You are AgentKarenBot, the community manager for Dudley Bud - a Web3 cannabis character universe on the Base blockchain. 
-          
-Your personality: Friendly, knowledgeable about cannabis culture and Web3, occasionally sassy. You know all about Dudley Bud, Blaze, Kush, Sativa, and Indica characters.
+          content: `You are AgentKarenBot, the community manager for Dudley Bud - a Web3 cannabis character universe on the Base blockchain.
 
-Key facts about Dudley Bud:
+PERSONALITY:
+- Friendly, chill, and approachable - like a cool friend who knows about crypto and cannabis culture
+- Witty and occasionally sassy, but never mean
+- Enthusiastic about the community and project
+- Protective of members - quick to warn about scams
+- Uses casual language, can use slang like "fam", "vibes", "LFG"
+
+COMMUNICATION STYLE:
+- Keep responses SHORT (1-3 sentences max for casual chat)
+- Be conversational, not robotic
+- Match the energy of the message (chill response to chill message, excited to excited)
+- Use humor when appropriate
+- Don't over-explain unless asked
+
+COMMUNITY MANAGER DUTIES:
+- Welcome and engage with members
+- Answer questions about Dudley Bud
+- Keep the chat lively and positive
+- Redirect investment questions (NFTs are for fun, not profit)
+- Support the community vibe
+
+Key project info:
 ${PROJECT_INFO}
 
-Keep responses concise (under 200 words). Be helpful but remind people NFTs are for entertainment only, not investments.`
+Characters: Dudley Bud (main character), Blaze (adventurous), Kush (wise elder), Sativa (energetic), Indica (relaxed).
+
+IMPORTANT: Only mention NFT disclaimers when someone asks about investing or profits. For casual chat, just be friendly!`
         },
-        { role: "user", content: `Context: ${context}\n\nUser message: ${prompt}` }
+        { role: "user", content: `Context: ${context}\n\nMessage: ${prompt}` }
       ],
-      max_tokens: 300,
+      max_tokens: 150,
     });
     return response.choices[0]?.message?.content || "I'm having trouble thinking right now. Try again!";
   } catch (error) {
@@ -537,13 +558,58 @@ Got questions? Just ask! We're here to help!`;
     userMem.messageCount++;
     userMem.lastMessages = [...userMem.lastMessages.slice(-4), text];
 
-    // Respond to mentions or questions about Dudley Bud
+    // Skip if it's a command
+    if (text.startsWith("/")) {
+      await next();
+      return;
+    }
+
     const lowerText = text.toLowerCase();
-    if (lowerText.includes("dudley") || lowerText.includes("@agentkarenbot") || text.includes("?")) {
-      if (!text.startsWith("/")) {
-        const response = await getAIResponse(text, `User ${ctx.from?.first_name} in group chat`);
-        await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
-      }
+    const firstName = ctx.from?.first_name || "friend";
+    
+    // Determine if bot should respond
+    let shouldRespond = false;
+    let responseContext = "";
+    
+    // Always respond when mentioned directly
+    if (lowerText.includes("@agentkarenbot") || lowerText.includes("karen")) {
+      shouldRespond = true;
+      responseContext = "User mentioned the bot directly";
+    }
+    // Always respond to questions about Dudley Bud
+    else if (lowerText.includes("dudley") || lowerText.includes("bud") || lowerText.includes("nft")) {
+      shouldRespond = true;
+      responseContext = "User asking about Dudley Bud project";
+    }
+    // Respond to direct questions
+    else if (text.includes("?")) {
+      shouldRespond = true;
+      responseContext = "User asked a question in the group";
+    }
+    // Respond to greetings
+    else if (/^(hi|hello|hey|yo|sup|gm|good morning|good evening|what's up|whats up)/i.test(lowerText)) {
+      shouldRespond = true;
+      responseContext = "User greeted the chat";
+    }
+    // Respond to replies to the bot's messages
+    else if (ctx.message.reply_to_message?.from?.is_bot) {
+      shouldRespond = true;
+      responseContext = "User replied to bot's message";
+    }
+    // Engage with longer messages (community participation)
+    else if (text.length > 50 && Math.random() < 0.3) {
+      shouldRespond = true;
+      responseContext = "Engaging with community discussion";
+    }
+    // Random engagement to keep chat lively (10% chance)
+    else if (Math.random() < 0.1) {
+      shouldRespond = true;
+      responseContext = "Random community engagement";
+    }
+    
+    if (shouldRespond) {
+      const response = await getAIResponse(text, `${responseContext}. User: ${firstName}. Keep response brief and friendly.`);
+      await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
     }
 
     await next();
