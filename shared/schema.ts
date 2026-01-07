@@ -49,12 +49,27 @@ export const userMemory = pgTable("user_memory", {
   isRoastTarget: boolean("is_roast_target").default(false),
 });
 
+// Community profiles for remembering member details
+export const communityProfiles = pgTable("community_profiles", {
+  id: serial("id").primaryKey(),
+  telegramUserId: text("telegram_user_id").notNull().unique(),
+  chatId: text("chat_id"),
+  username: text("username"),
+  firstName: text("first_name"),
+  location: text("location"),
+  likes: text("likes"),
+  birthday: text("birthday"),
+  lastBirthdayYear: integer("last_birthday_year"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
 export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true });
 export const insertConversationSchema = createInsertSchema(conversations).omit({ id: true, createdAt: true });
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
 export const insertUserMemorySchema = createInsertSchema(userMemory).omit({ id: true });
+export const insertCommunityProfileSchema = createInsertSchema(communityProfiles).omit({ id: true, createdAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -62,12 +77,14 @@ export type ContentItem = typeof contentItems.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type UserMemory = typeof userMemory.$inferSelect;
+export type CommunityProfile = typeof communityProfiles.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type InsertUserMemory = z.infer<typeof insertUserMemorySchema>;
+export type InsertCommunityProfile = z.infer<typeof insertCommunityProfileSchema>;
 
 export type CharacterResponse = Character;
 export type ContentItemResponse = ContentItem;
