@@ -578,6 +578,21 @@ export function createBot(): Bot<MyContext> {
   const bot = new Bot<MyContext>(BOT_TOKEN!);
   botInstance = bot; // Set for auto-engage timer
 
+  // Set command menu in Telegram
+  bot.api.setMyCommands([
+    { command: "start", description: "Welcome message" },
+    { command: "info", description: "Project information" },
+    { command: "joke", description: "Get a cannabis joke" },
+    { command: "fact", description: "Learn a medical fact" },
+    { command: "legal", description: "Legal disclaimers" },
+    { command: "characters", description: "Meet the cast" },
+    { command: "market", description: "Live crypto prices" },
+    { command: "roast", description: "Roast someone" },
+    { command: "ask", description: "Ask me anything" },
+    { command: "karen", description: "Toggle Karen mode" },
+    { command: "safety", description: "Safety reminders" }
+  ]).catch(err => console.error("Failed to set commands:", err));
+
   // Session middleware
   bot.use(session({
     initial: (): SessionData => ({ 
