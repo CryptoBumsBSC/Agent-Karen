@@ -512,6 +512,158 @@ async function isOwner(ctx: MyContext): Promise<boolean> {
   }
 }
 
+// Check if user is admin or creator
+async function isAdmin(ctx: MyContext): Promise<boolean> {
+  if (!ctx.chat || !ctx.from) return false;
+  
+  try {
+    const member = await ctx.api.getChatMember(ctx.chat.id, ctx.from.id);
+    return member.status === "creator" || member.status === "administrator";
+  } catch {
+    return false;
+  }
+}
+
+// === MODERATION SYSTEM ===
+interface UserOffense {
+  count: number;
+  lastOffense: number;
+  muteUntil: number;
+}
+
+// chatId -> (userId -> offense data)
+const userOffenses: Map<number, Map<number, UserOffense>> = new Map();
+
+// Mute durations: 15 min, 4 hours, 72 hours
+const MUTE_DURATIONS = [
+  15 * 60,           // 15 minutes in seconds
+  4 * 60 * 60,       // 4 hours in seconds  
+  72 * 60 * 60       // 72 hours in seconds
+];
+
+// Spam tracking
+interface SpamTracker {
+  messages: string[];
+  timestamps: number[];
+}
+const spamTracking: Map<number, Map<number, SpamTracker>> = new Map(); // chatId -> (userId -> spam data)
+
+// Leaderboard tracking
+interface UserActivity {
+  userId: number;
+  username: string;
+  firstName: string;
+  messageCount: number;
+}
+const leaderboardData: Map<number, Map<number, UserActivity>> = new Map(); // chatId -> (userId -> activity)
+
+// Get or create user offense record
+function getUserOffenses(chatId: number, userId: number): UserOffense {
+  if (!userOffenses.has(chatId)) {
+    userOffenses.set(chatId, new Map());
+  }
+  const chatOffenses = userOffenses.get(chatId)!;
+  if (!chatOffenses.has(userId)) {
+    chatOffenses.set(userId, { count: 0, lastOffense: 0, muteUntil: 0 });
+  }
+  return chatOffenses.get(userId)!;
+}
+
+// Add offense and return mute duration
+function addOffense(chatId: number, userId: number): { muteSeconds: number; offenseCount: number; notifyAdmin: boolean } {
+  const offense = getUserOffenses(chatId, userId);
+  offense.count++;
+  offense.lastOffense = Date.now();
+  
+  // Get mute duration based on offense count (cap at max)
+  const muteIndex = Math.min(offense.count - 1, MUTE_DURATIONS.length - 1);
+  const muteSeconds = MUTE_DURATIONS[muteIndex];
+  offense.muteUntil = Date.now() + (muteSeconds * 1000);
+  
+  // Notify admin after 2nd offense
+  const notifyAdmin = offense.count >= 2;
+  
+  return { muteSeconds, offenseCount: offense.count, notifyAdmin };
+}
+
+// Check if message is spam
+function isSpam(chatId: number, userId: number, message: string): boolean {
+  if (!spamTracking.has(chatId)) {
+    spamTracking.set(chatId, new Map());
+  }
+  const chatSpam = spamTracking.get(chatId)!;
+  
+  if (!chatSpam.has(userId)) {
+    chatSpam.set(userId, { messages: [], timestamps: [] });
+  }
+  const tracker = chatSpam.get(userId)!;
+  
+  const now = Date.now();
+  const fiveMinutesAgo = now - (5 * 60 * 1000);
+  
+  // Clean old messages
+  while (tracker.timestamps.length > 0 && tracker.timestamps[0] < fiveMinutesAgo) {
+    tracker.timestamps.shift();
+    tracker.messages.shift();
+  }
+  
+  // Add current message
+  tracker.messages.push(message.toLowerCase());
+  tracker.timestamps.push(now);
+  
+  // Check for spam patterns
+  // 1. More than 5 messages in 30 seconds
+  const thirtySecondsAgo = now - 30000;
+  const recentCount = tracker.timestamps.filter(t => t > thirtySecondsAgo).length;
+  if (recentCount > 5) return true;
+  
+  // 2. Same message repeated 3+ times
+  const lastThree = tracker.messages.slice(-3);
+  if (lastThree.length === 3 && lastThree[0] === lastThree[1] && lastThree[1] === lastThree[2]) {
+    return true;
+  }
+  
+  // 3. Multiple links in short time
+  const linkPattern = /https?:\/\/|t\.me\/|discord\.gg/gi;
+  const recentLinks = tracker.messages.slice(-3).filter(m => linkPattern.test(m)).length;
+  if (recentLinks >= 2) return true;
+  
+  return false;
+}
+
+// Update leaderboard
+function updateLeaderboard(chatId: number, userId: number, username: string, firstName: string) {
+  if (!leaderboardData.has(chatId)) {
+    leaderboardData.set(chatId, new Map());
+  }
+  const chatLeaderboard = leaderboardData.get(chatId)!;
+  
+  if (!chatLeaderboard.has(userId)) {
+    chatLeaderboard.set(userId, { userId, username, firstName, messageCount: 0 });
+  }
+  const user = chatLeaderboard.get(userId)!;
+  user.messageCount++;
+  user.username = username; // Update in case it changed
+  user.firstName = firstName;
+}
+
+// Get top users for leaderboard
+function getTopUsers(chatId: number, limit: number = 10): UserActivity[] {
+  const chatLeaderboard = leaderboardData.get(chatId);
+  if (!chatLeaderboard) return [];
+  
+  return Array.from(chatLeaderboard.values())
+    .sort((a, b) => b.messageCount - a.messageCount)
+    .slice(0, limit);
+}
+
+// Format mute duration for display
+function formatDuration(seconds: number): string {
+  if (seconds < 3600) return `${Math.round(seconds / 60)} minutes`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} hours`;
+  return `${Math.round(seconds / 86400)} days`;
+}
+
 // === CANNABIS RECIPES (from chef-420.com inspiration) ===
 const CANNABIS_RECIPES = [
   {
