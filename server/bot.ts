@@ -132,6 +132,14 @@ function getRandomItem<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function getWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
 function detectScam(text: string, username?: string): { isScam: boolean; flags: string[] } {
   const flags: string[] = [];
   const lowerText = text.toLowerCase();
@@ -1800,13 +1808,41 @@ Stay safe, fam!`;
       roundScore.points += earnedPoints;
       roundScore.correct++;
 
-      // Update persistent database
+      // Update persistent database with daily/weekly/monthly tracking
       const newPoints = (score.triviaPoints || 0) + earnedPoints;
       const newCorrect = (score.triviaCorrect || 0) + 1;
       const newAttempts = (score.triviaAttempts || 0) + 1;
       
+      // Get current date strings for period tracking
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      const weekNum = getWeekNumber(now);
+      const weekStr = `${now.getFullYear()}-W${weekNum}`;
+      const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      
+      // Calculate period points (reset if new period)
+      const newDailyPoints = score.dailyResetDate === todayStr 
+        ? (score.dailyPoints || 0) + earnedPoints 
+        : earnedPoints;
+      const newWeeklyPoints = score.weeklyResetDate === weekStr 
+        ? (score.weeklyPoints || 0) + earnedPoints 
+        : earnedPoints;
+      const newMonthlyPoints = score.monthlyResetDate === monthStr 
+        ? (score.monthlyPoints || 0) + earnedPoints 
+        : earnedPoints;
+      
       await db.update(memberScores)
-        .set({ triviaPoints: newPoints, triviaCorrect: newCorrect, triviaAttempts: newAttempts })
+        .set({ 
+          triviaPoints: newPoints, 
+          triviaCorrect: newCorrect, 
+          triviaAttempts: newAttempts,
+          dailyPoints: newDailyPoints,
+          dailyResetDate: todayStr,
+          weeklyPoints: newWeeklyPoints,
+          weeklyResetDate: weekStr,
+          monthlyPoints: newMonthlyPoints,
+          monthlyResetDate: monthStr
+        })
         .where(and(eq(memberScores.telegramUserId, telegramUserId), eq(memberScores.chatId, chatIdStr)));
 
       await ctx.reply(`CORRECT! ${firstName} earned ${earnedPoints} points! (Round: ${roundScore.points} pts)`);
