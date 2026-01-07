@@ -1011,34 +1011,6 @@ Stay safe, fam!`;
     await ctx.reply(safetyText);
   });
 
-  // /market - Crypto market report (top 10 or specific token)
-  bot.command("market", async (ctx) => {
-    const query = ctx.message?.text?.replace("/market", "").trim();
-    
-    if (query) {
-      // Search for specific token
-      await ctx.reply(`Searching for ${query}...`);
-      const token = await searchToken(query);
-      
-      if (token) {
-        const arrow = token.change24h >= 0 ? "+" : "";
-        const priceStr = token.price >= 1 
-          ? `$${token.price.toFixed(2)}` 
-          : `$${token.price.toFixed(8)}`;
-        const report = `${token.name} (${token.symbol})\n\nPrice: ${priceStr}\n24h Change: ${arrow}${token.change24h.toFixed(2)}%`;
-        await ctx.reply(report);
-      } else {
-        await ctx.reply(`Couldn't find "${query}". Try the full name or symbol (e.g., bitcoin, eth, solana)`);
-      }
-    } else {
-      // Default: Top 10 market report
-      await ctx.reply("Fetching top 10 crypto prices...");
-      const { topCoins, memeCoins, trending } = await fetchCryptoMarket();
-      const report = formatMarketReport(topCoins, memeCoins, trending);
-      await ctx.reply(report);
-    }
-  });
-
   // /roast - Roast someone
   bot.command("roast", async (ctx) => {
     const text = ctx.message?.text || "";
@@ -1280,9 +1252,17 @@ Stay safe, fam!`;
     try {
       const muteUntil = Math.floor(Date.now() / 1000) + (muteMinutes * 60);
       await ctx.api.restrictChatMember(ctx.chat.id, targetUser.id, {
-        permissions: { can_send_messages: false },
-        until_date: muteUntil
-      });
+        can_send_messages: false,
+        can_send_audios: false,
+        can_send_documents: false,
+        can_send_photos: false,
+        can_send_videos: false,
+        can_send_video_notes: false,
+        can_send_voice_notes: false,
+        can_send_polls: false,
+        can_send_other_messages: false,
+        can_add_web_page_previews: false
+      }, { until_date: muteUntil });
       await ctx.reply(`Muted ${targetUser.first_name} for ${muteMinutes} minutes.`);
     } catch (error) {
       await ctx.reply("Couldn't mute that user. Make sure I have admin permissions!");
@@ -1308,18 +1288,16 @@ Stay safe, fam!`;
     
     try {
       await ctx.api.restrictChatMember(ctx.chat.id, targetUser.id, {
-        permissions: {
-          can_send_messages: true,
-          can_send_audios: true,
-          can_send_documents: true,
-          can_send_photos: true,
-          can_send_videos: true,
-          can_send_video_notes: true,
-          can_send_voice_notes: true,
-          can_send_polls: true,
-          can_send_other_messages: true,
-          can_add_web_page_previews: true
-        }
+        can_send_messages: true,
+        can_send_audios: true,
+        can_send_documents: true,
+        can_send_photos: true,
+        can_send_videos: true,
+        can_send_video_notes: true,
+        can_send_voice_notes: true,
+        can_send_polls: true,
+        can_send_other_messages: true,
+        can_add_web_page_previews: true
       });
       await ctx.reply(`Unmuted ${targetUser.first_name}. They can send messages again.`);
     } catch (error) {
@@ -1356,9 +1334,17 @@ Stay safe, fam!`;
     try {
       const muteUntil = Math.floor(Date.now() / 1000) + muteSeconds;
       await ctx.api.restrictChatMember(ctx.chat.id, targetUser.id, {
-        permissions: { can_send_messages: false },
-        until_date: muteUntil
-      });
+        can_send_messages: false,
+        can_send_audios: false,
+        can_send_documents: false,
+        can_send_photos: false,
+        can_send_videos: false,
+        can_send_video_notes: false,
+        can_send_voice_notes: false,
+        can_send_polls: false,
+        can_send_other_messages: false,
+        can_add_web_page_previews: false
+      }, { until_date: muteUntil });
       
       await ctx.reply(`WARNING #${offenseCount} for ${targetUser.first_name}\n\nReason: ${reason}\n\nMuted for: ${formatDuration(muteSeconds)}`);
       
@@ -1581,9 +1567,17 @@ Got questions? Just ask! We're here to help!`;
             // Mute the user
             const muteUntil = Math.floor(Date.now() / 1000) + muteSeconds;
             await ctx.api.restrictChatMember(chatId, ctx.from.id, {
-              permissions: { can_send_messages: false },
-              until_date: muteUntil
-            });
+              can_send_messages: false,
+              can_send_audios: false,
+              can_send_documents: false,
+              can_send_photos: false,
+              can_send_videos: false,
+              can_send_video_notes: false,
+              can_send_voice_notes: false,
+              can_send_polls: false,
+              can_send_other_messages: false,
+              can_add_web_page_previews: false
+            }, { until_date: muteUntil });
             
             const firstName = ctx.from.first_name || "User";
             await ctx.reply(`SPAM DETECTED!\n\n${firstName} has been muted for ${formatDuration(muteSeconds)}.\n\nThis is offense #${offenseCount}.`);
