@@ -140,6 +140,30 @@ function getWeekNumber(date: Date): number {
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
+// Fisher-Yates shuffle for randomizing answer positions (handles duplicate options safely)
+function shuffleOptions(question: TriviaQuestion): TriviaQuestion {
+  // Create indexed pairs to track correct answer by original index, not value
+  const indexed: { value: string; originalIndex: number }[] = question.options.map((opt, i) => ({
+    value: opt,
+    originalIndex: i
+  }));
+  
+  // Fisher-Yates shuffle on the indexed pairs
+  for (let i = indexed.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indexed[i], indexed[j]] = [indexed[j], indexed[i]];
+  }
+  
+  // Find new position of correct answer by original index (not value - handles duplicates)
+  const newCorrectIndex = indexed.findIndex(item => item.originalIndex === question.correctIndex);
+  
+  return {
+    ...question,
+    options: indexed.map(item => item.value),
+    correctIndex: newCorrectIndex
+  };
+}
+
 function detectScam(text: string, username?: string): { isScam: boolean; flags: string[] } {
   const flags: string[] = [];
   const lowerText = text.toLowerCase();
@@ -556,8 +580,7 @@ const activeTrivias: Map<number, ActiveTrivia> = new Map(); // chatId -> active 
 
 // AI-generated trivia question cache
 const aiTriviaCache: TriviaQuestion[] = [];
-const usedQuestionHashes: Set<string> = new Set(); // Track used questions to avoid repeats
-const usedStaticIndices: Set<number> = new Set(); // Track used static questions
+const usedQuestionHashes: Set<string> = new Set(); // Track used questions to avoid repeats (200 max with FIFO)
 let lastAiGenerationTime = 0;
 const AI_TRIVIA_COOLDOWN = 5000; // 5 seconds between AI generations for faster multi-round games
 
@@ -617,13 +640,14 @@ async function generateAiTriviaQuestion(openai: OpenAI): Promise<TriviaQuestion 
 ${DUDLEY_ECOSYSTEM}
 
 IMPORTANT: Respond ONLY with valid JSON in this exact format:
-{"question": "Your question here?", "options": ["Option A", "Option B", "Option C", "Option D"], "correctIndex": 0}
+{"question": "Your question here?", "options": ["Option A", "Option B", "Option C", "Option D"], "correctIndex": N}
 
 Rules:
-- correctIndex is 0-3 (0=first option is correct)
+- correctIndex is 0-3 indicating which option is correct (VARY THIS - don't always use 0!)
 - Make questions fun and educational, not too hard
 - Keep options short (1-4 words each)
-- Generate UNIQUE questions - be creative and varied`
+- Generate UNIQUE questions - be creative and varied
+- IMPORTANT: Place the correct answer in different positions each time (0, 1, 2, or 3)`
         },
         {
           role: "user",
@@ -644,15 +668,16 @@ Rules:
       return null;
     }
 
-    // Create question hash to avoid duplicates (use more of the question)
-    const hash = parsed.question.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 80);
+    // Create stronger hash including question AND sorted answers to catch near-duplicates
+    const sortedAnswers = [...parsed.options].sort().join('|');
+    const hash = (parsed.question + sortedAnswers).toLowerCase().replace(/[^a-z0-9|]/g, '');
     if (usedQuestionHashes.has(hash)) {
       return null;
     }
     usedQuestionHashes.add(hash);
 
-    // Clear old hashes after 100 to allow recycling eventually
-    if (usedQuestionHashes.size > 100) {
+    // FIFO eviction after 200 entries for better duplicate prevention
+    if (usedQuestionHashes.size > 200) {
       const arr = Array.from(usedQuestionHashes);
       for (let i = 0; i < 50; i++) {
         usedQuestionHashes.delete(arr[i]);
@@ -672,13 +697,27 @@ Rules:
   }
 }
 
-// Get a trivia question (AI or fallback to static)
+// Shuffled queue of static question indices for guaranteed no-repeat until all used
+let staticQuestionQueue: number[] = [];
+
+function getShuffledStaticQueue(): number[] {
+  const indices = Array.from({ length: TRIVIA_QUESTIONS.length }, (_, i) => i);
+  // Fisher-Yates shuffle
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  return indices;
+}
+
+// Get a trivia question (AI or fallback to static) - ALWAYS shuffles answer positions
 async function getTriviaQuestion(openai: OpenAI): Promise<TriviaQuestion> {
   const now = Date.now();
   
   // Try to use cached AI question first
   if (aiTriviaCache.length > 0) {
-    return aiTriviaCache.pop()!;
+    const question = aiTriviaCache.pop()!;
+    return shuffleOptions(question); // Always shuffle!
   }
   
   // Generate new AI question if cooldown passed
@@ -686,26 +725,17 @@ async function getTriviaQuestion(openai: OpenAI): Promise<TriviaQuestion> {
     lastAiGenerationTime = now;
     const aiQuestion = await generateAiTriviaQuestion(openai);
     if (aiQuestion) {
-      return aiQuestion;
+      return shuffleOptions(aiQuestion); // Always shuffle!
     }
   }
   
-  // Fallback to static questions - avoid repeats
-  // Reset if we've used most of them
-  if (usedStaticIndices.size >= TRIVIA_QUESTIONS.length - 2) {
-    usedStaticIndices.clear();
+  // Fallback to static questions using queue (guaranteed no repeats until all used)
+  if (staticQuestionQueue.length === 0) {
+    staticQuestionQueue = getShuffledStaticQueue();
   }
   
-  // Find an unused static question
-  let attempts = 0;
-  let idx = Math.floor(Math.random() * TRIVIA_QUESTIONS.length);
-  while (usedStaticIndices.has(idx) && attempts < 20) {
-    idx = Math.floor(Math.random() * TRIVIA_QUESTIONS.length);
-    attempts++;
-  }
-  usedStaticIndices.add(idx);
-  
-  return TRIVIA_QUESTIONS[idx];
+  const idx = staticQuestionQueue.pop()!;
+  return shuffleOptions(TRIVIA_QUESTIONS[idx]); // Always shuffle!
 }
 
 // Pre-generate some AI questions in background
@@ -2612,7 +2642,7 @@ async function generateBirthdayCakeImage(username: string): Promise<string | nul
       n: 1,
       size: "1024x1024"
     });
-    return response.data[0]?.url || null;
+    return response.data?.[0]?.url || null;
   } catch (error) {
     console.error("Error generating birthday cake image:", error);
     return null;
