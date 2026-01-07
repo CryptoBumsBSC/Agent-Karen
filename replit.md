@@ -46,6 +46,7 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Daily Recipes**: Posts cannabis recipes from chef-420.com at 4 PM Pacific daily
 - **Karen Mode**: Toggle fun "Karen" personality mode with /karen
 - **User Memory**: Tracks message history and interactions per user session
+- **Bud Avatars**: Admin-only `/budify @username` creates DALL-E 3 cartoon trading card avatars with random strain assignment (Purple Haze, Blue Dream, Orange Kush, Sour Diesel, Northern Lights), unique nicknames, and AI-generated funny comments
 
 ### Trivia System
 - **Multi-Question Rounds**: `/trivia 5` starts 5-question round (1-25 questions supported)
