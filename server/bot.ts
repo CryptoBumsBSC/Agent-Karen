@@ -3,10 +3,6 @@ import { Bot, Context, session } from "grammy";
 // === BOT TOKEN ===
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-if (!BOT_TOKEN) {
-  throw new Error("TELEGRAM_BOT_TOKEN must be set in environment variables");
-}
-
 // === SESSION DATA ===
 interface SessionData {
   karenMode: boolean;
@@ -333,6 +329,23 @@ Got questions? Just ask! We're here to help! 😊🌿`;
 
 // === START BOT ===
 export async function startBot() {
+  if (!BOT_TOKEN) {
+    console.log("========================================");
+    console.log("🤖 AgentKarenBot - Setup Required");
+    console.log("========================================");
+    console.log("");
+    console.log("⚠️  TELEGRAM_BOT_TOKEN is not set!");
+    console.log("");
+    console.log("To get your bot token:");
+    console.log("1. Open Telegram and search for @BotFather");
+    console.log("2. Send /newbot and follow the prompts");
+    console.log("3. Copy the token and add it as a secret in Replit");
+    console.log("4. Restart this workflow after adding the token");
+    console.log("");
+    console.log("========================================");
+    process.exit(1);
+  }
+
   const bot = createBot();
 
   console.log("🤖 AgentKarenBot starting...");
