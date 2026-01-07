@@ -47,6 +47,40 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Karen Mode**: Toggle fun "Karen" personality mode with /karen
 - **User Memory**: Tracks message history and interactions per user session
 
+### Trivia System
+- **Multi-Question Rounds**: `/trivia 5` starts 5-question round (1-25 questions supported)
+- **AI-Generated Questions**: Uses GPT-4o-mini with 13 topic categories (cannabis strains/science/history, crypto basics/slang, DeFi, Dudley characters, etc.)
+- **Leaderboards**: `/leaderboard` shows daily rankings + weekly/monthly top winners
+- **Score Tracking**: Daily, weekly, monthly points with automatic period resets
+- **Duplicate Prevention**: Hash tracking for 100 questions to avoid repeats
+
+### Space Bud Invaders Game (READY TO PUBLISH)
+**Status**: Complete, needs Republish to go live
+**File Location**: `client/public/game.html`
+**Bot Command**: `/play` - Opens game in Telegram browser
+
+**Game Features**:
+- Classic Space Invaders style gameplay
+- Player is "Dudley" - a cute green cannabis bud with eyes
+- Enemy buds are different strains with colors and point values:
+  - Purple Haze (purple) - 30 pts
+  - Blue Dream (blue) - 25 pts
+  - Orange Kush (orange) - 20 pts
+  - Sour Diesel (yellow) - 15 pts
+  - Northern Lights (teal) - 10 pts
+- Seed-shaped bullets with glow effects
+- Multiple waves that get progressively harder
+- High score saved locally in browser
+- Touch controls for mobile, keyboard for desktop
+
+**How it works**:
+1. User types `/play` in Telegram chat
+2. Bot shows message with "PLAY NOW" button
+3. Button opens game at: https://dudley-bud-web3-universe-dankprof.replit.app/game.html
+4. Game runs in Telegram's built-in browser
+
+**To finish setup**: Click Republish to push game live
+
 ### Database Design
 Main tables:
 - **characters**: Stores character information (name, description, role, imageUrl)
