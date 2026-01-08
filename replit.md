@@ -70,6 +70,11 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Quote of the Day**: 10 AM Pacific - Motivational/cannabis quotes (50 in rotation)
 - **Daily Recipe**: 4 PM Pacific - Cannabis recipes from chef-420.com
 - **Community Bud**: Every 4-6 hours - Random member gets an AI-generated bud avatar
+- **Winner Announcements**: 11:55 PM Pacific - Announces top scorers before resets with AI-generated images and Karen's sassy congratulations
+  - Daily: Every night at 11:55 PM Pacific
+  - Weekly: Sunday nights at 11:55 PM Pacific (before Monday reset)
+  - Monthly: Last day of month at 11:55 PM Pacific (before 1st reset)
+  - Covers both Trivia and Puzzle games separately
 
 ### Space Bud Invaders Game (READY TO PUBLISH)
 **Status**: Complete, needs Republish to go live

@@ -3721,6 +3721,275 @@ function startBirthdayScheduler() {
   console.log("Birthday scheduler started - will check daily at 9 AM Pacific");
 }
 
+// === WINNER ANNOUNCEMENTS ===
+let lastDailyWinnerDate = "";
+let lastWeeklyWinnerWeek = "";
+let lastMonthlyWinnerMonth = "";
+
+async function generateWinnerImage(winnerName: string, period: 'Daily' | 'Weekly' | 'Monthly', game: 'Trivia' | 'Puzzle'): Promise<Buffer | null> {
+  try {
+    const prompt = `A cute cartoon cannabis bud character (green with friendly eyes) celebrating with a golden trophy and confetti. The bud character is wearing a winner's crown. Bold stylized text banner reads "${period.toUpperCase()} ${game.toUpperCase()} WINNER" at the top. The character name "${winnerName}" appears on a ribbon below. Celebratory atmosphere with sparkles and stars. Cartoon style, vibrant colors, fun and energetic. Small watermark text "dudleyBud.com" in the bottom right corner, subtle and unobtrusive.`;
+    const buffer = await generateImageBuffer(prompt, "1024x1024");
+    return buffer;
+  } catch (error) {
+    console.error(`Error generating winner image for ${winnerName}:`, error);
+    return null;
+  }
+}
+
+async function getKarenWinnerMessage(winnerName: string, period: string, game: string, points: number): Promise<string> {
+  try {
+    const prompt = `Generate a short, sassy, encouraging message from "Karen Bot" congratulating ${winnerName} for winning the ${period} ${game} competition with ${points} points. Karen is a fun, witty cannabis community bot who speaks with confidence and humor. Keep it to 2-3 sentences max. Be genuinely encouraging but with Karen's signature sass. Don't use emojis.`;
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 150,
+      temperature: 0.9
+    });
+    
+    return response.choices[0]?.message?.content || `Congrats ${winnerName}! You absolutely crushed it!`;
+  } catch (error) {
+    console.error("Error getting Karen winner message:", error);
+    return `Well well well, look who dominated! ${winnerName} just showed everyone how it's done with ${points} points! That's what I call a champion move!`;
+  }
+}
+
+interface TopScorer {
+  username: string | null;
+  firstName: string | null;
+  points: number;
+  chatId: string;
+}
+
+async function getTopScorers(period: 'daily' | 'weekly' | 'monthly', game: 'trivia' | 'puzzle'): Promise<Map<string, TopScorer>> {
+  const result = new Map<string, TopScorer>();
+  
+  const now = new Date();
+  // Use same UTC-based format as the trivia/puzzle scoring code to match stored data
+  const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+  const weekNum = getWeekNumber(now);
+  const weekStr = `${now.getFullYear()}-W${weekNum}`;
+  const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  
+  let resetDateField: string;
+  let pointsField: string;
+  let periodStr: string;
+  
+  if (game === 'trivia') {
+    if (period === 'daily') {
+      resetDateField = 'dailyResetDate';
+      pointsField = 'dailyPoints';
+      periodStr = todayStr;
+    } else if (period === 'weekly') {
+      resetDateField = 'weeklyResetDate';
+      pointsField = 'weeklyPoints';
+      periodStr = weekStr;
+    } else {
+      resetDateField = 'monthlyResetDate';
+      pointsField = 'monthlyPoints';
+      periodStr = monthStr;
+    }
+  } else {
+    if (period === 'daily') {
+      resetDateField = 'puzzleDailyResetDate';
+      pointsField = 'puzzleDailyPoints';
+      periodStr = todayStr;
+    } else if (period === 'weekly') {
+      resetDateField = 'puzzleWeeklyResetDate';
+      pointsField = 'puzzleWeeklyPoints';
+      periodStr = weekStr;
+    } else {
+      resetDateField = 'puzzleMonthlyResetDate';
+      pointsField = 'puzzleMonthlyPoints';
+      periodStr = monthStr;
+    }
+  }
+  
+  try {
+    const allScores = await db.select().from(memberScores);
+    
+    // Group by chatId and find top scorer for each chat
+    const chatGroups = new Map<string, typeof allScores>();
+    for (const score of allScores) {
+      if (!chatGroups.has(score.chatId)) {
+        chatGroups.set(score.chatId, []);
+      }
+      chatGroups.get(score.chatId)!.push(score);
+    }
+    
+    for (const [chatId, scores] of Array.from(chatGroups.entries())) {
+      const validScores = scores.filter((s: typeof allScores[0]) => {
+        const resetDate = game === 'trivia' 
+          ? (period === 'daily' ? s.dailyResetDate : period === 'weekly' ? s.weeklyResetDate : s.monthlyResetDate)
+          : (period === 'daily' ? s.puzzleDailyResetDate : period === 'weekly' ? s.puzzleWeeklyResetDate : s.puzzleMonthlyResetDate);
+        const pts = game === 'trivia'
+          ? (period === 'daily' ? s.dailyPoints : period === 'weekly' ? s.weeklyPoints : s.monthlyPoints)
+          : (period === 'daily' ? s.puzzleDailyPoints : period === 'weekly' ? s.puzzleWeeklyPoints : s.puzzleMonthlyPoints);
+        return resetDate === periodStr && (pts || 0) > 0;
+      });
+      
+      if (validScores.length > 0) {
+        const sorted = validScores.sort((a: typeof allScores[0], b: typeof allScores[0]) => {
+          const ptsA = game === 'trivia'
+            ? (period === 'daily' ? a.dailyPoints : period === 'weekly' ? a.weeklyPoints : a.monthlyPoints)
+            : (period === 'daily' ? a.puzzleDailyPoints : period === 'weekly' ? a.puzzleWeeklyPoints : a.puzzleMonthlyPoints);
+          const ptsB = game === 'trivia'
+            ? (period === 'daily' ? b.dailyPoints : period === 'weekly' ? b.weeklyPoints : b.monthlyPoints)
+            : (period === 'daily' ? b.puzzleDailyPoints : period === 'weekly' ? b.puzzleWeeklyPoints : b.puzzleMonthlyPoints);
+          return (ptsB || 0) - (ptsA || 0);
+        });
+        
+        const winner = sorted[0];
+        const winnerPoints = game === 'trivia'
+          ? (period === 'daily' ? winner.dailyPoints : period === 'weekly' ? winner.weeklyPoints : winner.monthlyPoints)
+          : (period === 'daily' ? winner.puzzleDailyPoints : period === 'weekly' ? winner.puzzleWeeklyPoints : winner.puzzleMonthlyPoints);
+        
+        result.set(chatId, {
+          username: winner.username,
+          firstName: winner.firstName,
+          points: winnerPoints || 0,
+          chatId
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`Error getting top scorers for ${period} ${game}:`, error);
+  }
+  
+  return result;
+}
+
+async function announceWinners(period: 'daily' | 'weekly' | 'monthly') {
+  if (!botInstance) return;
+  
+  const periodLabel = period.charAt(0).toUpperCase() + period.slice(1);
+  console.log(`Announcing ${periodLabel} winners...`);
+  
+  // Announce for both games
+  for (const game of ['trivia', 'puzzle'] as const) {
+    const gameLabel = game.charAt(0).toUpperCase() + game.slice(1);
+    const topScorers = await getTopScorers(period, game);
+    
+    for (const [chatId, winner] of Array.from(topScorers.entries())) {
+      const chatIdNum = parseInt(chatId);
+      if (isNaN(chatIdNum)) continue;
+      
+      const winnerName = winner.username ? `@${winner.username}` : winner.firstName || "Champion";
+      const displayName = winner.firstName || winner.username || "Champion";
+      
+      try {
+        // Generate winner image
+        const imageBuffer = await generateWinnerImage(displayName, periodLabel as any, gameLabel as any);
+        
+        // Get Karen's encouragement message
+        const karenMessage = await getKarenWinnerMessage(winnerName, periodLabel, gameLabel, winner.points);
+        
+        const announcement = `${periodLabel.toUpperCase()} ${gameLabel.toUpperCase()} WINNER\n\n` +
+          `Congratulations ${winnerName}!\n` +
+          `${winner.points} points!\n\n` +
+          `${karenMessage}`;
+        
+        if (imageBuffer) {
+          await botInstance.api.sendPhoto(chatIdNum, new InputFile(imageBuffer, `${displayName}_${period}_${game}_winner.png`), { caption: announcement });
+        } else {
+          await botInstance.api.sendMessage(chatIdNum, announcement);
+        }
+        
+        console.log(`Announced ${period} ${game} winner ${displayName} in chat ${chatId}`);
+      } catch (err: any) {
+        console.error(`Failed to announce winner in chat ${chatId}:`, err);
+        if (err.description?.includes("chat not found") || err.description?.includes("bot was blocked")) {
+          activeChats.delete(chatIdNum);
+        }
+      }
+    }
+    
+    // If no winners for this game, post encouragement
+    if (topScorers.size === 0) {
+      console.log(`No ${period} ${game} winners to announce`);
+    }
+  }
+}
+
+function startWinnerAnnouncementScheduler() {
+  const checkAndAnnounce = () => {
+    const pacificFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false
+    });
+    
+    const dateFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+    
+    const now = new Date();
+    const timeStr = pacificFormatter.format(now);
+    const dateStr = dateFormatter.format(now);
+    const [hour, minute] = timeStr.split(":").map(Number);
+    
+    // Get week and month for tracking (UTC-based to match stored data)
+    const weekNum = getWeekNumber(now);
+    const weekStr = `${now.getFullYear()}-W${weekNum}`;
+    const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    // Get day of week in Pacific time for triggering (Sunday before Monday reset)
+    const pacificDayFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      weekday: "short"
+    });
+    const dayOfWeek = pacificDayFormatter.format(now);
+    const isSunday = dayOfWeek === "Sun";
+    
+    // Check if it's last day of month (in Pacific time for triggering)
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const tomorrowMonthFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit"
+    });
+    const tomorrowParts = tomorrowMonthFormatter.format(tomorrow).split('-');
+    const tomorrowMonthPacific = `${tomorrowParts[0]}-${tomorrowParts[1]}`;
+    const todayMonthFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit"
+    });
+    const todayParts = todayMonthFormatter.format(now).split('-');
+    const todayMonthPacific = `${todayParts[0]}-${todayParts[1]}`;
+    const isLastDayOfMonth = todayMonthPacific !== tomorrowMonthPacific;
+    
+    // Announce at 11:55 PM Pacific (23:55)
+    if (hour === 23 && minute === 55) {
+      // Daily announcement (every day)
+      if (lastDailyWinnerDate !== dateStr) {
+        lastDailyWinnerDate = dateStr;
+        announceWinners('daily');
+      }
+      
+      // Weekly announcement (Sunday before Monday reset)
+      if (isSunday && lastWeeklyWinnerWeek !== weekStr) {
+        lastWeeklyWinnerWeek = weekStr;
+        announceWinners('weekly');
+      }
+      
+      // Monthly announcement (last day of month before 1st reset)
+      if (isLastDayOfMonth && lastMonthlyWinnerMonth !== monthStr) {
+        lastMonthlyWinnerMonth = monthStr;
+        announceWinners('monthly');
+      }
+    }
+  };
+  
+  setInterval(checkAndAnnounce, 60 * 1000);
+  console.log("Winner announcement scheduler started - announces at 11:55 PM Pacific before resets");
+}
+
 // === START BOT ===
 export async function startBot() {
   if (!BOT_TOKEN) {
@@ -3762,6 +4031,9 @@ export async function startBot() {
   
   // Start the community bud avatar scheduler
   startCommunityBudScheduler();
+  
+  // Start the winner announcement scheduler
+  startWinnerAnnouncementScheduler();
 
   await bot.start({
     onStart: () => {
