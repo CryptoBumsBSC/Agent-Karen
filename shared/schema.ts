@@ -81,6 +81,16 @@ export const memberScores = pgTable("member_scores", {
   weeklyResetDate: text("weekly_reset_date"),
   monthlyPoints: integer("monthly_points").default(0),
   monthlyResetDate: text("monthly_reset_date"),
+  // Puzzle game scores (separate from trivia)
+  puzzlePoints: integer("puzzle_points").default(0),
+  puzzleCorrect: integer("puzzle_correct").default(0),
+  puzzleAttempts: integer("puzzle_attempts").default(0),
+  puzzleDailyPoints: integer("puzzle_daily_points").default(0),
+  puzzleDailyResetDate: text("puzzle_daily_reset_date"),
+  puzzleWeeklyPoints: integer("puzzle_weekly_points").default(0),
+  puzzleWeeklyResetDate: text("puzzle_weekly_reset_date"),
+  puzzleMonthlyPoints: integer("puzzle_monthly_points").default(0),
+  puzzleMonthlyResetDate: text("puzzle_monthly_reset_date"),
 });
 
 // === BASE SCHEMAS ===
