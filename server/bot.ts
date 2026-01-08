@@ -2,7 +2,7 @@ import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
 import { communityProfiles, memberScores } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 
 // === BOT TOKEN ===
@@ -2076,6 +2076,219 @@ Stay safe, fam!`;
     await ctx.reply(text);
   });
 
+  // /puzzle - Start a word puzzle game
+  bot.command("puzzle", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") {
+      await ctx.reply("Puzzle games work best in group chats!");
+      return;
+    }
+    
+    // Check for active puzzle
+    const existing = activePuzzles.get(ctx.chat.id);
+    if (existing && !existing.solved) {
+      const timeLeft = Math.max(0, Math.ceil((existing.startTime + existing.timeLimit * 1000 - Date.now()) / 1000));
+      await ctx.reply(`Active puzzle: ${existing.scrambled}\nTime left: ${timeLeft}s | Guess with /guess YOUR_ANSWER`);
+      return;
+    }
+    
+    // Parse difficulty
+    const argText = ctx.message?.text?.replace("/puzzle", "").trim().toLowerCase();
+    let difficulty: 'easy' | 'hard' = 'easy';
+    if (argText === 'hard') {
+      difficulty = 'hard';
+    } else if (argText === 'easy') {
+      difficulty = 'easy';
+    } else if (argText) {
+      difficulty = Math.random() < 0.5 ? 'easy' : 'hard';
+    } else {
+      difficulty = Math.random() < 0.5 ? 'easy' : 'hard';
+    }
+    
+    const wordList = difficulty === 'easy' ? EASY_WORDS : HARD_WORDS;
+    const word = wordList[Math.floor(Math.random() * wordList.length)];
+    const scrambled = scrambleWord(word);
+    const timeLimit = difficulty === 'easy' ? 60 : 30;
+    const points = difficulty === 'easy' ? 5 : 15;
+    
+    // Ensure user exists in database
+    await getOrCreatePuzzleScore(
+      ctx.from.id.toString(),
+      ctx.chat.id.toString(),
+      ctx.from.username || "",
+      ctx.from.first_name || "Friend"
+    );
+    
+    const chatId = ctx.chat.id;
+    const puzzle: ActivePuzzle = {
+      word,
+      scrambled,
+      difficulty,
+      startTime: Date.now(),
+      timeLimit,
+      points,
+      answeredUsers: new Set(),
+      solved: false
+    };
+    
+    activePuzzles.set(chatId, puzzle);
+    
+    await ctx.reply(
+      `WORD PUZZLE [${difficulty.toUpperCase()}]\n\n` +
+      `Unscramble: ${scrambled}\n\n` +
+      `Worth ${points} points | ${timeLimit} seconds\n` +
+      `Answer with: /guess YOUR_ANSWER`
+    );
+    
+    // Timeout
+    puzzle.timeoutId = setTimeout(async () => {
+      const current = activePuzzles.get(chatId);
+      if (current && !current.solved && current.startTime === puzzle.startTime) {
+        current.solved = true;
+        try {
+          await ctx.api.sendMessage(chatId, `Time's up! The answer was: ${word}\n\nTry again with /puzzle or /puzzle hard`);
+        } catch (e) {}
+        activePuzzles.delete(chatId);
+      }
+    }, timeLimit * 1000);
+  });
+
+  // /guess - Guess the puzzle answer
+  bot.command("guess", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const puzzle = activePuzzles.get(ctx.chat.id);
+    if (!puzzle || puzzle.solved) {
+      await ctx.reply("No active puzzle! Start one with /puzzle or /puzzle hard");
+      return;
+    }
+    
+    // Check if time expired
+    if (Date.now() > puzzle.startTime + puzzle.timeLimit * 1000) {
+      puzzle.solved = true;
+      if (puzzle.timeoutId) clearTimeout(puzzle.timeoutId);
+      await ctx.reply(`Time's up! The answer was: ${puzzle.word}`);
+      activePuzzles.delete(ctx.chat.id);
+      return;
+    }
+    
+    const guessText = ctx.message?.text?.replace("/guess", "").trim().toUpperCase();
+    if (!guessText) {
+      await ctx.reply("Usage: /guess YOUR_ANSWER");
+      return;
+    }
+    
+    const telegramUserId = ctx.from.id.toString();
+    const chatIdStr = ctx.chat.id.toString();
+    const username = ctx.from.username || "";
+    const firstName = ctx.from.first_name || "Friend";
+    
+    // Ensure user exists
+    await getOrCreatePuzzleScore(telegramUserId, chatIdStr, username, firstName);
+    
+    // Check if already guessed wrong this round
+    if (puzzle.answeredUsers.has(ctx.from.id)) {
+      await ctx.reply("You already guessed this round! Wait for the next puzzle.");
+      return;
+    }
+    
+    if (guessText === puzzle.word) {
+      // Correct!
+      puzzle.solved = true;
+      puzzle.solverName = firstName;
+      if (puzzle.timeoutId) clearTimeout(puzzle.timeoutId);
+      
+      const timeSpent = Math.round((Date.now() - puzzle.startTime) / 1000);
+      
+      await updatePuzzleScore(telegramUserId, chatIdStr, puzzle.points);
+      
+      await ctx.reply(
+        `CORRECT! ${firstName} solved it!\n\n` +
+        `Answer: ${puzzle.word}\n` +
+        `Time: ${timeSpent}s | Points: +${puzzle.points}\n\n` +
+        `Play again with /puzzle or /puzzle hard`
+      );
+      
+      activePuzzles.delete(ctx.chat.id);
+    } else {
+      // Wrong
+      puzzle.answeredUsers.add(ctx.from.id);
+      await incrementPuzzleAttempt(telegramUserId, chatIdStr);
+      
+      const timeLeft = Math.max(0, Math.ceil((puzzle.startTime + puzzle.timeLimit * 1000 - Date.now()) / 1000));
+      await ctx.reply(`Wrong! Try again next puzzle. ${timeLeft}s remaining for others.`);
+    }
+  });
+
+  // /puzzleboard - Show puzzle leaderboard
+  bot.command("puzzleboard", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const chatId = ctx.chat.id.toString();
+    
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const weekNum = getWeekNumberForPuzzle(now);
+    const weekStr = `${now.getFullYear()}-W${weekNum}`;
+    const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    const allScores = await db.select().from(memberScores)
+      .where(eq(memberScores.chatId, chatId));
+    
+    if (allScores.length === 0) {
+      await ctx.reply("No puzzle scores yet! Start with /puzzle or /puzzle hard");
+      return;
+    }
+    
+    // Daily puzzle scores
+    const todayScores = allScores
+      .filter(s => s.puzzleDailyResetDate === todayStr && (s.puzzleDailyPoints || 0) > 0)
+      .sort((a, b) => (b.puzzleDailyPoints || 0) - (a.puzzleDailyPoints || 0))
+      .slice(0, 10);
+    
+    // Weekly top
+    const weeklyScores = allScores
+      .filter(s => s.puzzleWeeklyResetDate === weekStr && (s.puzzleWeeklyPoints || 0) > 0)
+      .sort((a, b) => (b.puzzleWeeklyPoints || 0) - (a.puzzleWeeklyPoints || 0));
+    const weeklyTop = weeklyScores.length > 0 ? weeklyScores[0] : null;
+    
+    // Monthly top
+    const monthlyScores = allScores
+      .filter(s => s.puzzleMonthlyResetDate === monthStr && (s.puzzleMonthlyPoints || 0) > 0)
+      .sort((a, b) => (b.puzzleMonthlyPoints || 0) - (a.puzzleMonthlyPoints || 0));
+    const monthlyTop = monthlyScores.length > 0 ? monthlyScores[0] : null;
+    
+    let text = "DAILY PUZZLE LEADERBOARD\n\n";
+    
+    if (todayScores.length > 0) {
+      todayScores.forEach((s, i) => {
+        const medal = i === 0 ? "1st" : i === 1 ? "2nd" : i === 2 ? "3rd" : `${i + 1}th`;
+        const name = s.username ? `@${s.username}` : s.firstName || "Anonymous";
+        text += `${medal}: ${name} - ${s.puzzleDailyPoints} pts\n`;
+      });
+    } else {
+      text += "No puzzle scores today! Start with /puzzle\n";
+    }
+    
+    text += "\n--- TOP PUZZLE SOLVERS ---\n";
+    
+    if (weeklyTop) {
+      const weekName = weeklyTop.username ? `@${weeklyTop.username}` : weeklyTop.firstName || "Anonymous";
+      text += `\nWeek Champion: ${weekName} (${weeklyTop.puzzleWeeklyPoints} pts)`;
+    } else {
+      text += "\nWeek Champion: None yet this week";
+    }
+    
+    if (monthlyTop) {
+      const monthName = monthlyTop.username ? `@${monthlyTop.username}` : monthlyTop.firstName || "Anonymous";
+      text += `\nMonth Champion: ${monthName} (${monthlyTop.puzzleMonthlyPoints} pts)`;
+    } else {
+      text += "\nMonth Champion: None yet this month";
+    }
+    
+    await ctx.reply(text);
+  });
+
   // === ADMIN MODERATION COMMANDS ===
 
   // /ban - Ban a user (admin only)
@@ -2854,6 +3067,152 @@ function startQuoteScheduler() {
   
   setInterval(checkAndPost, 60 * 1000);
   console.log("Quote scheduler started - will post daily at 10 AM Pacific");
+}
+
+// === WORD PUZZLE GAME ===
+const EASY_WORDS = [
+  "KUSH", "BONG", "DANK", "HIGH", "HEMP", "LEAF", "BUDS", "DOPE", "HAZE", "HASH",
+  "MINT", "LIME", "GLOW", "CHILL", "BLAZE", "GREEN", "SMOKE", "VIBES", "PEACE", "DREAM",
+  "PLANT", "BLOOM", "GROW", "LIGHT", "FRESH", "COOL", "CALM", "ZONE", "LIFT", "WAVE",
+  "COIN", "HOLD", "MOON", "PUMP", "GAIN", "BULL", "BEAR", "SWAP", "BURN", "MINT",
+  "FARM", "POOL", "STAKE", "YIELD", "AIRDROP", "TOKEN", "CHAIN", "BLOCK", "DEFI", "HODL"
+];
+
+const HARD_WORDS = [
+  "SATIVA", "INDICA", "HYBRID", "CHRONIC", "GELATO", "ZKITTLEZ", "RUNTZ", "COOKIES",
+  "TERPENE", "EXTRACT", "DIAMOND", "SHATTER", "BUDDER", "ROSIN", "FLOWER", "NUGGET",
+  "EDIBLE", "TINCTURE", "TOPICAL", "PREROLL", "GRINDER", "VAPORIZE", "CANNABID",
+  "ETHEREUM", "BITCOIN", "SOLANA", "POLYGON", "AVALANCHE", "ARBITRUM", "OPTIMISM",
+  "STAKING", "FARMING", "LIQUIDITY", "GOVERNANCE", "METAVERSE", "PROTOCOL", "VALIDATOR",
+  "WALLET", "BRIDGE", "ORACLE", "LEDGER", "MAINNET", "TESTNET", "SNAPSHOT", "AIRDROP",
+  "DUDLEY", "BLAZE", "SATIVA", "INDICA", "PURPLE", "NORTHERN", "DIAMOND"
+];
+
+interface ActivePuzzle {
+  word: string;
+  scrambled: string;
+  difficulty: 'easy' | 'hard';
+  startTime: number;
+  timeLimit: number;
+  points: number;
+  answeredUsers: Set<number>;
+  solved: boolean;
+  solverName?: string;
+  timeoutId?: NodeJS.Timeout;
+}
+
+const activePuzzles: Map<number, ActivePuzzle> = new Map();
+
+function scrambleWord(word: string): string {
+  const chars = word.split('');
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  const scrambled = chars.join('');
+  if (scrambled === word && word.length > 2) {
+    return scrambleWord(word);
+  }
+  return scrambled;
+}
+
+function getWeekNumberForPuzzle(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+async function getOrCreatePuzzleScore(telegramUserId: string, chatId: string, username: string, firstName: string) {
+  const existing = await db.select().from(memberScores)
+    .where(and(
+      eq(memberScores.telegramUserId, telegramUserId),
+      eq(memberScores.chatId, chatId)
+    ))
+    .limit(1);
+  
+  if (existing.length > 0) {
+    return existing[0];
+  }
+  
+  const inserted = await db.insert(memberScores)
+    .values({
+      telegramUserId,
+      chatId,
+      username,
+      firstName,
+      messageCount: 0,
+      triviaPoints: 0,
+      triviaCorrect: 0,
+      triviaAttempts: 0,
+      puzzlePoints: 0,
+      puzzleCorrect: 0,
+      puzzleAttempts: 0
+    })
+    .returning();
+  
+  return inserted[0];
+}
+
+async function updatePuzzleScore(telegramUserId: string, chatId: string, earnedPoints: number) {
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const weekNum = getWeekNumberForPuzzle(now);
+  const weekStr = `${now.getFullYear()}-W${weekNum}`;
+  const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  
+  const score = await db.select().from(memberScores)
+    .where(and(
+      eq(memberScores.telegramUserId, telegramUserId),
+      eq(memberScores.chatId, chatId)
+    ))
+    .limit(1);
+  
+  if (score.length === 0) return;
+  
+  const s = score[0];
+  const newPuzzlePoints = (s.puzzlePoints || 0) + earnedPoints;
+  const newPuzzleCorrect = (s.puzzleCorrect || 0) + 1;
+  const newPuzzleAttempts = (s.puzzleAttempts || 0) + 1;
+  
+  const newPuzzleDailyPoints = s.puzzleDailyResetDate === todayStr 
+    ? (s.puzzleDailyPoints || 0) + earnedPoints 
+    : earnedPoints;
+  const newPuzzleWeeklyPoints = s.puzzleWeeklyResetDate === weekStr 
+    ? (s.puzzleWeeklyPoints || 0) + earnedPoints 
+    : earnedPoints;
+  const newPuzzleMonthlyPoints = s.puzzleMonthlyResetDate === monthStr 
+    ? (s.puzzleMonthlyPoints || 0) + earnedPoints 
+    : earnedPoints;
+  
+  await db.update(memberScores)
+    .set({
+      puzzlePoints: newPuzzlePoints,
+      puzzleCorrect: newPuzzleCorrect,
+      puzzleAttempts: newPuzzleAttempts,
+      puzzleDailyPoints: newPuzzleDailyPoints,
+      puzzleDailyResetDate: todayStr,
+      puzzleWeeklyPoints: newPuzzleWeeklyPoints,
+      puzzleWeeklyResetDate: weekStr,
+      puzzleMonthlyPoints: newPuzzleMonthlyPoints,
+      puzzleMonthlyResetDate: monthStr
+    })
+    .where(and(
+      eq(memberScores.telegramUserId, telegramUserId),
+      eq(memberScores.chatId, chatId)
+    ));
+}
+
+async function incrementPuzzleAttempt(telegramUserId: string, chatId: string) {
+  await db.update(memberScores)
+    .set({
+      puzzleAttempts: sql`COALESCE(puzzle_attempts, 0) + 1`
+    })
+    .where(and(
+      eq(memberScores.telegramUserId, telegramUserId),
+      eq(memberScores.chatId, chatId)
+    ));
 }
 
 // === BUD AVATAR SYSTEM ===
