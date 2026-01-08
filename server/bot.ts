@@ -3103,11 +3103,8 @@ function scheduleCommunityBud() {
 function startCommunityBudScheduler() {
   console.log("Community bud scheduler started");
   
-  // Post first one after 2 minutes (give time for bot to collect some user data)
-  setTimeout(() => {
-    console.log("Posting initial community bud avatar...");
-    postCommunityBudAvatar();
-  }, 2 * 60 * 1000);
+  // Schedule first one in 4-6 hours (no immediate post on startup)
+  scheduleCommunityBud();
 }
 
 // === BIRTHDAY CELEBRATION ===
