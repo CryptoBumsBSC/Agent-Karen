@@ -2748,9 +2748,28 @@ const BUD_STRAINS = [
   { name: "Northern Lights", color: "teal", nicknames: ["Aurora Ace", "Northern Knight", "Teal Titan", "Cosmic Captain", "Glacier God"] }
 ];
 
+const BUD_BACKGROUNDS = [
+  "cosmic galaxy with stars and nebula",
+  "tropical sunset with palm trees",
+  "neon city lights at night",
+  "lush green forest with sunbeams",
+  "psychedelic swirling colors",
+  "underwater ocean with bubbles",
+  "mountain peaks with aurora borealis",
+  "retro 80s synthwave grid",
+  "zen garden with cherry blossoms",
+  "rainbow gradient explosion",
+  "cozy fireplace living room",
+  "desert canyon at golden hour",
+  "snowy winter wonderland",
+  "graffiti street art wall",
+  "magical mushroom forest"
+];
+
 async function generateBudAvatar(username: string): Promise<{ imageUrl: string | null; strain: typeof BUD_STRAINS[0]; nickname: string; funnyComment: string }> {
   const strain = BUD_STRAINS[Math.floor(Math.random() * BUD_STRAINS.length)];
   const nickname = strain.nicknames[Math.floor(Math.random() * strain.nicknames.length)];
+  const background = BUD_BACKGROUNDS[Math.floor(Math.random() * BUD_BACKGROUNDS.length)];
   
   // Generate a funny comment using AI
   let funnyComment = "";
@@ -2769,12 +2788,13 @@ async function generateBudAvatar(username: string): Promise<{ imageUrl: string |
   }
 
   try {
-    console.log(`Generating DALL-E 3 image for ${username} (${strain.name})...`);
+    console.log(`Generating DALL-E 3 image for ${username} (${strain.name}, bg: ${background})...`);
     const response = await openai.images.generate({
       model: "dall-e-3",
-      prompt: `A cute cartoon cannabis bud character trading card. The bud is ${strain.color} colored (${strain.name} strain). Kawaii style with big friendly eyes and a smile. The card has "${username}" written at the bottom and "${nickname}" as a title at the top. Trading card border with sparkles. Colorful, fun, collectible card game style. The bud character looks friendly and chill.`,
+      prompt: `Square 1:1 trading card image. A cute cartoon cannabis bud character. The bud is ${strain.color} colored (${strain.name} strain). Kawaii style with big friendly eyes and a smile. Background: ${background}. The card has "${username}" written at the bottom and "${nickname}" as a title at the top. Trading card border with sparkles. Colorful, fun, collectible card game style. The bud character looks friendly and chill.`,
       n: 1,
-      size: "1024x1024"
+      size: "1024x1024",
+      quality: "standard"
     });
     const imageUrl = response.data?.[0]?.url || null;
     if (imageUrl) {
