@@ -2813,13 +2813,89 @@ const BUD_BACKGROUNDS = [
   "desert canyon at golden hour",
   "snowy winter wonderland",
   "graffiti street art wall",
-  "magical mushroom forest"
+  "magical mushroom forest",
+  "cotton candy clouds in pink sky",
+  "ancient temple ruins at dusk",
+  "cyberpunk alleyway with holograms",
+  "beach waves at sunrise",
+  "haunted mansion with fog",
+  "disco dance floor with lights",
+  "medieval castle on hilltop",
+  "bamboo forest with mist",
+  "volcano with lava glow",
+  "ice cave with crystals"
+];
+
+const BUD_POSES = [
+  "standing proudly with arms crossed",
+  "giving a thumbs up",
+  "waving hello",
+  "doing a peace sign",
+  "flexing muscles",
+  "meditating peacefully",
+  "dancing happily",
+  "striking a superhero pose",
+  "sitting relaxed",
+  "floating on a cloud",
+  "riding a skateboard",
+  "holding a tiny flag",
+  "playing air guitar",
+  "doing yoga tree pose",
+  "blowing a kiss"
+];
+
+const BUD_ACCESSORIES = [
+  "wearing cool sunglasses",
+  "wearing a tiny crown",
+  "wearing a wizard hat",
+  "wearing headphones",
+  "wearing a bandana",
+  "wearing a bowtie",
+  "wearing a baseball cap backwards",
+  "wearing a gold chain",
+  "holding a magic wand",
+  "with a halo above",
+  "with butterfly wings",
+  "with a cape flowing",
+  "with sparkles around",
+  "with fire aura",
+  "with rainbow trail"
+];
+
+const BUD_EXPRESSIONS = [
+  "big happy smile",
+  "cool smirk",
+  "peaceful zen face",
+  "excited surprised look",
+  "mischievous grin",
+  "sleepy relaxed eyes",
+  "winking playfully",
+  "laughing joyfully",
+  "confident determined look",
+  "dreamy starry eyes"
+];
+
+const CARD_STYLES = [
+  "premium golden border with diamond accents",
+  "holographic rainbow border",
+  "silver chrome metallic border",
+  "neon glowing border",
+  "vintage worn gold frame",
+  "cosmic starfield border",
+  "crystal ice border",
+  "flame engulfed border",
+  "royal purple velvet border",
+  "emerald green jeweled border"
 ];
 
 async function generateBudAvatar(username: string): Promise<{ imageBuffer: Buffer | null; strain: typeof BUD_STRAINS[0]; nickname: string; funnyComment: string }> {
   const strain = BUD_STRAINS[Math.floor(Math.random() * BUD_STRAINS.length)];
   const nickname = strain.nicknames[Math.floor(Math.random() * strain.nicknames.length)];
   const background = BUD_BACKGROUNDS[Math.floor(Math.random() * BUD_BACKGROUNDS.length)];
+  const pose = BUD_POSES[Math.floor(Math.random() * BUD_POSES.length)];
+  const accessory = BUD_ACCESSORIES[Math.floor(Math.random() * BUD_ACCESSORIES.length)];
+  const expression = BUD_EXPRESSIONS[Math.floor(Math.random() * BUD_EXPRESSIONS.length)];
+  const cardStyle = CARD_STYLES[Math.floor(Math.random() * CARD_STYLES.length)];
   
   // Generate a funny comment using AI with strain-specific knowledge
   let funnyComment = "";
@@ -2838,19 +2914,24 @@ async function generateBudAvatar(username: string): Promise<{ imageBuffer: Buffe
   }
 
   try {
-    console.log(`Generating image for ${username} (${strain.name}, bg: ${background})...`);
+    console.log(`Generating image for ${username} (${strain.name}, pose: ${pose}, bg: ${background})...`);
     const prompt = `Square 1:1 collectible trading card illustration.
 A cute cartoon cannabis bud character mascot as the main subject.
 The bud is clearly recognizable as a cannabis flower, with dense nug structure, soft rounded shape, visible sugar-leaf details, and subtle trichome sparkle.
 The bud is primarily ${strain.color}, with complementary green leaf accents.
-Kawaii chibi style — oversized friendly eyes, warm smile, peaceful and adorable expression.
 
-Art style: high-quality cartoon illustration, clean outlines, vibrant colors, soft shading, playful proportions.
+Character details:
+– ${pose}
+– ${accessory}
+– ${expression}
+– Kawaii chibi style with oversized friendly eyes and playful proportions
+
+Art style: high-quality cartoon illustration, clean outlines, vibrant colors, soft shading.
 
 Background: ${background}, colorful and whimsical, slightly blurred to keep focus on the character.
 
 Card design elements:
-– Premium golden trading card border
+– ${cardStyle}
 – Sparkles and subtle holographic foil effects
 – Collectible card game aesthetic
 
