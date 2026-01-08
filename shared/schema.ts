@@ -67,6 +67,29 @@ export const communityProfiles = pgTable("community_profiles", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Referral codes - unique invite links per user per chat
+export const referralCodes = pgTable("referral_codes", {
+  id: serial("id").primaryKey(),
+  telegramUserId: text("telegram_user_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  inviteLink: text("invite_link").notNull(),
+  code: text("code").notNull(),
+  totalClicks: integer("total_clicks").default(0),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
+// Referrals - tracks who referred whom
+export const referrals = pgTable("referrals", {
+  id: serial("id").primaryKey(),
+  referrerTelegramUserId: text("referrer_telegram_user_id").notNull(),
+  referredTelegramUserId: text("referred_telegram_user_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  joinDate: timestamp("join_date").default(sql`CURRENT_TIMESTAMP`),
+  confirmedDate: timestamp("confirmed_date"),
+  status: text("status").default("pending"), // pending, confirmed, invalid
+});
+
 // Member scores for trivia and activity tracking
 export const memberScores = pgTable("member_scores", {
   id: serial("id").primaryKey(),
@@ -95,6 +118,11 @@ export const memberScores = pgTable("member_scores", {
   puzzleWeeklyResetDate: text("puzzle_weekly_reset_date"),
   puzzleMonthlyPoints: integer("puzzle_monthly_points").default(0),
   puzzleMonthlyResetDate: text("puzzle_monthly_reset_date"),
+  // Referral scores
+  referralPoints: integer("referral_points").default(0),
+  referralCount: integer("referral_count").default(0),
+  referralWeeklyPoints: integer("referral_weekly_points").default(0),
+  referralWeeklyResetDate: text("referral_weekly_reset_date"),
 });
 
 // === BASE SCHEMAS ===
@@ -105,6 +133,8 @@ export const insertMessageSchema = createInsertSchema(messages).omit({ id: true,
 export const insertUserMemorySchema = createInsertSchema(userMemory).omit({ id: true });
 export const insertCommunityProfileSchema = createInsertSchema(communityProfiles).omit({ id: true, createdAt: true });
 export const insertMemberScoreSchema = createInsertSchema(memberScores).omit({ id: true });
+export const insertReferralCodeSchema = createInsertSchema(referralCodes).omit({ id: true, createdAt: true });
+export const insertReferralSchema = createInsertSchema(referrals).omit({ id: true, joinDate: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -114,6 +144,8 @@ export type Message = typeof messages.$inferSelect;
 export type UserMemory = typeof userMemory.$inferSelect;
 export type CommunityProfile = typeof communityProfiles.$inferSelect;
 export type MemberScore = typeof memberScores.$inferSelect;
+export type ReferralCode = typeof referralCodes.$inferSelect;
+export type Referral = typeof referrals.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
