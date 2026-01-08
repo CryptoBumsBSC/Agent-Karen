@@ -2940,7 +2940,9 @@ Text placement:
 – "${username}" written cleanly at the bottom
 
 Overall vibe: fun, friendly, peaceful, adorable, and highly collectible.
-No realism, no photorealism — purely stylized cartoon mascot art.`;
+No realism, no photorealism — purely stylized cartoon mascot art.
+
+Small watermark text "dudleyBud.com" in the bottom right corner, subtle and unobtrusive.`;
     
     const imageBuffer = await generateImageBuffer(prompt, "1024x1024");
     console.log(`Image generated successfully for ${username} (${imageBuffer.length} bytes)`);
@@ -3112,7 +3114,7 @@ let lastBirthdayCheckDate = "";
 
 async function generateBirthdayCakeImage(username: string): Promise<Buffer | null> {
   try {
-    const prompt = `A delicious colorful birthday cake with lit candles, decorated with "Happy Birthday ${username}!" written in icing. Leaf-shaped decorations made of green frosting. Cheerful party atmosphere with confetti. Photorealistic, appetizing, celebratory.`;
+    const prompt = `A delicious colorful birthday cake with lit candles, decorated with "Happy Birthday ${username}!" written in icing. Leaf-shaped decorations made of green frosting. Cheerful party atmosphere with confetti. Photorealistic, appetizing, celebratory. Small watermark text "dudleyBud.com" in the bottom right corner, subtle and unobtrusive.`;
     const buffer = await generateImageBuffer(prompt, "1024x1024");
     return buffer;
   } catch (error) {
