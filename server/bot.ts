@@ -2327,6 +2327,13 @@ Stay safe, fam!`;
       return;
     }
     
+    // Check rolling 24-hour limit
+    const currentUsage = getBudifyUsageCount();
+    if (currentUsage >= MAX_DAILY_BUDIFY) {
+      await ctx.reply(`/budify limit reached (${MAX_DAILY_BUDIFY} per 24 hours). Try again later!`);
+      return;
+    }
+    
     // Get username from command or reply
     let targetUsername = ctx.message?.text?.replace("/budify", "").trim().replace("@", "");
     
@@ -2339,6 +2346,9 @@ Stay safe, fam!`;
       await ctx.reply("Usage: /budify @username\nOr reply to someone's message with /budify");
       return;
     }
+    
+    recordBudifyUsage(); // Record timestamp before generation
+    console.log(`Creating /budify avatar for ${targetUsername} (${getBudifyUsageCount()}/${MAX_DAILY_BUDIFY} in last 24h)`);
     
     await ctx.reply(`Creating bud avatar for ${targetUsername}... This takes a moment!`);
     
@@ -2782,11 +2792,29 @@ async function generateBudAvatar(username: string): Promise<{ imageUrl: string |
   }
 }
 
+// === BUDIFY DAILY LIMIT (Admin /budify command) ===
+const budifyTimestamps: number[] = []; // Rolling 24-hour window of /budify timestamps
+const MAX_DAILY_BUDIFY = 12; // Max 12 /budify images per 24 hours (team + owner combined)
+const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+function getBudifyUsageCount(): number {
+  const now = Date.now();
+  // Remove timestamps older than 24 hours
+  while (budifyTimestamps.length > 0 && budifyTimestamps[0] < now - TWENTY_FOUR_HOURS) {
+    budifyTimestamps.shift();
+  }
+  return budifyTimestamps.length;
+}
+
+function recordBudifyUsage(): void {
+  budifyTimestamps.push(Date.now());
+}
+
 // === COMMUNITY BUD AVATAR SCHEDULER ===
 const budifiedUsers = new Set<string>(); // Track users who've been budified (per session)
 let communityBudCount = 0; // Daily count
 let lastBudResetDate = "";
-const MAX_DAILY_BUDS = 4;
+const MAX_DAILY_BUDS = 4; // Separate limit from /budify
 let communityBudTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getRandomBudInterval(): number {
