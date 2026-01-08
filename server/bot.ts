@@ -2319,7 +2319,7 @@ Stay safe, fam!`;
     const wordList = difficulty === 'easy' ? EASY_WORDS : HARD_WORDS;
     const word = wordList[Math.floor(Math.random() * wordList.length)];
     const scrambled = scrambleWord(word);
-    const timeLimit = difficulty === 'easy' ? 60 : 30;
+    const timeLimit = difficulty === 'easy' ? 45 : 20;
     const points = difficulty === 'easy' ? 5 : 15;
     
     // Ensure user exists in database
