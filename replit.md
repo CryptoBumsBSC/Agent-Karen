@@ -72,11 +72,19 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Word Lists**: 50 easy words, 50+ hard words (cannabis strains, crypto terms)
 - **One Guess Per Round**: Users get one attempt per puzzle
 
+### Referral Program
+- **Commands**: `/myreferrals` gets your personal invite link and stats, `/refboard` shows leaderboard
+- **Tracking**: Bot creates unique invite links per user, tracks when new members join via those links
+- **Points**: 25 points per confirmed referral
+- **Leaderboards**: Weekly and All-time rankings (`/refboard` or `/refboard all`)
+- **Database**: Uses `referral_codes` and `referrals` tables, scores stored in `memberScores`
+- **Detection**: Uses Telegram's chat_member updates to detect invite link usage
+
 ### Daily Scheduled Posts
 - **Birthday Check**: 9 AM Pacific - Celebrates member birthdays with AI-generated cake images
 - **Quote of the Day**: 10 AM Pacific - Motivational/cannabis quotes (50 in rotation)
 - **Daily Recipe**: 4 PM Pacific - Cannabis recipes from chef-420.com
-- **Community Bud**: Every 4-6 hours - Random member gets an AI-generated bud avatar
+- **Community Bud**: Every 20-28 hours - Random active member gets an AI-generated bud avatar (1/day to control costs)
 - **Winner Announcements**: 11:55 PM Pacific - Announces top scorers before resets with AI-generated images and Karen's sassy congratulations
   - Daily: Every night at 11:55 PM Pacific
   - Weekly: Sunday nights at 11:55 PM Pacific (before Monday reset)
