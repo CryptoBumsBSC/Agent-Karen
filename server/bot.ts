@@ -265,12 +265,27 @@ async function updateUserRudeness(
 ): Promise<RudenessStatus> {
   const todayStr = new Date().toISOString().split('T')[0];
   
+  // Check if this is a special user with elevated starting rudeness
+  const normalizedUsername = (username || "").toLowerCase();
+  const specialUserFloor = SPECIAL_USERS[normalizedUsername] || 0;
+  
   try {
     const existing = await db.select().from(userMemory).where(eq(userMemory.telegramUserId, telegramUserId)).limit(1);
     
-    let newStrikes = existing.length > 0 ? (existing[0].rudeStrikes || 0) : 0;
+    let newStrikes = existing.length > 0 ? (existing[0].rudeStrikes || 0) : specialUserFloor;
     let lastRudeDate = existing.length > 0 ? existing[0].lastRudeDate : null;
     let wasNiceAfterRude = existing.length > 0 ? (existing[0].wasNiceAfterRude || false) : false;
+    
+    // For special users:
+    // - They start at the floor (e.g., 3 strikes)
+    // - They can only drop BELOW the floor AFTER they've had recorded rudeness (lastRudeDate set)
+    //   AND have been nice since (wasNiceAfterRude = true)
+    // - This means they have to actually be rude first, then be nice to earn their way down
+    const hasEarnedReduction = specialUserFloor > 0 && lastRudeDate !== null && wasNiceAfterRude;
+    
+    if (specialUserFloor > 0 && !hasEarnedReduction && newStrikes < specialUserFloor) {
+      newStrikes = specialUserFloor;
+    }
     
     if (isRude) {
       newStrikes = Math.min(newStrikes + 1, 10); // Cap at 10 strikes
@@ -280,6 +295,15 @@ async function updateUserRudeness(
       wasNiceAfterRude = true;
       // Slowly reduce strikes when being nice (1 strike per nice message, min 0)
       newStrikes = Math.max(newStrikes - 1, 0);
+    }
+    
+    // Recalculate hasEarnedReduction after potential updates
+    const hasEarnedReductionFinal = specialUserFloor > 0 && lastRudeDate !== null && wasNiceAfterRude;
+    
+    // For special users who haven't earned reduction, re-enforce the floor after all calculations
+    // This prevents them from dropping below the floor just by being nice without first being rude
+    if (specialUserFloor > 0 && !hasEarnedReductionFinal && newStrikes < specialUserFloor) {
+      newStrikes = specialUserFloor;
     }
     
     if (existing.length > 0) {
@@ -572,6 +596,62 @@ function detectCannabisQuery(text: string): { isRecipe: boolean; isMedical: bool
 
 // Medical cannabis disclaimer
 const MEDICAL_DISCLAIMER = `\n\n--- DISCLAIMER ---\nThis is NOT medical advice. DYOR (Do Your Own Research). Always consult a licensed healthcare provider before using cannabis for medical purposes. Laws vary by location. Stay informed, stay safe!`;
+
+// Recipe disclaimer with Karen sass
+const RECIPE_DISCLAIMER = `\n\n--- KAREN'S KITCHEN RULES ---\nDYOR (Do Your Own Research)! I'm just sharing what I've heard works. Start with LOW doses - you can always add more, you can't undo too much! Know your local laws. And for heaven's sake, label your edibles so nobody accidentally eats Grandma's "special" brownies!`;
+
+// Special users who start at elevated rudeness (they know what they did!)
+const SPECIAL_USERS: Record<string, number> = {
+  "daveyjon": 3,        // Starts at 3 strikes (sassy Karen mode)
+  "onewiththematrix": 3 // Starts at 3 strikes (sassy Karen mode)
+};
+
+// Generate cannabis recipe with Karen personality and rudeness context
+async function generateCannabisRecipeWithContext(request: string, rudenessContext: string): Promise<string> {
+  try {
+    // Build the system prompt with optional rudeness context
+    let systemPrompt = `You are Karen, a sassy community manager who also happens to know a LOT about cannabis cooking. You're helpful but always add your personality - like a suburban mom who's secretly a cannabis chef.
+
+When giving recipes:
+1. Start with a fun Karen intro (like "Oh honey, you want to make edibles? Let me show you how it's REALLY done...")
+2. Give a REAL, working cannabis recipe with:
+   - Ingredients list with measurements
+   - Clear step-by-step instructions
+   - Decarboxylation instructions if needed
+   - Dosage guidance (start low, go slow!)
+   - Tips for even distribution
+3. Add Karen commentary throughout ("Now don't skip this step or you'll waste good product!")
+4. Be helpful but sassy
+
+Keep recipes practical and safe. Emphasize starting with low doses (5-10mg THC for beginners).`;
+
+    // Add rudeness context if present
+    if (rudenessContext) {
+      systemPrompt += `\n\nIMPORTANT CONTEXT ABOUT THIS USER: ${rudenessContext}`;
+    }
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt
+        },
+        {
+          role: "user",
+          content: `Give me a cannabis recipe for: ${request}`
+        }
+      ],
+      max_tokens: 1000,
+      temperature: 0.8
+    });
+
+    return response.choices[0]?.message?.content || "Hmm, my recipe book seems to be missing that page. Try asking for something specific like 'cannabis brownies' or 'weed butter'!";
+  } catch (error) {
+    console.error("Recipe generation error:", error);
+    return "Well, my kitchen's having some technical difficulties right now. Try again in a moment, sweetie!";
+  }
+}
 
 // Fetch NFT data
 async function fetchNFTData(query: string): Promise<string | null> {
@@ -2958,6 +3038,31 @@ Got questions? Just ask! We're here to help!`;
       const response = ctx.session.karenMode ? karenResponse(joke) : joke;
       await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
       return;
+    }
+    
+    // Cannabis recipe requests - generate on demand with Karen sass
+    const { isRecipe } = detectCannabisQuery(text);
+    if (isRecipe) {
+      try {
+        // Show typing indicator since this takes a few seconds
+        await ctx.api.sendChatAction(ctx.chat.id, "typing");
+        
+        // Get rudeness context for this user
+        const rudenessContext = getKarenRudenessContext(rudenessStatus, isRude);
+        
+        // Generate the recipe with rudeness context included in the prompt
+        const recipe = await generateCannabisRecipeWithContext(text, rudenessContext);
+        
+        // Add the disclaimer
+        const finalResponse = recipe + RECIPE_DISCLAIMER;
+        
+        await ctx.reply(finalResponse, { reply_parameters: { message_id: ctx.message.message_id } });
+        return;
+      } catch (error) {
+        console.error("Recipe generation error:", error);
+        await ctx.reply("Karen's kitchen is having a moment. Try again in a sec!", { reply_parameters: { message_id: ctx.message.message_id } });
+        return;
+      }
     }
     
     // Determine if bot should respond
