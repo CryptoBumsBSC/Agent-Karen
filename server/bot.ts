@@ -2970,10 +2970,8 @@ function recordBudifyUsage(): void {
 }
 
 // === COMMUNITY BUD AVATAR SCHEDULER ===
-const budifiedUsers = new Set<string>(); // Track users who've been budified (per session)
-let communityBudCount = 0; // Daily count
+const budifiedUsersToday = new Set<string>(); // Track users budified today (reset daily)
 let lastBudResetDate = "";
-const MAX_DAILY_BUDS = 4; // Separate limit from /budify
 let communityBudTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getRandomBudInterval(): number {
@@ -2987,7 +2985,7 @@ function getRandomBudInterval(): number {
 async function postCommunityBudAvatar() {
   if (!botInstance) return;
   
-  // Get today's date for daily reset
+  // Get today's date for daily reset (Pacific time)
   const pacificFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
     year: "numeric",
@@ -2996,24 +2994,17 @@ async function postCommunityBudAvatar() {
   });
   const today = pacificFormatter.format(new Date());
   
-  // Reset daily count and budified users if new day
+  // Reset budified users at start of new day
   if (lastBudResetDate !== today) {
     lastBudResetDate = today;
-    communityBudCount = 0;
-    budifiedUsers.clear(); // Allow users to be budified again each day
-    console.log(`New day (${today}) - reset community bud count and eligible users`);
-  }
-  
-  // Check daily limit
-  if (communityBudCount >= MAX_DAILY_BUDS) {
-    console.log(`Community bud daily limit reached (${communityBudCount}/${MAX_DAILY_BUDS}), waiting for tomorrow`);
-    scheduleCommunityBud();
-    return;
+    budifiedUsersToday.clear();
+    console.log(`New day (${today}) - reset eligible users for community bud`);
   }
   
   // Get active chats from leaderboard data
   const activeChatIds = Array.from(leaderboardData.keys());
-  console.log(`Community bud: Found ${activeChatIds.length} active chats with ${Array.from(leaderboardData.values()).reduce((sum, m) => sum + m.size, 0)} total tracked users`);
+  const totalUsers = Array.from(leaderboardData.values()).reduce((sum, m) => sum + m.size, 0);
+  console.log(`Community bud: Found ${activeChatIds.length} active chats with ${totalUsers} total tracked users`);
   
   if (activeChatIds.length === 0) {
     console.log("No active chats for community bud - need users to chat first");
@@ -3023,42 +3014,40 @@ async function postCommunityBudAvatar() {
   
   // Pick first active chat (usually the main community)
   const chatId = activeChatIds[0];
-  const topUsers = getTopUsers(chatId, 50); // Get more users for better selection
-  console.log(`Community bud: Chat ${chatId} has ${topUsers.length} tracked users`);
   
-  if (topUsers.length === 0) {
-    console.log("No users in leaderboard yet - need users to chat first");
+  // Get ALL tracked users from chat (not sorted, truly random)
+  const chatLeaderboard = leaderboardData.get(chatId);
+  const allUsers = chatLeaderboard ? Array.from(chatLeaderboard.values()) : [];
+  console.log(`Community bud: Chat ${chatId} has ${allUsers.length} tracked users`);
+  
+  if (allUsers.length === 0) {
+    console.log("No users tracked yet - need users to chat first");
     scheduleCommunityBud();
     return;
   }
   
-  // Filter out users who've already been budified today (unless we're running low)
-  let eligibleUsers = topUsers.filter(u => {
-    const key = `${chatId}_${u.username || u.firstName}`;
-    return !budifiedUsers.has(key);
+  // Filter out users who've already been budified today (each person only once per day)
+  const eligibleUsers = allUsers.filter(u => {
+    const key = `${chatId}_${u.userId}`;
+    return !budifiedUsersToday.has(key);
   });
   
-  // If all users have been budified but we still have daily quota, allow repeats
-  if (eligibleUsers.length === 0 && topUsers.length > 0) {
-    console.log("All users budified today, but daily quota remains - allowing repeat selection");
-    eligibleUsers = topUsers; // Allow repeats
-  }
+  console.log(`Community bud: ${eligibleUsers.length}/${allUsers.length} users eligible (not yet budified today)`);
   
   if (eligibleUsers.length === 0) {
-    console.log("No eligible users for community bud");
+    console.log("All community members have been budified today! Waiting for tomorrow.");
     scheduleCommunityBud();
     return;
   }
   
-  // Pick a random user from eligible members
+  // Pick a RANDOM user from ALL eligible members (not sorted by activity)
   const selectedUser = eligibleUsers[Math.floor(Math.random() * eligibleUsers.length)];
   const username = selectedUser.username || selectedUser.firstName;
   
-  // Mark user as budified
-  budifiedUsers.add(`${chatId}_${username}`);
-  communityBudCount++;
+  // Mark user as budified today (by ID to be precise)
+  budifiedUsersToday.add(`${chatId}_${selectedUser.userId}`);
   
-  console.log(`Creating community bud avatar for ${username} (${communityBudCount}/${MAX_DAILY_BUDS} today)`);
+  console.log(`Creating community bud avatar for ${username} (${budifiedUsersToday.size} budified today)`);
   
   try {
     const { imageBuffer, strain, nickname, funnyComment } = await generateBudAvatar(username);
