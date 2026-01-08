@@ -3088,6 +3088,73 @@ Check current standings anytime with /leaderboard (trivia) or /puzzleboard (puzz
       return;
     }
     
+    // Game rules questions - respond with how to play (no AI needed)
+    const gameKeywords = ["how to play", "how do i play", "rules", "how does", "how do", "what is", "what's", "explain"];
+    const triviaKeywords = ["trivia", "quiz"];
+    const puzzleKeywords = ["puzzle", "word game", "scramble", "unscramble"];
+    const spaceKeywords = ["space bud", "invaders", "arcade", "shooter"];
+    
+    const isTriviaQuestion = gameKeywords.some(g => lowerText.includes(g)) && triviaKeywords.some(t => lowerText.includes(t));
+    const isPuzzleQuestion = gameKeywords.some(g => lowerText.includes(g)) && puzzleKeywords.some(p => lowerText.includes(p));
+    const isSpaceQuestion = gameKeywords.some(g => lowerText.includes(g)) && spaceKeywords.some(s => lowerText.includes(s));
+    const isGeneralGameQuestion = lowerText.includes("games") && (lowerText.includes("how") || lowerText.includes("what") || lowerText.includes("play"));
+    
+    if (isTriviaQuestion || isPuzzleQuestion || isSpaceQuestion || isGeneralGameQuestion) {
+      let gameInfo = "";
+      
+      if (isTriviaQuestion || isGeneralGameQuestion) {
+        gameInfo += `TRIVIA GAME
+
+How to play:
+/trivia - Start a single question
+/trivia 5 - Start a 5-question round (1-25 questions)
+
+Answer by typing the letter (A, B, C, or D) in chat.
+First correct answer wins the points!
+
+Points: 10 per correct answer
+Leaderboard: /leaderboard (daily/weekly/monthly rankings)
+
+`;
+      }
+      
+      if (isPuzzleQuestion || isGeneralGameQuestion) {
+        gameInfo += `WORD PUZZLE
+
+How to play:
+/puzzle - Random difficulty
+/puzzle easy - Easy mode (4-5 letters, 45 sec, 5 pts)
+/puzzle hard - Hard mode (6-8 letters, 20 sec, 15 pts)
+
+Unscramble the letters and type: /guess YOURWORD
+
+Rules: One guess per round!
+Leaderboard: /puzzleboard (daily/weekly/monthly rankings)
+
+`;
+      }
+      
+      if (isSpaceQuestion || isGeneralGameQuestion) {
+        gameInfo += `SPACE BUD INVADERS
+
+How to play:
+/play - Opens the arcade game in your browser
+
+Classic space shooter! You're Dudley defending against enemy buds.
+Different strains = different points (10-30 pts each)
+Touch controls on mobile, keyboard on desktop.
+
+`;
+      }
+      
+      const response = ctx.session.karenMode 
+        ? karenResponse(gameInfo.trim())
+        : gameInfo.trim();
+      
+      await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
+      return;
+    }
+    
     // Cannabis recipe requests - generate on demand with Karen sass
     const { isRecipe } = detectCannabisQuery(text);
     if (isRecipe) {
