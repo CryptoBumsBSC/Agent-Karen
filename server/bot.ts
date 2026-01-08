@@ -2790,7 +2790,27 @@ async function generateBudAvatar(username: string): Promise<{ imageBuffer: Buffe
 
   try {
     console.log(`Generating image for ${username} (${strain.name}, bg: ${background})...`);
-    const prompt = `Square 1:1 trading card image. A cute cartoon flower bud character mascot. The bud is ${strain.color} colored with leaf details. Kawaii chibi style with big friendly eyes and a warm smile. Background: ${background}. The card has "${username}" written at the bottom and "${nickname}" as the title at the top. Golden trading card border with sparkles and holographic effects. Colorful, fun, collectible card game style. The character looks friendly, peaceful and adorable.`;
+    const prompt = `Square 1:1 collectible trading card illustration.
+A cute cartoon cannabis bud character mascot as the main subject.
+The bud is clearly recognizable as a cannabis flower, with dense nug structure, soft rounded shape, visible sugar-leaf details, and subtle trichome sparkle.
+The bud is primarily ${strain.color}, with complementary green leaf accents.
+Kawaii chibi style — oversized friendly eyes, warm smile, peaceful and adorable expression.
+
+Art style: high-quality cartoon illustration, clean outlines, vibrant colors, soft shading, playful proportions.
+
+Background: ${background}, colorful and whimsical, slightly blurred to keep focus on the character.
+
+Card design elements:
+– Premium golden trading card border
+– Sparkles and subtle holographic foil effects
+– Collectible card game aesthetic
+
+Text placement:
+– "${nickname}" as the card title at the top
+– "${username}" written cleanly at the bottom
+
+Overall vibe: fun, friendly, peaceful, adorable, and highly collectible.
+No realism, no photorealism — purely stylized cartoon mascot art.`;
     
     const imageBuffer = await generateImageBuffer(prompt, "1024x1024");
     console.log(`Image generated successfully for ${username} (${imageBuffer.length} bytes)`);
