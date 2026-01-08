@@ -3070,22 +3070,30 @@ function startQuoteScheduler() {
 }
 
 // === WORD PUZZLE GAME ===
+// Word lengths: min 2 chars, max 11 chars
 const EASY_WORDS = [
+  // 2-3 letter words
+  "OG", "BUD", "THC", "CBD", "WAX", "DAB", "POT", "GAS", "ZEN", "NFT",
+  "ETH", "APE", "GEM", "BAG", "RUG", "DEX", "DAO", "FUD", "APY", "TVL",
+  // 4-5 letter words
   "KUSH", "BONG", "DANK", "HIGH", "HEMP", "LEAF", "BUDS", "DOPE", "HAZE", "HASH",
   "MINT", "LIME", "GLOW", "CHILL", "BLAZE", "GREEN", "SMOKE", "VIBES", "PEACE", "DREAM",
   "PLANT", "BLOOM", "GROW", "LIGHT", "FRESH", "COOL", "CALM", "ZONE", "LIFT", "WAVE",
-  "COIN", "HOLD", "MOON", "PUMP", "GAIN", "BULL", "BEAR", "SWAP", "BURN", "MINT",
-  "FARM", "POOL", "STAKE", "YIELD", "AIRDROP", "TOKEN", "CHAIN", "BLOCK", "DEFI", "HODL"
+  "COIN", "HOLD", "MOON", "PUMP", "GAIN", "BULL", "BEAR", "SWAP", "BURN", "TOKEN",
+  "FARM", "POOL", "STAKE", "YIELD", "CHAIN", "BLOCK", "DEFI", "HODL", "WHALE", "ALPHA"
 ];
 
 const HARD_WORDS = [
+  // 6-8 letter words (cannabis)
   "SATIVA", "INDICA", "HYBRID", "CHRONIC", "GELATO", "ZKITTLEZ", "RUNTZ", "COOKIES",
   "TERPENE", "EXTRACT", "DIAMOND", "SHATTER", "BUDDER", "ROSIN", "FLOWER", "NUGGET",
-  "EDIBLE", "TINCTURE", "TOPICAL", "PREROLL", "GRINDER", "VAPORIZE", "CANNABID",
+  "EDIBLE", "TOPICAL", "PREROLL", "GRINDER", "VAPORIZE", "BUBBLER", "SPLIFF", "BLUNTS",
+  // 6-11 letter words (crypto)
   "ETHEREUM", "BITCOIN", "SOLANA", "POLYGON", "AVALANCHE", "ARBITRUM", "OPTIMISM",
   "STAKING", "FARMING", "LIQUIDITY", "GOVERNANCE", "METAVERSE", "PROTOCOL", "VALIDATOR",
   "WALLET", "BRIDGE", "ORACLE", "LEDGER", "MAINNET", "TESTNET", "SNAPSHOT", "AIRDROP",
-  "DUDLEY", "BLAZE", "SATIVA", "INDICA", "PURPLE", "NORTHERN", "DIAMOND"
+  // Dudley themed (6-8 letters)
+  "DUDLEY", "BLAZER", "PURPLE", "NORTHERN", "WEDDING", "GELATO", "ZKITTLES", "COOKIES"
 ];
 
 interface ActivePuzzle {
