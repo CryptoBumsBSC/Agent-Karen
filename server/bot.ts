@@ -830,6 +830,44 @@ interface UserActivity {
 }
 const leaderboardData: Map<number, Map<number, UserActivity>> = new Map(); // chatId -> (userId -> activity)
 
+// Load existing member data from database on startup
+async function loadLeaderboardFromDatabase() {
+  try {
+    const allMembers = await db.select().from(memberScores);
+    console.log(`Loading ${allMembers.length} members from database...`);
+    
+    let loadedCount = 0;
+    for (const member of allMembers) {
+      // Use Number() for conversion - safe for typical Telegram IDs (< 10^15)
+      const chatId = Number(member.chatId);
+      const userId = Number(member.telegramUserId);
+      
+      // Skip if conversion failed (shouldn't happen with valid data)
+      if (!Number.isFinite(chatId) || !Number.isFinite(userId)) {
+        console.warn(`Skipping member with invalid ID: chatId=${member.chatId}, telegramUserId=${member.telegramUserId}`);
+        continue;
+      }
+      
+      if (!leaderboardData.has(chatId)) {
+        leaderboardData.set(chatId, new Map());
+      }
+      const chatLeaderboard = leaderboardData.get(chatId)!;
+      
+      chatLeaderboard.set(userId, {
+        userId,
+        username: member.username || "",
+        firstName: member.firstName || "",
+        messageCount: member.messageCount || 0
+      });
+      loadedCount++;
+    }
+    
+    console.log(`Loaded ${loadedCount} members across ${leaderboardData.size} chats`);
+  } catch (error) {
+    console.error("Error loading leaderboard from database:", error);
+  }
+}
+
 // Get or create user offense record
 function getUserOffenses(chatId: number, userId: number): UserOffense {
   if (!userOffenses.has(chatId)) {
@@ -2721,15 +2759,25 @@ async function generateBudAvatar(username: string): Promise<{ imageUrl: string |
   }
 
   try {
+    console.log(`Generating DALL-E 3 image for ${username} (${strain.name})...`);
     const response = await openai.images.generate({
       model: "dall-e-3",
       prompt: `A cute cartoon cannabis bud character trading card. The bud is ${strain.color} colored (${strain.name} strain). Kawaii style with big friendly eyes and a smile. The card has "${username}" written at the bottom and "${nickname}" as a title at the top. Trading card border with sparkles. Colorful, fun, collectible card game style. The bud character looks friendly and chill.`,
       n: 1,
       size: "1024x1024"
     });
-    return { imageUrl: response.data?.[0]?.url || null, strain, nickname, funnyComment };
-  } catch (error) {
-    console.error("Error generating bud avatar:", error);
+    const imageUrl = response.data?.[0]?.url || null;
+    if (imageUrl) {
+      console.log(`DALL-E 3 image generated successfully for ${username}`);
+    } else {
+      console.log(`DALL-E 3 returned no image URL for ${username}`);
+    }
+    return { imageUrl, strain, nickname, funnyComment };
+  } catch (error: any) {
+    console.error(`DALL-E 3 image generation failed for ${username}:`, error?.message || error);
+    if (error?.response?.data) {
+      console.error("OpenAI API error details:", JSON.stringify(error.response.data));
+    }
     return { imageUrl: null, strain, nickname, funnyComment };
   }
 }
@@ -2823,13 +2871,23 @@ async function postCommunityBudAvatar() {
     
     if (imageUrl) {
       await botInstance.api.sendPhoto(chatId, imageUrl, { caption });
+      console.log(`Community bud avatar with image posted for ${username}`);
     } else {
-      await botInstance.api.sendMessage(chatId, `${caption}\n\n(Avatar image coming soon!)`);
+      // Image failed but we still have the avatar info - post text version
+      await botInstance.api.sendMessage(chatId, `${caption}\n\n(Avatar art is being crafted... check back soon!)`);
+      console.log(`Community bud avatar posted for ${username} (text only - image generation failed)`);
     }
-    
-    console.log(`Community bud avatar posted for ${username}`);
   } catch (error) {
     console.error("Error posting community bud avatar:", error);
+    // Try to at least notify the chat something went wrong
+    try {
+      const displayName = selectedUser.username ? `@${selectedUser.username}` : selectedUser.firstName;
+      await botInstance.api.sendMessage(chatId, 
+        `We tried to create a Community Bud avatar for ${displayName} but hit a snag! Don't worry, we'll try again next round.`
+      );
+    } catch (notifyError) {
+      console.error("Failed to send error notification:", notifyError);
+    }
   }
   
   // Schedule next one
@@ -3015,6 +3073,9 @@ export async function startBot() {
   const bot = createBot();
 
   console.log("AgentKarenBot starting...");
+  
+  // Load existing member data from database before starting schedulers
+  await loadLeaderboardFromDatabase();
 
   bot.catch((err) => {
     console.error("Bot error:", err);
