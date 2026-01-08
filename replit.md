@@ -45,6 +45,7 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Admin Tracking**: Calls out admins inactive for 24+ hours with friendly reminders
 - **Daily Recipes**: Posts cannabis recipes from chef-420.com at 4 PM Pacific daily
 - **On-Demand Recipe Generation**: Ask Karen for any cannabis recipe and she'll generate one with AI, complete with Karen sass and DYOR disclaimer
+- **Sassy Comebacks**: When users drop one-liners or jokes (lol, haha, bruh, etc.), Karen has a 30% chance to fire back with a witty comeback
 - **Karen Mode**: Toggle fun "Karen" personality mode with /karen
 - **User Memory**: Tracks message history and interactions per user session
 - **Rudeness Tracking**: Karen remembers rude users and adapts her responses:

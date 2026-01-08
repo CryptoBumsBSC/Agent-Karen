@@ -3040,6 +3040,29 @@ Got questions? Just ask! We're here to help!`;
       return;
     }
     
+    // Detect one-liners and jokes from users - respond with sassy comeback (30% chance for short messages)
+    const isOneLiner = text.length < 100 && text.length > 5 && !text.includes("?");
+    const jokeIndicators = ["lol", "lmao", "haha", "rofl", "dead", "bruh", "ayo", "no way", "fr fr", "facts", "cap", "bet"];
+    const hasJokeVibe = jokeIndicators.some(indicator => lowerText.includes(indicator));
+    
+    if ((isOneLiner || hasJokeVibe) && Math.random() < 0.3) {
+      try {
+        const rudenessContext = getKarenRudenessContext(rudenessStatus, isRude);
+        const displayName = username ? `@${username}` : firstName;
+        
+        const sassyPrompt = rudenessContext 
+          ? `${rudenessContext}\n\nSomeone just dropped a one-liner or joke: "${text}". Give them a witty, sassy Karen comeback. Be playful but with attitude. Keep it short - one or two sentences max. Address them as ${displayName}.`
+          : `Someone just dropped a one-liner or joke: "${text}". Give them a witty, sassy Karen comeback. Be playful but with attitude. Keep it short - one or two sentences max. Address them as ${displayName}.`;
+        
+        const sassyResponse = await getAIResponse(text, sassyPrompt);
+        await ctx.reply(sassyResponse, { reply_parameters: { message_id: ctx.message.message_id } });
+        return;
+      } catch (error) {
+        console.error("Sassy response error:", error);
+        // Fall through to normal processing
+      }
+    }
+    
     // Cannabis recipe requests - generate on demand with Karen sass
     const { isRecipe } = detectCannabisQuery(text);
     if (isRecipe) {
