@@ -379,6 +379,22 @@ Project Facts:
 
 Characters: Dudley-Bud (Boss/Weed King), WeedWacker-Ryan (bestie, crushes on Karen), Agent Karen (hunts Roach), Roach (trash-talking cockroach under couch), Basil (pot-smoking plant), Crunch Wrap (hungry raccoon), Gunja-Mai (grandma in leopard print), Blinky (alien hydro wizard), Nova (mysterious guitarist), Pinko (Karen's boss, pink-haired goat).
 
+REFERRAL PROGRAM:
+- /myreferrals - Get your personal invite link and see your stats (how many people you've referred, points earned)
+- /refboard - See weekly referral leaderboard (who's brought the most new members this week)
+- /refboard all - See all-time referral leaderboard
+- You earn 25 points for EACH friend you invite who joins using your personal link
+- How it works: 1) Type /myreferrals to get your unique invite link 2) Share that link with friends 3) When they join the chat using your link, you get 25 points automatically
+- Points show up on leaderboards and track your community contribution
+- The bot needs admin permissions to create invite links
+
+GAMES & ACTIVITIES:
+- /trivia [number] - Start a trivia round (1-25 questions about cannabis, crypto, Dudley)
+- /leaderboard - See trivia rankings (daily/weekly/monthly)
+- /puzzle or /puzzle easy or /puzzle hard - Word scramble game
+- /puzzleboard - Puzzle game leaderboard
+- /play - Play Space Bud Invaders arcade game
+
 Style: Be chill, witty, friendly. Use slang like "fam", "vibes", "LFG". Keep replies 1-3 sentences. A bit of sass is fine but ALWAYS include the real answer!
 
 Context: ${context}`
@@ -592,6 +608,104 @@ function detectCannabisQuery(text: string): { isRecipe: boolean; isMedical: bool
   }
   
   return { isRecipe, isMedical, keywords: foundKeywords };
+}
+
+// Detect referral-related questions and provide instant responses (no AI needed)
+function detectReferralQuery(text: string): { isReferral: boolean; response: string | null } {
+  const lowerText = text.toLowerCase();
+  
+  // Specific referral program keywords (avoid false positives from generic "refer" usage)
+  const referralKeywords = [
+    "referral program", "referral link", "referral points", "referral leaderboard",
+    "myreferrals", "refboard", "/myreferrals", "/refboard",
+    "invite link", "invite friends", "bring friends", "earn points for inviting",
+    "how do referrals work", "referral system"
+  ];
+  
+  // Also match "referral" when combined with certain action words
+  const hasReferralContext = lowerText.includes("referral") && 
+    (lowerText.includes("how") || lowerText.includes("what") || lowerText.includes("earn") || 
+     lowerText.includes("points") || lowerText.includes("link") || lowerText.includes("get"));
+  
+  const isReferral = referralKeywords.some(k => lowerText.includes(k)) || hasReferralContext;
+  
+  if (!isReferral) {
+    return { isReferral: false, response: null };
+  }
+  
+  // Provide instant response based on question type
+  if (lowerText.includes("how") && (lowerText.includes("work") || lowerText.includes("use") || lowerText.includes("referral"))) {
+    return {
+      isReferral: true,
+      response: `HOW THE REFERRAL PROGRAM WORKS
+
+1. Get Your Link - Type /myreferrals to get your personal invite link
+2. Share It - Send that link to friends who want to join
+3. Earn Points - When they join using YOUR link, you get 25 points automatically!
+
+Your points show up on the /refboard leaderboard. The more friends you bring, the higher you climb!
+
+Commands:
+/myreferrals - Get your invite link + see your stats
+/refboard - Weekly leaderboard
+/refboard all - All-time leaderboard
+
+LFG! Start inviting and stack those points, fam!`
+    };
+  }
+  
+  if (lowerText.includes("point") || lowerText.includes("earn") || lowerText.includes("get") || lowerText.includes("how many")) {
+    return {
+      isReferral: true,
+      response: `REFERRAL POINTS
+
+You earn 25 points for EACH friend who joins using your personal invite link!
+
+Example: Invite 4 friends = 100 points!
+
+Get your link: /myreferrals
+See rankings: /refboard
+
+Stack those points and climb the leaderboard!`
+    };
+  }
+  
+  if (lowerText.includes("leaderboard") || lowerText.includes("ranking") || lowerText.includes("top") || lowerText.includes("who")) {
+    return {
+      isReferral: true,
+      response: `REFERRAL LEADERBOARDS
+
+/refboard - See who brought the most new members THIS WEEK
+/refboard all - See ALL-TIME top referrers
+
+Compete with the community and see who can bring the most fam!`
+    };
+  }
+  
+  if (lowerText.includes("link") || lowerText.includes("where") || lowerText.includes("get my")) {
+    return {
+      isReferral: true,
+      response: `To get your personal referral link, just type:
+
+/myreferrals
+
+This gives you a unique link you can share. When friends join using it, you earn 25 points each!`
+    };
+  }
+  
+  // Generic referral response
+  return {
+    isReferral: true,
+    response: `REFERRAL PROGRAM
+
+Invite friends to earn points!
+
+/myreferrals - Get your personal invite link and see your stats
+/refboard - Weekly referral leaderboard
+/refboard all - All-time leaderboard
+
+You earn 25 points for each friend who joins using your link. Share it, stack points, climb the leaderboard!`
+  };
 }
 
 // Medical cannabis disclaimer
@@ -2913,7 +3027,14 @@ Check the leaderboard with /refboard`;
   bot.command("ask", async (ctx) => {
     const question = ctx.message?.text?.replace("/ask", "").trim();
     if (!question) {
-      await ctx.reply("What would you like to know? Use: /ask [your question]\n\nExamples:\n- /ask what's bitcoin worth?\n- /ask cannabis brownie recipe\n- /ask does CBD help with anxiety?");
+      await ctx.reply("What would you like to know? Use: /ask [your question]\n\nExamples:\n- /ask what's bitcoin worth?\n- /ask cannabis brownie recipe\n- /ask how does the referral program work?");
+      return;
+    }
+    
+    // Check for referral questions first - instant response, no AI needed
+    const { isReferral, response: referralResponse } = detectReferralQuery(question);
+    if (isReferral && referralResponse) {
+      await ctx.reply(referralResponse);
       return;
     }
     
@@ -3407,10 +3528,17 @@ Pause: Press Escape
         // When someone mentions "karen", answer their question/message helpfully (like /ask) but with Karen personality
         // Remove "karen" from the message to get the actual question
         const questionText = text.replace(/karen/gi, '').trim() || text;
-        const fullContext = rudenessContext 
-          ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
-          : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
-        response = await getAIResponse(questionText, fullContext);
+        
+        // Check for referral questions first - instant response, no AI needed
+        const { isReferral, response: referralResponse } = detectReferralQuery(questionText);
+        if (isReferral && referralResponse) {
+          response = referralResponse;
+        } else {
+          const fullContext = rudenessContext 
+            ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
+            : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
+          response = await getAIResponse(questionText, fullContext);
+        }
       } else {
         const fullContext = rudenessContext 
           ? `${rudenessContext}\n\n${responseContext}. Address them as ${displayName}.`

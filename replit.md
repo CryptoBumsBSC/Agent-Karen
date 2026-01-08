@@ -79,6 +79,7 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Leaderboards**: Weekly and All-time rankings (`/refboard` or `/refboard all`)
 - **Database**: Uses `referral_codes` and `referrals` tables, scores stored in `memberScores`
 - **Detection**: Uses Telegram's chat_member updates to detect invite link usage
+- **AI Knowledge**: Bot can explain referral program via `/ask` or when mentioned - instant responses for referral questions (no AI cost)
 
 ### Daily Scheduled Posts
 - **Birthday Check**: 9 AM Pacific - Celebrates member birthdays with AI-generated cake images
