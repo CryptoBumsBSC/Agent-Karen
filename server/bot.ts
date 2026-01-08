@@ -3746,11 +3746,8 @@ let lastBudResetDate = "";
 let communityBudTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getRandomBudInterval(): number {
-  // Random interval between 4-6 hours (in milliseconds)
-  const minHours = 4;
-  const maxHours = 6;
-  const hours = minHours + Math.random() * (maxHours - minHours);
-  return hours * 60 * 60 * 1000;
+  // Fixed 24-hour interval (1 community bud per day to reduce costs)
+  return 24 * 60 * 60 * 1000;
 }
 
 async function postCommunityBudAvatar() {
