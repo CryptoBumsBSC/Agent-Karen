@@ -56,6 +56,21 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Score Tracking**: Daily, weekly, monthly points with automatic period resets
 - **Duplicate Prevention**: Hash tracking for 100 questions to avoid repeats
 
+### Word Puzzle Game
+- **Commands**: `/puzzle`, `/puzzle easy`, `/puzzle hard` to start, `/guess WORD` to answer
+- **Difficulty Levels**: 
+  - Easy: 4-5 letter words, 60 seconds, 5 points
+  - Hard: 6-8 letter cannabis/crypto words, 30 seconds, 15 points
+- **Separate Leaderboard**: `/puzzleboard` shows puzzle-only rankings (daily/weekly/monthly)
+- **Word Lists**: 50 easy words, 50+ hard words (cannabis strains, crypto terms)
+- **One Guess Per Round**: Users get one attempt per puzzle
+
+### Daily Scheduled Posts
+- **Birthday Check**: 9 AM Pacific - Celebrates member birthdays with AI-generated cake images
+- **Quote of the Day**: 10 AM Pacific - Motivational/cannabis quotes (50 in rotation)
+- **Daily Recipe**: 4 PM Pacific - Cannabis recipes from chef-420.com
+- **Community Bud**: Every 4-6 hours - Random member gets an AI-generated bud avatar
+
 ### Space Bud Invaders Game (READY TO PUBLISH)
 **Status**: Complete, needs Republish to go live
 **File Location**: `client/public/game.html`
