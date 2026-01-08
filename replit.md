@@ -80,6 +80,7 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Database**: Uses `referral_codes` and `referrals` tables, scores stored in `memberScores`
 - **Detection**: Uses Telegram's chat_member updates to detect invite link usage
 - **AI Knowledge**: Bot can explain referral program via `/ask` or when mentioned - instant responses for referral questions (no AI cost)
+- **Winner Prizes**: Top weekly referrer (announced Sunday 11:55 PM Pacific) and top monthly referrer (announced last day of month 11:55 PM Pacific) automatically receive exclusive budify avatar rewards
 
 ### Daily Scheduled Posts
 - **Birthday Check**: 9 AM Pacific - Celebrates member birthdays with AI-generated cake images
