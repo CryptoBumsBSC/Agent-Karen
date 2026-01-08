@@ -3063,6 +3063,31 @@ Got questions? Just ask! We're here to help!`;
       }
     }
     
+    // Winner schedule questions - respond with exact times (no AI needed)
+    const winnerKeywords = ["winner", "winners", "leaderboard reset", "when is", "when are", "what time", "announce"];
+    const scheduleKeywords = ["daily", "weekly", "monthly", "trivia", "puzzle", "reset"];
+    const isWinnerQuestion = winnerKeywords.some(w => lowerText.includes(w)) && 
+                             (scheduleKeywords.some(s => lowerText.includes(s)) || lowerText.includes("?"));
+    
+    if (isWinnerQuestion) {
+      const scheduleInfo = `Here's when winners are announced (all times Pacific):
+
+DAILY Winners: Every night at 11:55 PM
+WEEKLY Winners: Sunday nights at 11:55 PM (before Monday reset)
+MONTHLY Winners: Last day of the month at 11:55 PM (before the 1st)
+
+Both Trivia and Puzzle games have separate leaderboards!
+
+Check current standings anytime with /leaderboard (trivia) or /puzzleboard (puzzles).`;
+      
+      const response = ctx.session.karenMode 
+        ? karenResponse(scheduleInfo)
+        : scheduleInfo;
+      
+      await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
+      return;
+    }
+    
     // Cannabis recipe requests - generate on demand with Karen sass
     const { isRecipe } = detectCannabisQuery(text);
     if (isRecipe) {
