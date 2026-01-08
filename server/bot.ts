@@ -2743,59 +2743,59 @@ function startRecipeScheduler() {
 // === BUD AVATAR SYSTEM ===
 const BUD_STRAINS = [
   // Modern Exotics (1-15)
-  { name: "Wedding Cake", color: "white and purple", nicknames: ["Cake Boss", "Wedding Planner", "Frosted King", "Vanilla Vibes", "Tiered Titan"] },
-  { name: "Gelato", color: "orange and purple", nicknames: ["Gelato God", "Frozen Flame", "Italian Ice", "Scoop Master", "Dessert Don"] },
-  { name: "Runtz", color: "rainbow pastel", nicknames: ["Runtz Ruler", "Candy Captain", "Sweet Sovereign", "Sugar Rush", "Pastel Prince"] },
-  { name: "Cereal Milk", color: "creamy white", nicknames: ["Breakfast Boss", "Milky Way", "Cereal Killer", "Morning Master", "Spoon Sage"] },
-  { name: "Ice Cream Cake", color: "purple and cream", nicknames: ["Frozen Treat", "Cream Dream", "Sundae Sage", "Scoop Squad", "Parlor Prince"] },
-  { name: "Kush Mints", color: "mint green", nicknames: ["Minty Fresh", "Cool Kush", "Frost Boss", "Menthol Master", "Arctic Ace"] },
-  { name: "GMO", color: "olive green", nicknames: ["Garlic Gangster", "Funky King", "Savory Sage", "Umami Boss", "Dank Don"] },
-  { name: "Apple Fritter", color: "golden brown", nicknames: ["Fritter Fam", "Apple Ace", "Bakery Boss", "Cinnamon King", "Pastry Prince"] },
-  { name: "Gorilla Glue", color: "forest green", nicknames: ["GG4 God", "Sticky King", "Glue Guru", "Gorilla Boss", "Adhesive Ace"] },
-  { name: "Biscotti", color: "tan and green", nicknames: ["Biscotti Boss", "Italian Stallion", "Cookie King", "Cafe Captain", "Dunk Master"] },
-  { name: "Rainbow Belts", color: "rainbow striped", nicknames: ["Belt Boss", "Rainbow Rider", "Candy Crusher", "Spectrum Sage", "Color King"] },
-  { name: "Sunset Sherbet", color: "orange and pink", nicknames: ["Sherbet Sage", "Sunset King", "Twilight Titan", "Dusk Don", "Evening Elite"] },
-  { name: "MAC", color: "purple and white", nicknames: ["Alien Ace", "Miracle Maker", "Cookie Commander", "MAC Daddy", "Cosmic Captain"] },
-  { name: "Permanent Marker", color: "dark purple", nicknames: ["Ink Master", "Marker King", "Permanent Press", "Sharpie Sage", "Write On"] },
-  { name: "Zkittlez", color: "rainbow", nicknames: ["Skittle King", "Rainbow Boss", "Taste the Sage", "Candy Commander", "Fruit Fury"] },
+  { name: "Wedding Cake", color: "white and purple", nicknames: ["Cake Boss", "Wedding Planner", "Frosted King", "Vanilla Vibes", "Tiered Titan"], description: "Rich vanilla flavor with relaxing yet uplifting effects. A cross of Triangle Kush and Animal Mints." },
+  { name: "Gelato", color: "orange and purple", nicknames: ["Gelato God", "Frozen Flame", "Italian Ice", "Scoop Master", "Dessert Don"], description: "Creamy berry flavor with euphoric, relaxing high. A cross of Sunset Sherbet and Thin Mint Cookies." },
+  { name: "Runtz", color: "rainbow pastel", nicknames: ["Runtz Ruler", "Candy Captain", "Sweet Sovereign", "Sugar Rush", "Pastel Prince"], description: "Tropical and fruity with a balanced high. Popular for its vibrant taste. A cross of Zkittlez and Gelato." },
+  { name: "Cereal Milk", color: "creamy white", nicknames: ["Breakfast Boss", "Milky Way", "Cereal Killer", "Morning Master", "Spoon Sage"], description: "Sweet creamy flavor like leftover cereal milk. Uplifting and creative effects. Snowman x Y-Life cross." },
+  { name: "Ice Cream Cake", color: "purple and cream", nicknames: ["Frozen Treat", "Cream Dream", "Sundae Sage", "Scoop Squad", "Parlor Prince"], description: "Creamy vanilla with hints of sugary dough. Deeply relaxing. A cross of Wedding Cake and Gelato 33." },
+  { name: "Kush Mints", color: "mint green", nicknames: ["Minty Fresh", "Cool Kush", "Frost Boss", "Menthol Master", "Arctic Ace"], description: "Cool minty flavor with balanced hybrid effects. A cross of Animal Mints and Bubba Kush." },
+  { name: "GMO", color: "olive green", nicknames: ["Garlic Gangster", "Funky King", "Savory Sage", "Umami Boss", "Dank Don"], description: "Pungent garlic and diesel aroma with heavy relaxation. A cross of GSC and Chemdawg." },
+  { name: "Apple Fritter", color: "golden brown", nicknames: ["Fritter Fam", "Apple Ace", "Bakery Boss", "Cinnamon King", "Pastry Prince"], description: "Sweet apple pastry flavor with relaxing effects. A cross of Sour Apple and Animal Cookies." },
+  { name: "Gorilla Glue", color: "forest green", nicknames: ["GG4 God", "Sticky King", "Glue Guru", "Gorilla Boss", "Adhesive Ace"], description: "Pungent pine aroma with deeply relaxing effects. Crossed with Chem Sis, Sour Dubb, and Chocolate Diesel." },
+  { name: "Biscotti", color: "tan and green", nicknames: ["Biscotti Boss", "Italian Stallion", "Cookie King", "Cafe Captain", "Dunk Master"], description: "Sweet cookie flavor with relaxing body effects. A cross of Gelato 25 and South Florida OG." },
+  { name: "Rainbow Belts", color: "rainbow striped", nicknames: ["Belt Boss", "Rainbow Rider", "Candy Crusher", "Spectrum Sage", "Color King"], description: "Sweet candy flavor with euphoric effects. A cross of Zkittlez and Moonbow." },
+  { name: "Sunset Sherbet", color: "orange and pink", nicknames: ["Sherbet Sage", "Sunset King", "Twilight Titan", "Dusk Don", "Evening Elite"], description: "Fruity sherbet-like flavor with calming yet euphoric effects. Crossed with Pink Panties and Girl Scout Cookies." },
+  { name: "MAC", color: "purple and white", nicknames: ["Alien Ace", "Miracle Maker", "Cookie Commander", "MAC Daddy", "Cosmic Captain"], description: "Creamy citrus flavor with balanced effects. A cross of Alien Cookies, Starfighter, and Colombian." },
+  { name: "Permanent Marker", color: "dark purple", nicknames: ["Ink Master", "Marker King", "Permanent Press", "Sharpie Sage", "Write On"], description: "Unique gassy aroma with potent relaxing effects. A cross of Biscotti x Jealousy x Sherb BX." },
+  { name: "Zkittlez", color: "rainbow", nicknames: ["Skittle King", "Rainbow Boss", "Taste the Sage", "Candy Commander", "Fruit Fury"], description: "Fruity candy-like flavor with euphoric effects. Loved for melting away stress. Crossed with Grape Ape and Grapefruit." },
   // Timeless Classics (16-30)
-  { name: "OG Kush", color: "lime green", nicknames: ["OG Original", "Kush King", "West Coast Boss", "Legend Lord", "Classic Captain"] },
-  { name: "Sour Diesel", color: "yellow-green", nicknames: ["Diesel Demon", "Sour Sage", "Fuel King", "Gas God", "Sunny Savage"] },
-  { name: "Blue Dream", color: "blue", nicknames: ["Dream Weaver", "Blue Baron", "Sky High", "Azure Ace", "Blueberry Boss"] },
-  { name: "Jack Herer", color: "bright green", nicknames: ["Jack Attack", "Emperor Jack", "Herer Hero", "Sativa Sage", "Legend Lord"] },
-  { name: "White Widow", color: "frosty white", nicknames: ["Widow Maker", "White Knight", "Frost Queen", "Crystal Captain", "Snow Sage"] },
-  { name: "Northern Lights", color: "teal", nicknames: ["Aurora Ace", "Northern Knight", "Teal Titan", "Cosmic Captain", "Glacier God"] },
-  { name: "Granddaddy Purple", color: "deep purple", nicknames: ["GDP God", "Grape Grandpa", "Purple Patriarch", "Violet Veteran", "Royal Raisin"] },
-  { name: "Pineapple Express", color: "golden yellow", nicknames: ["Express Elite", "Pineapple Prince", "Tropical Train", "Island King", "Aloha Ace"] },
-  { name: "Green Crack", color: "neon green", nicknames: ["Energy King", "Green Genius", "Crack Commander", "Focus Fury", "Daytime Don"] },
-  { name: "Purple Haze", color: "purple", nicknames: ["Haze Master", "Purple Prince", "Violet Vibes", "Grape Guru", "Amethyst Angel"] },
-  { name: "Super Silver Haze", color: "silver-green", nicknames: ["Silver Sage", "Haze Hero", "Chrome King", "Platinum Prince", "Metallic Master"] },
-  { name: "Bubba Kush", color: "dark green", nicknames: ["Bubba Boss", "Kush Commander", "Couch King", "Relaxation Ruler", "Chill Chief"] },
-  { name: "Durban Poison", color: "bright green", nicknames: ["Durban Don", "African Ace", "Poison Prince", "Energy Emperor", "Safari Sage"] },
-  { name: "Chemdawg", color: "olive green", nicknames: ["Chem Commander", "Dawg Father", "Laboratory Lord", "Science Sage", "Chemical King"] },
-  { name: "Hindu Kush", color: "earthy green", nicknames: ["Mountain Master", "Hindu Hero", "Kush King", "Ancient Ace", "Peak Prince"] },
+  { name: "OG Kush", color: "lime green", nicknames: ["OG Original", "Kush King", "West Coast Boss", "Legend Lord", "Classic Captain"], description: "Earthy citrus flavors with balanced mind and body effects. A staple strain. Crossed with Chemdawg, Lemon Thai, and Pakistani Kush." },
+  { name: "Sour Diesel", color: "yellow-green", nicknames: ["Diesel Demon", "Sour Sage", "Fuel King", "Gas God", "Sunny Savage"], description: "Energetic and uplifting with pungent diesel aroma. Boosts creativity and focus. A cross of Chemdawg 91 and Super Skunk." },
+  { name: "Blue Dream", color: "blue", nicknames: ["Dream Weaver", "Blue Baron", "Sky High", "Azure Ace", "Blueberry Boss"], description: "Smooth blueberry flavor with balanced buzz. Ideal for stress relief without heavy sedation. A cross of Blueberry and Haze." },
+  { name: "Jack Herer", color: "bright green", nicknames: ["Jack Attack", "Emperor Jack", "Herer Hero", "Sativa Sage", "Legend Lord"], description: "Euphoric and clear-headed with piney citrus flavor. Ideal for daytime productivity. A blend of Haze, Northern Lights 5, and Shiva Skunk." },
+  { name: "White Widow", color: "frosty white", nicknames: ["Widow Maker", "White Knight", "Frost Queen", "Crystal Captain", "Snow Sage"], description: "Earthy and woody, delivering a balanced uplifting buzz. Known for universal appeal. Crossed with Brazil and South Indian landrace." },
+  { name: "Northern Lights", color: "teal", nicknames: ["Aurora Ace", "Northern Knight", "Teal Titan", "Cosmic Captain", "Glacier God"], description: "Sweet and spicy with calming full-body effects. Popular for soothing pain and aiding sleep. A hybrid of Afghani and Thai." },
+  { name: "Granddaddy Purple", color: "deep purple", nicknames: ["GDP God", "Grape Grandpa", "Purple Patriarch", "Violet Veteran", "Royal Raisin"], description: "Grape and berry aromas with deeply relaxing effects. Loved for tackling insomnia and stress. A cross of Big Bud and Purple Urkle." },
+  { name: "Pineapple Express", color: "golden yellow", nicknames: ["Express Elite", "Pineapple Prince", "Tropical Train", "Island King", "Aloha Ace"], description: "Tropical flavors with energetic effects. Famous for creativity and happiness. Crossed with Trainwreck and Hawaiian." },
+  { name: "Green Crack", color: "neon green", nicknames: ["Energy King", "Green Genius", "Crack Commander", "Focus Fury", "Daytime Don"], description: "Zesty fruity flavor that energizes and motivates. Popular for battling fatigue and stress. Originally known as Cush." },
+  { name: "Purple Haze", color: "purple", nicknames: ["Haze Master", "Purple Prince", "Violet Vibes", "Grape Guru", "Amethyst Angel"], description: "Sweet earthy berry aroma with psychedelic dreamy effects. A rockstar strain in cannabis lore. A blend of Haze and purple phenotype." },
+  { name: "Super Silver Haze", color: "silver-green", nicknames: ["Silver Sage", "Haze Hero", "Chrome King", "Platinum Prince", "Metallic Master"], description: "Zesty lemon flavor with smooth energetic high. Known for keeping you uplifted all day. A mix of Skunk, Northern Lights, and Haze." },
+  { name: "Bubba Kush", color: "dark green", nicknames: ["Bubba Boss", "Kush Commander", "Couch King", "Relaxation Ruler", "Chill Chief"], description: "Earthy chocolate flavors with tranquilizing buzz. A go-to for winding down at night. A cross of OG Kush and unknown Indica." },
+  { name: "Durban Poison", color: "bright green", nicknames: ["Durban Don", "African Ace", "Poison Prince", "Energy Emperor", "Safari Sage"], description: "Sweet and earthy with strong cerebral high. Loved for focus-enhancing and energizing effects. A pure South African landrace." },
+  { name: "Chemdawg", color: "olive green", nicknames: ["Chem Commander", "Dawg Father", "Laboratory Lord", "Science Sage", "Chemical King"], description: "Pungent diesel aroma with powerful balanced effects. Known for sparking creativity and relaxation. Thai and Chemdawg D genetics." },
+  { name: "Hindu Kush", color: "earthy green", nicknames: ["Mountain Master", "Hindu Hero", "Kush King", "Ancient Ace", "Peak Prince"], description: "Earthy and spicy with relaxing effects. A pure landrace from the Hindu Kush mountains. Classic Indica lineage." },
   // Fruity & Flavorful (31-40)
-  { name: "Blueberry", color: "deep blue", nicknames: ["Berry Boss", "Blue Bomber", "Fruit King", "Blueberry Baron", "Cobbler Captain"] },
-  { name: "Strawberry Cough", color: "red and green", nicknames: ["Strawberry Sage", "Cough Commander", "Berry Boss", "Red Rider", "Sweet Sneeze"] },
-  { name: "Tangie", color: "bright orange", nicknames: ["Tangie Titan", "Citrus Captain", "Orange Oracle", "Zest Zeus", "Sunny Sage"] },
-  { name: "Mimosa", color: "orange and yellow", nicknames: ["Brunch Boss", "Mimosa Master", "Sunday Sage", "Champagne Chief", "Bubbly Baron"] },
-  { name: "Lemon Haze", color: "lemon yellow", nicknames: ["Lemon Lord", "Citrus Sage", "Sour King", "Zesty Zeus", "Yellow Yogi"] },
-  { name: "Pineapple Kush", color: "golden yellow", nicknames: ["Pineapple Prince", "Tropical Titan", "Island Indica", "Aloha King", "Luau Lord"] },
-  { name: "Slurricane", color: "purple and blue", nicknames: ["Storm Sage", "Slurry King", "Hurricane Hero", "Cyclone Captain", "Tempest Titan"] },
-  { name: "Grape Ape", color: "grape purple", nicknames: ["Grape God", "Ape Ace", "Vine King", "Purple Primate", "Jungle Juice"] },
-  { name: "Blue Cheese", color: "blue-green", nicknames: ["Cheese Chief", "Funky King", "Dairy Don", "Stinky Sage", "Fromage Fury"] },
-  { name: "Watermelon Zkittlez", color: "pink and green", nicknames: ["Melon Master", "Summer Sage", "Picnic Prince", "Juicy King", "Rind Ruler"] },
+  { name: "Blueberry", color: "deep blue", nicknames: ["Berry Boss", "Blue Bomber", "Fruit King", "Blueberry Baron", "Cobbler Captain"], description: "Sweet berry aroma with soothing effects. Beloved for relaxation without heavy sedation. Created from Afghani, Thai, and Purple Thai." },
+  { name: "Strawberry Cough", color: "red and green", nicknames: ["Strawberry Sage", "Cough Commander", "Berry Boss", "Red Rider", "Sweet Sneeze"], description: "Sweet strawberry-like flavor with gentle cerebral high. Praised for reducing stress and anxiety. Strawberry Fields x Haze cross." },
+  { name: "Tangie", color: "bright orange", nicknames: ["Tangie Titan", "Citrus Captain", "Orange Oracle", "Zest Zeus", "Sunny Sage"], description: "Fresh orange flavors with creative euphoric buzz. Loved by artists for inspiration. A Skunk 1 phenotype crossed with Cali Orange." },
+  { name: "Mimosa", color: "orange and yellow", nicknames: ["Brunch Boss", "Mimosa Master", "Sunday Sage", "Champagne Chief", "Bubbly Baron"], description: "Citrusy champagne-like flavor with uplifting effects. Perfect for social occasions. A cross of Clementine and Purple Punch." },
+  { name: "Lemon Haze", color: "lemon yellow", nicknames: ["Lemon Lord", "Citrus Sage", "Sour King", "Zesty Zeus", "Yellow Yogi"], description: "Citrusy and refreshing, offering a sociable buzz. Perfect for a sunny happy high. Derived from Lemon Skunk and Silver Haze." },
+  { name: "Pineapple Kush", color: "golden yellow", nicknames: ["Pineapple Prince", "Tropical Titan", "Island Indica", "Aloha King", "Luau Lord"], description: "Sweet tropical pineapple flavor with relaxing indica effects. A cross of Pineapple and Master Kush." },
+  { name: "Slurricane", color: "purple and blue", nicknames: ["Storm Sage", "Slurry King", "Hurricane Hero", "Cyclone Captain", "Tempest Titan"], description: "Sweet berry grape flavor with heavy relaxation. A cross of Do-Si-Dos and Purple Punch." },
+  { name: "Grape Ape", color: "grape purple", nicknames: ["Grape God", "Ape Ace", "Vine King", "Purple Primate", "Jungle Juice"], description: "Fruity grape flavor with calming body-focused high. Great for chronic pain and stress. A cross of Mendocino Purps, Skunk, and Afghani." },
+  { name: "Blue Cheese", color: "blue-green", nicknames: ["Cheese Chief", "Funky King", "Dairy Don", "Stinky Sage", "Fromage Fury"], description: "Unique savory cheese and blueberry flavor with relaxing effects. A cross of Blueberry and UK Cheese." },
+  { name: "Watermelon Zkittlez", color: "pink and green", nicknames: ["Melon Master", "Summer Sage", "Picnic Prince", "Juicy King", "Rind Ruler"], description: "Sweet watermelon candy flavor with euphoric relaxation. A cross of Watermelon and Zkittlez." },
   // Potent & Unique (41-50)
-  { name: "Bruce Banner", color: "bright green", nicknames: ["Hulk Hero", "Banner Boss", "Gamma God", "Smash Sage", "Green Giant"] },
-  { name: "Ghost Train Haze", color: "pale green", nicknames: ["Ghost Rider", "Train Titan", "Phantom Prince", "Spectral Sage", "Rail Wraith"] },
-  { name: "White Fire OG", color: "white and lime", nicknames: ["WiFi Wizard", "Fire King", "Flame Sage", "Blaze Boss", "Hot Spot Hero"] },
-  { name: "Death Star", color: "dark green", nicknames: ["Dark Lord", "Empire Elite", "Space Station", "Galactic God", "Force Fury"] },
-  { name: "Amnesia Haze", color: "light green", nicknames: ["Memory Master", "Haze Hero", "Forget-Me-Not", "Mind Melt", "Recall Ruler"] },
-  { name: "Alien OG", color: "lime green", nicknames: ["Alien Ace", "UFO King", "Cosmic Captain", "Space Sage", "ET Elite"] },
-  { name: "Monster Cookies", color: "dark purple", nicknames: ["Cookie Monster", "Baked Boss", "Treat Titan", "Snack Sage", "Munchie Master"] },
-  { name: "Motorbreath", color: "diesel green", nicknames: ["Motor Master", "Exhaust Elite", "Gasoline God", "Engine Ace", "Fuel Fury"] },
-  { name: "Gary Payton", color: "green and purple", nicknames: ["The Glove", "Baller Boss", "Court King", "MVP Master", "Slam Sage"] },
-  { name: "Modified Grapes", color: "deep purple", nicknames: ["Grape God", "Modified Master", "Vine King", "Purple Perfection", "Cluster Captain"] }
+  { name: "Bruce Banner", color: "bright green", nicknames: ["Hulk Hero", "Banner Boss", "Gamma God", "Smash Sage", "Green Giant"], description: "Powerful sativa-dominant with diesel aroma. Known for extreme potency and euphoria. A cross of OG Kush and Strawberry Diesel." },
+  { name: "Ghost Train Haze", color: "pale green", nicknames: ["Ghost Rider", "Train Titan", "Phantom Prince", "Spectral Sage", "Rail Wraith"], description: "Intense sativa with citrus pine flavor. One of the strongest strains ever tested. A cross of Ghost OG and Neville's Wreck." },
+  { name: "White Fire OG", color: "white and lime", nicknames: ["WiFi Wizard", "Fire King", "Flame Sage", "Blaze Boss", "Hot Spot Hero"], description: "Earthy sour flavor with balanced hybrid effects. Great for creativity and relaxation. A cross of Fire OG and The White." },
+  { name: "Death Star", color: "dark green", nicknames: ["Dark Lord", "Empire Elite", "Space Station", "Galactic God", "Force Fury"], description: "Pungent diesel with heavy indica effects. Known for powerful relaxation. A cross of Sensi Star and Sour Diesel." },
+  { name: "Amnesia Haze", color: "light green", nicknames: ["Memory Master", "Haze Hero", "Forget-Me-Not", "Mind Melt", "Recall Ruler"], description: "Sweet citrusy notes with energizing blissful high. A favorite for starting the day. Bred from Haze, Jamaican, Afghani, and Hawaiian." },
+  { name: "Alien OG", color: "lime green", nicknames: ["Alien Ace", "UFO King", "Cosmic Captain", "Space Sage", "ET Elite"], description: "Lemon and pine flavor with balanced psychoactive effects. A cross of Tahoe OG and Alien Kush." },
+  { name: "Monster Cookies", color: "dark purple", nicknames: ["Cookie Monster", "Baked Boss", "Treat Titan", "Snack Sage", "Munchie Master"], description: "Sweet nutty grape flavor with heavy relaxation. Great for evening use. A cross of GSC and Granddaddy Purple." },
+  { name: "Motorbreath", color: "diesel green", nicknames: ["Motor Master", "Exhaust Elite", "Gasoline God", "Engine Ace", "Fuel Fury"], description: "Intense diesel garlic aroma with potent effects. A cross of Chemdog and SFV OG Kush." },
+  { name: "Gary Payton", color: "green and purple", nicknames: ["The Glove", "Baller Boss", "Court King", "MVP Master", "Slam Sage"], description: "Sweet earthy flavor with balanced euphoric effects. Named after the NBA legend. A cross of The Y and Snowman." },
+  { name: "Modified Grapes", color: "deep purple", nicknames: ["Grape God", "Modified Master", "Vine King", "Purple Perfection", "Cluster Captain"], description: "Sweet grape candy flavor with heavy relaxation. A cross of GMO and Purple Punch." }
 ];
 
 const BUD_BACKGROUNDS = [
@@ -2821,14 +2821,14 @@ async function generateBudAvatar(username: string): Promise<{ imageBuffer: Buffe
   const nickname = strain.nicknames[Math.floor(Math.random() * strain.nicknames.length)];
   const background = BUD_BACKGROUNDS[Math.floor(Math.random() * BUD_BACKGROUNDS.length)];
   
-  // Generate a funny comment using AI
+  // Generate a funny comment using AI with strain-specific knowledge
   let funnyComment = "";
   try {
     const commentResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Generate ONE short funny, witty comment (max 15 words) about someone getting their cannabis bud avatar. Be playful and cannabis-themed. No hashtags." },
-        { role: "user", content: `User ${username} just got assigned the ${strain.name} strain with nickname "${nickname}"` }
+        { role: "system", content: "Generate ONE short funny, witty comment (max 15 words) about someone getting their cannabis bud avatar. Reference the strain's effects, flavor, or lineage. Be playful and cannabis-themed. No hashtags." },
+        { role: "user", content: `User ${username} got the ${strain.name} strain (nickname: "${nickname}"). Strain info: ${strain.description}` }
       ],
       max_tokens: 40
     });
