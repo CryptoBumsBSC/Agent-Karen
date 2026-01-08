@@ -2734,6 +2734,132 @@ async function generateBudAvatar(username: string): Promise<{ imageUrl: string |
   }
 }
 
+// === COMMUNITY BUD AVATAR SCHEDULER ===
+const budifiedUsers = new Set<string>(); // Track users who've been budified (per session)
+let communityBudCount = 0; // Daily count
+let lastBudResetDate = "";
+const MAX_DAILY_BUDS = 4;
+let communityBudTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getRandomBudInterval(): number {
+  // Random interval between 4-6 hours (in milliseconds)
+  const minHours = 4;
+  const maxHours = 6;
+  const hours = minHours + Math.random() * (maxHours - minHours);
+  return hours * 60 * 60 * 1000;
+}
+
+async function postCommunityBudAvatar() {
+  if (!botInstance) return;
+  
+  // Get today's date for daily reset
+  const pacificFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  const today = pacificFormatter.format(new Date());
+  
+  // Reset daily count and budified users if new day
+  if (lastBudResetDate !== today) {
+    lastBudResetDate = today;
+    communityBudCount = 0;
+    budifiedUsers.clear(); // Allow users to be budified again each day
+  }
+  
+  // Check daily limit
+  if (communityBudCount >= MAX_DAILY_BUDS) {
+    console.log("Community bud daily limit reached, skipping");
+    scheduleCommunityBud();
+    return;
+  }
+  
+  // Get active chats from leaderboard data
+  const activeChatIds = Array.from(leaderboardData.keys());
+  if (activeChatIds.length === 0) {
+    console.log("No active chats for community bud");
+    scheduleCommunityBud();
+    return;
+  }
+  
+  // Pick first active chat (usually the main community)
+  const chatId = activeChatIds[0];
+  const topUsers = getTopUsers(chatId, 20);
+  
+  // Filter out users who've already been budified this session
+  const eligibleUsers = topUsers.filter(u => {
+    const key = `${chatId}_${u.username || u.firstName}`;
+    return !budifiedUsers.has(key);
+  });
+  
+  if (eligibleUsers.length === 0) {
+    console.log("No eligible users for community bud (all active users already budified)");
+    scheduleCommunityBud();
+    return;
+  }
+  
+  // Pick a random user from top active members
+  const selectedUser = eligibleUsers[Math.floor(Math.random() * eligibleUsers.length)];
+  const username = selectedUser.username || selectedUser.firstName;
+  
+  // Mark user as budified
+  budifiedUsers.add(`${chatId}_${username}`);
+  communityBudCount++;
+  
+  console.log(`Creating community bud avatar for ${username} (${communityBudCount}/${MAX_DAILY_BUDS} today)`);
+  
+  try {
+    const { imageUrl, strain, nickname, funnyComment } = await generateBudAvatar(username);
+    
+    const caption = `COMMUNITY BUD OF THE HOUR!\n\n` +
+      `Congratulations ${selectedUser.username ? `@${selectedUser.username}` : selectedUser.firstName}!\n` +
+      `You've been randomly selected as a Community Bud!\n\n` +
+      `Your Avatar: "${nickname}"\n` +
+      `Strain: ${strain.name}\n` +
+      `Color: ${strain.color.toUpperCase()}\n\n` +
+      `${funnyComment}\n\n` +
+      `Stay active for your chance to get budified!`;
+    
+    if (imageUrl) {
+      await botInstance.api.sendPhoto(chatId, imageUrl, { caption });
+    } else {
+      await botInstance.api.sendMessage(chatId, `${caption}\n\n(Avatar image coming soon!)`);
+    }
+    
+    console.log(`Community bud avatar posted for ${username}`);
+  } catch (error) {
+    console.error("Error posting community bud avatar:", error);
+  }
+  
+  // Schedule next one
+  scheduleCommunityBud();
+}
+
+function scheduleCommunityBud() {
+  if (communityBudTimer) {
+    clearTimeout(communityBudTimer);
+  }
+  
+  const interval = getRandomBudInterval();
+  const hours = Math.round(interval / (60 * 60 * 1000) * 10) / 10;
+  console.log(`Next community bud scheduled in ${hours} hours`);
+  
+  communityBudTimer = setTimeout(() => {
+    postCommunityBudAvatar();
+  }, interval);
+}
+
+function startCommunityBudScheduler() {
+  console.log("Community bud scheduler started");
+  
+  // Post first one after 2 minutes (give time for bot to collect some user data)
+  setTimeout(() => {
+    console.log("Posting initial community bud avatar...");
+    postCommunityBudAvatar();
+  }, 2 * 60 * 1000);
+}
+
 // === BIRTHDAY CELEBRATION ===
 let lastBirthdayCheckDate = "";
 
@@ -2899,6 +3025,9 @@ export async function startBot() {
   
   // Start the birthday scheduler
   startBirthdayScheduler();
+  
+  // Start the community bud avatar scheduler
+  startCommunityBudScheduler();
 
   await bot.start({
     onStart: () => {
