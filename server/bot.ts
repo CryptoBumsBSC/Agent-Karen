@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals } from "@shared/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 
@@ -2213,6 +2213,92 @@ Stay safe, fam!`;
     );
   });
 
+  // /myreferrals - Get your referral link and stats
+  bot.command("myreferrals", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const chatId = ctx.chat.id;
+    const userId = ctx.from.id;
+    const chatIdStr = chatId.toString();
+    const userIdStr = userId.toString();
+    
+    try {
+      // Get or create referral link
+      const { link, code } = await getOrCreateReferralLink(bot, chatId, userId);
+      
+      // Get stats
+      const stats = await getReferralStats(userIdStr, chatIdStr);
+      
+      const response = ctx.session.karenMode 
+        ? karenResponse(`YOUR REFERRAL LINK
+
+Share this link to invite friends:
+${link}
+
+Your Code: ${code}
+
+STATS:
+Confirmed Referrals: ${stats.confirmedReferrals}
+Pending: ${stats.pendingReferrals}
+Total Points: ${stats.totalPoints} pts
+This Week: ${stats.weeklyPoints} pts
+
+Each confirmed referral = ${REFERRAL_POINTS} points!
+
+Check the leaderboard with /refboard`)
+        : `YOUR REFERRAL LINK
+
+Share this link to invite friends:
+${link}
+
+Your Code: ${code}
+
+STATS:
+Confirmed Referrals: ${stats.confirmedReferrals}
+Pending: ${stats.pendingReferrals}
+Total Points: ${stats.totalPoints} pts
+This Week: ${stats.weeklyPoints} pts
+
+Each confirmed referral = ${REFERRAL_POINTS} points!
+
+Check the leaderboard with /refboard`;
+      
+      await ctx.reply(response);
+    } catch (error: any) {
+      await ctx.reply(error.message || "Couldn't create your referral link. I need admin permissions!");
+    }
+  });
+
+  // /refboard - Referral leaderboard
+  bot.command("refboard", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const chatId = ctx.chat.id.toString();
+    const args = ctx.message?.text?.split(" ").slice(1) || [];
+    const period = args[0]?.toLowerCase() === "all" || args[0]?.toLowerCase() === "alltime" ? "alltime" : "weekly";
+    
+    const leaderboard = await getReferralLeaderboard(chatId, period);
+    
+    if (leaderboard.length === 0) {
+      await ctx.reply("No referrals yet! Be the first - get your link with /myreferrals");
+      return;
+    }
+    
+    const periodLabel = period === "weekly" ? "WEEKLY" : "ALL-TIME";
+    let text = `REFERRAL LEADERBOARD (${periodLabel})\n\n`;
+    
+    leaderboard.forEach((entry) => {
+      const medal = entry.rank === 1 ? "1st" : entry.rank === 2 ? "2nd" : entry.rank === 3 ? "3rd" : `${entry.rank}th`;
+      const name = entry.username ? `@${entry.username}` : entry.firstName;
+      text += `${medal}: ${name} - ${entry.points} pts (${entry.referrals} refs)\n`;
+    });
+    
+    text += `\nUse /refboard all for all-time rankings`;
+    text += `\nGet your link: /myreferrals`;
+    
+    await ctx.reply(ctx.session.karenMode ? karenResponse(text) : text);
+  });
+
   // /leaderboard - Show daily leaderboard + weekly/monthly top winners
   bot.command("leaderboard", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
@@ -2904,11 +2990,31 @@ Stay safe, fam!`;
     for (const member of ctx.message.new_chat_members) {
       const name = member.first_name || "friend";
       const username = member.username || "";
+      const chatId = ctx.chat.id;
+      const chatIdStr = chatId.toString();
+      const newMemberId = member.id.toString();
 
       const { isScam, flags } = detectScam("", username);
 
       if (isScam) {
         await ctx.reply(`Warning: New member @${username} has suspicious indicators:\n${flags.join("\n")}\n\nAdmins, please verify!`);
+      }
+
+      // Check if this member was referred via an invite link
+      // Note: Telegram doesn't always provide invite link info in message context
+      // We'll also use chat_member updates for better tracking
+      try {
+        // Try to get the invite link from the update if available
+        const inviteLink = (ctx.message as any)?.via_chat_folder_invite_link || null;
+        if (inviteLink) {
+          const referrerId = await findReferrerByInviteLink(chatId, inviteLink);
+          if (referrerId && referrerId !== newMemberId) {
+            await recordReferral(referrerId, newMemberId, chatIdStr);
+            console.log(`Recorded referral: ${referrerId} referred ${newMemberId}`);
+          }
+        }
+      } catch (error) {
+        console.log("Error tracking referral from invite link:", error);
       }
 
       const welcome = `Welcome to Dudley Bud, ${name}!
@@ -2922,6 +3028,52 @@ Great to have you here! Before we get started:
 Got questions? Just ask! We're here to help!`;
 
       await ctx.reply(welcome);
+    }
+  });
+
+  // === CHAT MEMBER UPDATE HANDLER (for referral tracking) ===
+  bot.on("chat_member", async (ctx) => {
+    const update = ctx.chatMember;
+    if (!update) return;
+    
+    const chatId = ctx.chat.id;
+    const chatIdStr = chatId.toString();
+    const newMember = update.new_chat_member;
+    const oldMember = update.old_chat_member;
+    
+    // Check if someone just joined (status changed to 'member' from something else)
+    if (newMember.status === "member" && oldMember.status !== "member") {
+      const newMemberId = newMember.user.id.toString();
+      const firstName = newMember.user.first_name || "friend";
+      
+      // Check if they joined via an invite link
+      const inviteLink = update.invite_link;
+      if (inviteLink && inviteLink.invite_link) {
+        try {
+          const referrerId = await findReferrerByInviteLink(chatId, inviteLink.invite_link);
+          if (referrerId && referrerId !== newMemberId) {
+            const recorded = await recordReferral(referrerId, newMemberId, chatIdStr);
+            if (recorded) {
+              console.log(`Recorded referral via chat_member: ${referrerId} referred ${newMemberId}`);
+              
+              // Immediately confirm the referral and award points
+              const result = await confirmReferral(newMemberId, chatIdStr);
+              if (result) {
+                // Notify the referrer
+                try {
+                  await ctx.api.sendMessage(chatId, 
+                    `Referral confirmed! Someone earned ${REFERRAL_POINTS} points for inviting ${firstName} to the group!`
+                  );
+                } catch (e) {
+                  // Silently fail if we can't send message
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.log("Error tracking referral from chat_member:", error);
+        }
+      }
     }
   });
 
@@ -3616,6 +3768,233 @@ async function incrementPuzzleAttempt(telegramUserId: string, chatId: string) {
       eq(memberScores.telegramUserId, telegramUserId),
       eq(memberScores.chatId, chatId)
     ));
+}
+
+// === REFERRAL SYSTEM ===
+const REFERRAL_POINTS = 25;
+
+// Generate a unique referral code
+function generateReferralCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+// Get or create referral link for a user
+async function getOrCreateReferralLink(bot: Bot<MyContext>, chatId: number, userId: number): Promise<{ link: string; code: string }> {
+  const chatIdStr = chatId.toString();
+  const userIdStr = userId.toString();
+  
+  // Check if user already has a referral code for this chat
+  const existing = await db.select().from(referralCodes)
+    .where(and(
+      eq(referralCodes.telegramUserId, userIdStr),
+      eq(referralCodes.chatId, chatIdStr)
+    ))
+    .limit(1);
+  
+  if (existing.length > 0) {
+    return { link: existing[0].inviteLink, code: existing[0].code };
+  }
+  
+  // Create a new invite link with the bot
+  try {
+    const code = generateReferralCode();
+    const inviteLink = await bot.api.createChatInviteLink(chatId, {
+      name: `REF_${code}`,
+      creates_join_request: false
+    });
+    
+    await db.insert(referralCodes).values({
+      telegramUserId: userIdStr,
+      chatId: chatIdStr,
+      inviteLink: inviteLink.invite_link,
+      code: code,
+      totalClicks: 0
+    });
+    
+    return { link: inviteLink.invite_link, code };
+  } catch (error) {
+    console.log("Failed to create invite link - bot needs admin permissions:", error);
+    throw new Error("I need admin permissions to create invite links!");
+  }
+}
+
+// Find referrer by invite link name
+async function findReferrerByInviteLink(chatId: number, inviteLink: string): Promise<string | null> {
+  const chatIdStr = chatId.toString();
+  
+  // Try to find the referral code that matches this invite link
+  const referralCode = await db.select().from(referralCodes)
+    .where(and(
+      eq(referralCodes.chatId, chatIdStr),
+      eq(referralCodes.inviteLink, inviteLink)
+    ))
+    .limit(1);
+  
+  if (referralCode.length > 0) {
+    return referralCode[0].telegramUserId;
+  }
+  
+  return null;
+}
+
+// Record a referral
+async function recordReferral(referrerUserId: string, referredUserId: string, chatId: string): Promise<boolean> {
+  // Check if this referral already exists
+  const existing = await db.select().from(referrals)
+    .where(and(
+      eq(referrals.referredTelegramUserId, referredUserId),
+      eq(referrals.chatId, chatId)
+    ))
+    .limit(1);
+  
+  if (existing.length > 0) {
+    return false; // Already referred
+  }
+  
+  // Check referrer isn't referring themselves
+  if (referrerUserId === referredUserId) {
+    return false;
+  }
+  
+  // Record the referral as pending
+  await db.insert(referrals).values({
+    referrerTelegramUserId: referrerUserId,
+    referredTelegramUserId: referredUserId,
+    chatId: chatId,
+    status: "pending"
+  });
+  
+  return true;
+}
+
+// Confirm a referral and award points
+async function confirmReferral(referredUserId: string, chatId: string): Promise<{ referrerUserId: string; success: boolean } | null> {
+  const existing = await db.select().from(referrals)
+    .where(and(
+      eq(referrals.referredTelegramUserId, referredUserId),
+      eq(referrals.chatId, chatId),
+      eq(referrals.status, "pending")
+    ))
+    .limit(1);
+  
+  if (existing.length === 0) {
+    return null;
+  }
+  
+  const referral = existing[0];
+  const referrerUserId = referral.referrerTelegramUserId;
+  
+  // Mark as confirmed
+  await db.update(referrals)
+    .set({ 
+      status: "confirmed",
+      confirmedDate: sql`CURRENT_TIMESTAMP`
+    })
+    .where(eq(referrals.id, referral.id));
+  
+  // Award points to referrer
+  const now = new Date();
+  const weekStr = `${now.getFullYear()}-W${String(Math.ceil((now.getDate() + new Date(now.getFullYear(), now.getMonth(), 1).getDay()) / 7)).padStart(2, '0')}`;
+  
+  // Update referrer's scores
+  const referrerScore = await db.select().from(memberScores)
+    .where(and(
+      eq(memberScores.telegramUserId, referrerUserId),
+      eq(memberScores.chatId, chatId)
+    ))
+    .limit(1);
+  
+  if (referrerScore.length > 0) {
+    const s = referrerScore[0];
+    const newReferralPoints = (s.referralPoints || 0) + REFERRAL_POINTS;
+    const newReferralCount = (s.referralCount || 0) + 1;
+    const newReferralWeeklyPoints = s.referralWeeklyResetDate === weekStr 
+      ? (s.referralWeeklyPoints || 0) + REFERRAL_POINTS 
+      : REFERRAL_POINTS;
+    
+    await db.update(memberScores)
+      .set({
+        referralPoints: newReferralPoints,
+        referralCount: newReferralCount,
+        referralWeeklyPoints: newReferralWeeklyPoints,
+        referralWeeklyResetDate: weekStr
+      })
+      .where(and(
+        eq(memberScores.telegramUserId, referrerUserId),
+        eq(memberScores.chatId, chatId)
+      ));
+  }
+  
+  return { referrerUserId, success: true };
+}
+
+// Get referral stats for a user
+async function getReferralStats(userId: string, chatId: string): Promise<{ 
+  totalReferrals: number; 
+  confirmedReferrals: number; 
+  pendingReferrals: number;
+  totalPoints: number;
+  weeklyPoints: number;
+}> {
+  const score = await db.select().from(memberScores)
+    .where(and(
+      eq(memberScores.telegramUserId, userId),
+      eq(memberScores.chatId, chatId)
+    ))
+    .limit(1);
+  
+  const allReferrals = await db.select().from(referrals)
+    .where(and(
+      eq(referrals.referrerTelegramUserId, userId),
+      eq(referrals.chatId, chatId)
+    ));
+  
+  const confirmed = allReferrals.filter(r => r.status === "confirmed").length;
+  const pending = allReferrals.filter(r => r.status === "pending").length;
+  
+  return {
+    totalReferrals: allReferrals.length,
+    confirmedReferrals: confirmed,
+    pendingReferrals: pending,
+    totalPoints: score[0]?.referralPoints || 0,
+    weeklyPoints: score[0]?.referralWeeklyPoints || 0
+  };
+}
+
+// Get referral leaderboard
+async function getReferralLeaderboard(chatId: string, period: 'weekly' | 'alltime'): Promise<Array<{
+  rank: number;
+  username: string;
+  firstName: string;
+  points: number;
+  referrals: number;
+}>> {
+  const allScores = await db.select().from(memberScores)
+    .where(eq(memberScores.chatId, chatId));
+  
+  const now = new Date();
+  const weekStr = `${now.getFullYear()}-W${String(Math.ceil((now.getDate() + new Date(now.getFullYear(), now.getMonth(), 1).getDay()) / 7)).padStart(2, '0')}`;
+  
+  const scores = allScores
+    .map(s => ({
+      username: s.username || "",
+      firstName: s.firstName || "Anonymous",
+      points: period === 'weekly' 
+        ? (s.referralWeeklyResetDate === weekStr ? (s.referralWeeklyPoints || 0) : 0)
+        : (s.referralPoints || 0),
+      referrals: s.referralCount || 0
+    }))
+    .filter(s => s.points > 0 || s.referrals > 0)
+    .sort((a, b) => b.points - a.points)
+    .slice(0, 10)
+    .map((s, i) => ({ ...s, rank: i + 1 }));
+  
+  return scores;
 }
 
 // === BUD AVATAR SYSTEM ===
@@ -4432,9 +4811,10 @@ export async function startBot() {
   startWinnerAnnouncementScheduler();
 
   await bot.start({
+    allowed_updates: ["message", "edited_message", "callback_query", "chat_member", "my_chat_member"],
     onStart: () => {
       console.log("AgentKarenBot is running with AI capabilities!");
-      console.log("Features: Smart Q&A, Market Reports, Roasts, Auto-engage, Daily Recipes, Birthday Celebrations");
+      console.log("Features: Smart Q&A, Market Reports, Roasts, Auto-engage, Daily Recipes, Birthday Celebrations, Referral Tracking");
     },
   });
 }
