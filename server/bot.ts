@@ -2791,7 +2791,7 @@ async function generateBudAvatar(username: string): Promise<{ imageUrl: string |
     console.log(`Generating DALL-E 3 image for ${username} (${strain.name}, bg: ${background})...`);
     const response = await openai.images.generate({
       model: "dall-e-3",
-      prompt: `Square 1:1 trading card image. A cute cartoon cannabis bud character. The bud is ${strain.color} colored (${strain.name} strain). Kawaii style with big friendly eyes and a smile. Background: ${background}. The card has "${username}" written at the bottom and "${nickname}" as a title at the top. Trading card border with sparkles. Colorful, fun, collectible card game style. The bud character looks friendly and chill.`,
+      prompt: `Square 1:1 trading card image. A cute cartoon flower bud character mascot. The bud is ${strain.color} colored with leaf details. Kawaii chibi style with big friendly eyes and a warm smile. Background: ${background}. The card has "${username}" written at the bottom and "${nickname}" as the title at the top. Golden trading card border with sparkles and holographic effects. Colorful, fun, collectible card game style. The character looks friendly, peaceful and adorable.`,
       n: 1,
       size: "1024x1024",
       quality: "standard"
