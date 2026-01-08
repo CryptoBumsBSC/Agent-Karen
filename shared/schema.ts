@@ -47,6 +47,10 @@ export const userMemory = pgTable("user_memory", {
   lastSeen: timestamp("last_seen").default(sql`CURRENT_TIMESTAMP`),
   notes: text("notes"),
   isRoastTarget: boolean("is_roast_target").default(false),
+  // Rudeness tracking for Karen's adaptive responses
+  rudeStrikes: integer("rude_strikes").default(0),
+  lastRudeDate: text("last_rude_date"),
+  wasNiceAfterRude: boolean("was_nice_after_rude").default(false),
 });
 
 // Community profiles for remembering member details

@@ -46,6 +46,11 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Daily Recipes**: Posts cannabis recipes from chef-420.com at 4 PM Pacific daily
 - **Karen Mode**: Toggle fun "Karen" personality mode with /karen
 - **User Memory**: Tracks message history and interactions per user session
+- **Rudeness Tracking**: Karen remembers rude users and adapts her responses:
+  - First offense: Gentle pushback, still helpful
+  - 2+ offenses: Sassy Karen side-eye, firm but fair
+  - 5+ offenses: FULL Karen mode - tells them off and demands respect
+  - Being nice reduces strikes and Karen acknowledges the improvement
 - **Bud Avatars**: Admin-only `/budify @username` creates DALL-E 3 cartoon trading card avatars with random strain assignment (Purple Haze, Blue Dream, Orange Kush, Sour Diesel, Northern Lights), unique nicknames, and AI-generated funny comments
 - **Community Bud Scheduler**: Automatically generates bud avatars for random active community members every 4-6 hours (max 4/day to control costs). First post 2 minutes after deployment, then random intervals.
 

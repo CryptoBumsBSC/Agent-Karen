@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory } from "@shared/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 
@@ -200,6 +200,137 @@ function karenResponse(message: string): string {
     "I'm going to report this! "
   ];
   return getRandomItem(karenPhrases) + message;
+}
+
+// === RUDENESS DETECTION & TRACKING ===
+const RUDE_PATTERNS = [
+  // Aggressive language
+  "shut up", "stfu", "wtf", "what the f", "f off", "foff",
+  "stupid bot", "dumb bot", "useless", "worthless", "trash bot",
+  "you suck", "this sucks", "hate you", "hate this",
+  // Demanding/pushy language
+  "do it now", "hurry up", "answer me", "respond now", "i said",
+  "are you deaf", "can you read", "learn to read", "wake up",
+  // Dismissive/rude
+  "whatever", "i dont care", "nobody asked", "who cares",
+  "dont talk to me", "leave me alone", "go away",
+  // Insults
+  "idiot", "moron", "stupid", "dumb", "pathetic", "annoying"
+];
+
+const NICE_PATTERNS = [
+  "thank", "thanks", "thx", "ty", "appreciate",
+  "please", "pls", "sorry", "my bad", "apologies",
+  "love", "great", "awesome", "amazing", "helpful",
+  "good bot", "nice", "cool", "kind", "sweet"
+];
+
+interface RudenessStatus {
+  rudeStrikes: number;
+  lastRudeDate: string | null;
+  wasNiceAfterRude: boolean;
+}
+
+function detectRudeness(text: string): { isRude: boolean; isNice: boolean } {
+  const lowerText = text.toLowerCase();
+  
+  const isRude = RUDE_PATTERNS.some(pattern => lowerText.includes(pattern));
+  const isNice = NICE_PATTERNS.some(pattern => lowerText.includes(pattern));
+  
+  return { isRude, isNice };
+}
+
+async function getUserRudenessStatus(telegramUserId: string): Promise<RudenessStatus> {
+  try {
+    const existing = await db.select().from(userMemory).where(eq(userMemory.telegramUserId, telegramUserId)).limit(1);
+    if (existing.length > 0) {
+      return {
+        rudeStrikes: existing[0].rudeStrikes || 0,
+        lastRudeDate: existing[0].lastRudeDate || null,
+        wasNiceAfterRude: existing[0].wasNiceAfterRude || false
+      };
+    }
+  } catch (error) {
+    console.error("Error getting rudeness status:", error);
+  }
+  return { rudeStrikes: 0, lastRudeDate: null, wasNiceAfterRude: false };
+}
+
+async function updateUserRudeness(
+  telegramUserId: string, 
+  username: string | undefined,
+  firstName: string | undefined,
+  isRude: boolean, 
+  isNice: boolean
+): Promise<RudenessStatus> {
+  const todayStr = new Date().toISOString().split('T')[0];
+  
+  try {
+    const existing = await db.select().from(userMemory).where(eq(userMemory.telegramUserId, telegramUserId)).limit(1);
+    
+    let newStrikes = existing.length > 0 ? (existing[0].rudeStrikes || 0) : 0;
+    let lastRudeDate = existing.length > 0 ? existing[0].lastRudeDate : null;
+    let wasNiceAfterRude = existing.length > 0 ? (existing[0].wasNiceAfterRude || false) : false;
+    
+    if (isRude) {
+      newStrikes = Math.min(newStrikes + 1, 10); // Cap at 10 strikes
+      lastRudeDate = todayStr;
+      wasNiceAfterRude = false;
+    } else if (isNice && newStrikes > 0) {
+      wasNiceAfterRude = true;
+      // Slowly reduce strikes when being nice (1 strike per nice message, min 0)
+      newStrikes = Math.max(newStrikes - 1, 0);
+    }
+    
+    if (existing.length > 0) {
+      await db.update(userMemory)
+        .set({ 
+          rudeStrikes: newStrikes,
+          lastRudeDate: lastRudeDate,
+          wasNiceAfterRude: wasNiceAfterRude,
+          lastSeen: sql`CURRENT_TIMESTAMP`,
+          messageCount: (existing[0].messageCount || 0) + 1
+        })
+        .where(eq(userMemory.telegramUserId, telegramUserId));
+    } else {
+      await db.insert(userMemory).values({
+        telegramUserId,
+        username: username || null,
+        firstName: firstName || null,
+        rudeStrikes: newStrikes,
+        lastRudeDate: lastRudeDate,
+        wasNiceAfterRude: wasNiceAfterRude,
+        messageCount: 1
+      });
+    }
+    
+    return { rudeStrikes: newStrikes, lastRudeDate, wasNiceAfterRude };
+  } catch (error) {
+    console.error("Error updating rudeness:", error);
+    return { rudeStrikes: 0, lastRudeDate: null, wasNiceAfterRude: false };
+  }
+}
+
+function getKarenRudenessContext(status: RudenessStatus, isCurrentlyRude: boolean): string {
+  if (status.rudeStrikes === 0) {
+    return ""; // No rudeness history, be normal
+  }
+  
+  if (isCurrentlyRude) {
+    if (status.rudeStrikes >= 5) {
+      return `KAREN MODE ACTIVATED: This user has been rude ${status.rudeStrikes} times! Give them FULL Karen attitude - be pushy right back, tell them off, demand they show some respect. Don't be mean but stand your ground firmly like a Karen would!`;
+    } else if (status.rudeStrikes >= 2) {
+      return `This user has been rude ${status.rudeStrikes} times now. Push back a little - be a bit sassy and let them know Karen doesn't take attitude. Still help them but with some Karen side-eye.`;
+    } else {
+      return `This user was just rude. Give a gentle Karen pushback - let them know we prefer manners around here, but still be helpful.`;
+    }
+  } else if (status.wasNiceAfterRude) {
+    return `This user was rude before but is being nice now! Acknowledge their improvement - say something like "Oh, NOW we're being polite!" or "See? That wasn't so hard!" Be warm but let them know you noticed the change.`;
+  } else if (status.rudeStrikes > 0) {
+    return `This user has ${status.rudeStrikes} rudeness strike(s) on record. They're not being rude right now, so be normal but stay alert.`;
+  }
+  
+  return "";
 }
 
 // === AI FUNCTIONS ===
@@ -2808,6 +2939,10 @@ Got questions? Just ask! We're here to help!`;
     userMem.messageCount++;
     userMem.lastMessages = [...userMem.lastMessages.slice(-4), text];
 
+    // Track rudeness for EVERY message (not just ones we respond to)
+    const { isRude, isNice } = detectRudeness(text);
+    const rudenessStatus = await updateUserRudeness(userId, username, ctx.from?.first_name, isRude, isNice);
+
     // Skip if it's a command
     if (text.startsWith("/")) {
       await next();
@@ -2876,13 +3011,22 @@ Got questions? Just ask! We're here to help!`;
       let response: string;
       const displayName = username ? `@${username}` : firstName;
       
+      // Use the rudeness status already computed earlier for this message
+      const rudenessContext = getKarenRudenessContext(rudenessStatus, isRude);
+      
       if (useKarenAttitude) {
         // When someone mentions "karen", answer their question/message helpfully (like /ask) but with Karen personality
         // Remove "karen" from the message to get the actual question
         const questionText = text.replace(/karen/gi, '').trim() || text;
-        response = await getAIResponse(questionText, `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`);
+        const fullContext = rudenessContext 
+          ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
+          : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
+        response = await getAIResponse(questionText, fullContext);
       } else {
-        response = await getAIResponse(text, `${responseContext}. Address them as ${displayName}. Keep response brief and friendly.`);
+        const fullContext = rudenessContext 
+          ? `${rudenessContext}\n\n${responseContext}. Address them as ${displayName}.`
+          : `${responseContext}. Address them as ${displayName}. Keep response brief and friendly.`;
+        response = await getAIResponse(text, fullContext);
       }
       
       await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
