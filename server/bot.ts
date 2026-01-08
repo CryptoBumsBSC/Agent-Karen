@@ -3093,7 +3093,7 @@ Check current standings anytime with /leaderboard (trivia) or /puzzleboard (puzz
     const triviaKeywords = ["trivia", "quiz"];
     const puzzleKeywords = ["puzzle", "word game", "scramble", "unscramble"];
     const spaceKeywords = ["space bud", "invaders", "arcade", "shooter"];
-    const seedStormKeywords = ["seed storm", "seedstorm", "seed game", "planting"];
+    const seedStormKeywords = ["seed storm", "seedstorm"];
     
     const isTriviaQuestion = gameKeywords.some(g => lowerText.includes(g)) && triviaKeywords.some(t => lowerText.includes(t));
     const isPuzzleQuestion = gameKeywords.some(g => lowerText.includes(g)) && puzzleKeywords.some(p => lowerText.includes(p));
@@ -3152,11 +3152,11 @@ Touch controls on mobile, keyboard on desktop.
       if (isSeedStormQuestion || isGeneralGameQuestion) {
         gameInfo += `SEED STORM
 
-The Dudley Bud planting game!
+Space shooting game from Dudley Bud!
 
 Play here: https://t.me/SeedStormBot/SeedStorm
 
-Plant seeds, grow your garden, and compete with the community!
+Blast through space and rack up points!
 
 `;
       }
