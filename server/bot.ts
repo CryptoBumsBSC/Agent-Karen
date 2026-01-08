@@ -2740,6 +2740,122 @@ function startRecipeScheduler() {
   console.log("Recipe scheduler started - will post daily at 4 PM Pacific");
 }
 
+// === QUOTE OF THE DAY ===
+const DAILY_QUOTES = [
+  { quote: "The best time to plant a seed was 20 years ago. The second best time is now.", author: "Chinese Proverb" },
+  { quote: "In the middle of difficulty lies opportunity.", author: "Albert Einstein" },
+  { quote: "The only way to do great work is to love what you do.", author: "Steve Jobs" },
+  { quote: "Stay hungry, stay foolish.", author: "Steve Jobs" },
+  { quote: "Life is what happens when you're busy making other plans.", author: "John Lennon" },
+  { quote: "The journey of a thousand miles begins with a single step.", author: "Lao Tzu" },
+  { quote: "Be yourself; everyone else is already taken.", author: "Oscar Wilde" },
+  { quote: "Two things are infinite: the universe and human stupidity.", author: "Albert Einstein" },
+  { quote: "In three words I can sum up everything I've learned about life: it goes on.", author: "Robert Frost" },
+  { quote: "Not all those who wander are lost.", author: "J.R.R. Tolkien" },
+  { quote: "The only impossible journey is the one you never begin.", author: "Tony Robbins" },
+  { quote: "Success is not final, failure is not fatal: it is the courage to continue that counts.", author: "Winston Churchill" },
+  { quote: "Believe you can and you're halfway there.", author: "Theodore Roosevelt" },
+  { quote: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
+  { quote: "It does not matter how slowly you go as long as you do not stop.", author: "Confucius" },
+  { quote: "Everything you've ever wanted is on the other side of fear.", author: "George Addair" },
+  { quote: "The mind is everything. What you think you become.", author: "Buddha" },
+  { quote: "Strive not to be a success, but rather to be of value.", author: "Albert Einstein" },
+  { quote: "The best revenge is massive success.", author: "Frank Sinatra" },
+  { quote: "I have not failed. I've just found 10,000 ways that won't work.", author: "Thomas Edison" },
+  { quote: "A person who never made a mistake never tried anything new.", author: "Albert Einstein" },
+  { quote: "The only limit to our realization of tomorrow is our doubts of today.", author: "Franklin D. Roosevelt" },
+  { quote: "Do what you can, with what you have, where you are.", author: "Theodore Roosevelt" },
+  { quote: "Act as if what you do makes a difference. It does.", author: "William James" },
+  { quote: "What lies behind us and what lies before us are tiny matters compared to what lies within us.", author: "Ralph Waldo Emerson" },
+  { quote: "The greatest glory in living lies not in never falling, but in rising every time we fall.", author: "Nelson Mandela" },
+  { quote: "Life is really simple, but we insist on making it complicated.", author: "Confucius" },
+  { quote: "The purpose of our lives is to be happy.", author: "Dalai Lama" },
+  { quote: "Get busy living or get busy dying.", author: "Stephen King" },
+  { quote: "You only live once, but if you do it right, once is enough.", author: "Mae West" },
+  { quote: "Many of life's failures are people who did not realize how close they were to success when they gave up.", author: "Thomas Edison" },
+  { quote: "If you want to live a happy life, tie it to a goal, not to people or things.", author: "Albert Einstein" },
+  { quote: "Never let the fear of striking out keep you from playing the game.", author: "Babe Ruth" },
+  { quote: "Money and success don't change people; they merely amplify what is already there.", author: "Will Smith" },
+  { quote: "Your time is limited, don't waste it living someone else's life.", author: "Steve Jobs" },
+  { quote: "The herb reveals you to yourself.", author: "Bob Marley" },
+  { quote: "When you smoke the herb, it reveals you to yourself.", author: "Bob Marley" },
+  { quote: "One good thing about music, when it hits you, you feel no pain.", author: "Bob Marley" },
+  { quote: "Don't worry about a thing, every little thing is gonna be alright.", author: "Bob Marley" },
+  { quote: "Love the life you live. Live the life you love.", author: "Bob Marley" },
+  { quote: "None but ourselves can free our minds.", author: "Bob Marley" },
+  { quote: "The truth is, everyone is going to hurt you. You just got to find the ones worth suffering for.", author: "Bob Marley" },
+  { quote: "Open your mind before your mouth.", author: "Aristophanes" },
+  { quote: "Hemp is of first necessity to the wealth and protection of the country.", author: "Thomas Jefferson" },
+  { quote: "Make the most you can of the Indian Hemp seed and sow it everywhere.", author: "George Washington" },
+  { quote: "The illegality of cannabis is outrageous, an impediment to full utilization of a drug which helps produce serenity.", author: "Carl Sagan" },
+  { quote: "I think people need to be educated to the fact that marijuana is not a drug. Marijuana is an herb and a flower.", author: "Willie Nelson" },
+  { quote: "When you smoke marijuana, you are in the moment and you are happy.", author: "Tommy Chong" },
+  { quote: "I have always loved marijuana. It has been a source of joy and comfort to me for many years.", author: "Carl Sagan" },
+  { quote: "Is marijuana addictive? Yes, in the sense that most of the really pleasant things in life are worth endlessly repeating.", author: "Richard Neville" }
+];
+
+let lastQuoteIndex = -1;
+let lastQuotePostDate = "";
+
+function getRandomQuote(): typeof DAILY_QUOTES[0] {
+  let index = Math.floor(Math.random() * DAILY_QUOTES.length);
+  if (index === lastQuoteIndex && DAILY_QUOTES.length > 1) {
+    index = (index + 1) % DAILY_QUOTES.length;
+  }
+  lastQuoteIndex = index;
+  return DAILY_QUOTES[index];
+}
+
+function postDailyQuote() {
+  if (!botInstance) return;
+  
+  const quote = getRandomQuote();
+  const message = `QUOTE OF THE DAY\n\n"${quote.quote}"\n\n— ${quote.author}\n\nHave a great day, Bud Fam!`;
+  
+  for (const chatId of Array.from(activeChats)) {
+    botInstance.api.sendMessage(chatId, message).catch((err) => {
+      console.error(`Failed to send quote to chat ${chatId}:`, err);
+      if (err.description?.includes("chat not found") || err.description?.includes("bot was blocked")) {
+        activeChats.delete(chatId);
+      }
+    });
+  }
+  
+  console.log(`Posted daily quote to ${activeChats.size} chats: "${quote.quote.substring(0, 30)}..."`);
+}
+
+function startQuoteScheduler() {
+  const checkAndPost = () => {
+    const pacificFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false
+    });
+    
+    const dateFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+    
+    const now = new Date();
+    const timeStr = pacificFormatter.format(now);
+    const dateStr = dateFormatter.format(now);
+    const [hour, minute] = timeStr.split(":").map(Number);
+    
+    // Post at 10 AM Pacific (10:00) - different time than recipes (4 PM)
+    if (hour === 10 && minute === 0 && lastQuotePostDate !== dateStr) {
+      lastQuotePostDate = dateStr;
+      postDailyQuote();
+    }
+  };
+  
+  setInterval(checkAndPost, 60 * 1000);
+  console.log("Quote scheduler started - will post daily at 10 AM Pacific");
+}
+
 // === BUD AVATAR SYSTEM ===
 const BUD_STRAINS = [
   // Modern Exotics (1-15)
@@ -3270,6 +3386,9 @@ export async function startBot() {
 
   // Start the recipe scheduler
   startRecipeScheduler();
+  
+  // Start the quote scheduler
+  startQuoteScheduler();
   
   // Start the birthday scheduler
   startBirthdayScheduler();
