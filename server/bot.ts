@@ -3001,40 +3001,56 @@ async function postCommunityBudAvatar() {
     lastBudResetDate = today;
     communityBudCount = 0;
     budifiedUsers.clear(); // Allow users to be budified again each day
+    console.log(`New day (${today}) - reset community bud count and eligible users`);
   }
   
   // Check daily limit
   if (communityBudCount >= MAX_DAILY_BUDS) {
-    console.log("Community bud daily limit reached, skipping");
+    console.log(`Community bud daily limit reached (${communityBudCount}/${MAX_DAILY_BUDS}), waiting for tomorrow`);
     scheduleCommunityBud();
     return;
   }
   
   // Get active chats from leaderboard data
   const activeChatIds = Array.from(leaderboardData.keys());
+  console.log(`Community bud: Found ${activeChatIds.length} active chats with ${Array.from(leaderboardData.values()).reduce((sum, m) => sum + m.size, 0)} total tracked users`);
+  
   if (activeChatIds.length === 0) {
-    console.log("No active chats for community bud");
+    console.log("No active chats for community bud - need users to chat first");
     scheduleCommunityBud();
     return;
   }
   
   // Pick first active chat (usually the main community)
   const chatId = activeChatIds[0];
-  const topUsers = getTopUsers(chatId, 20);
+  const topUsers = getTopUsers(chatId, 50); // Get more users for better selection
+  console.log(`Community bud: Chat ${chatId} has ${topUsers.length} tracked users`);
   
-  // Filter out users who've already been budified this session
-  const eligibleUsers = topUsers.filter(u => {
-    const key = `${chatId}_${u.username || u.firstName}`;
-    return !budifiedUsers.has(key);
-  });
-  
-  if (eligibleUsers.length === 0) {
-    console.log("No eligible users for community bud (all active users already budified)");
+  if (topUsers.length === 0) {
+    console.log("No users in leaderboard yet - need users to chat first");
     scheduleCommunityBud();
     return;
   }
   
-  // Pick a random user from top active members
+  // Filter out users who've already been budified today (unless we're running low)
+  let eligibleUsers = topUsers.filter(u => {
+    const key = `${chatId}_${u.username || u.firstName}`;
+    return !budifiedUsers.has(key);
+  });
+  
+  // If all users have been budified but we still have daily quota, allow repeats
+  if (eligibleUsers.length === 0 && topUsers.length > 0) {
+    console.log("All users budified today, but daily quota remains - allowing repeat selection");
+    eligibleUsers = topUsers; // Allow repeats
+  }
+  
+  if (eligibleUsers.length === 0) {
+    console.log("No eligible users for community bud");
+    scheduleCommunityBud();
+    return;
+  }
+  
+  // Pick a random user from eligible members
   const selectedUser = eligibleUsers[Math.floor(Math.random() * eligibleUsers.length)];
   const username = selectedUser.username || selectedUser.firstName;
   
