@@ -4628,6 +4628,8 @@ function startBirthdayScheduler() {
 let lastDailyWinnerDate = "";
 let lastWeeklyWinnerWeek = "";
 let lastMonthlyWinnerMonth = "";
+let lastWeeklyReferralWinnerWeek = "";
+let lastMonthlyReferralWinnerMonth = "";
 
 async function generateWinnerImage(winnerName: string, period: 'Daily' | 'Weekly' | 'Monthly', game: 'Trivia' | 'Puzzle'): Promise<Buffer | null> {
   try {
@@ -4763,6 +4765,114 @@ async function getTopScorers(period: 'daily' | 'weekly' | 'monthly', game: 'triv
   return result;
 }
 
+// === REFERRAL WINNER PRIZES ===
+// Get top referrer for each chat for a period
+async function getTopReferrers(period: 'weekly' | 'monthly'): Promise<Map<string, { telegramUserId: string; username: string | null; firstName: string | null; referralCount: number; chatId: string }>> {
+  const result = new Map<string, { telegramUserId: string; username: string | null; firstName: string | null; referralCount: number; chatId: string }>();
+  
+  const now = new Date();
+  const weekNum = getWeekNumber(now);
+  const weekStr = `${now.getFullYear()}-W${weekNum}`;
+  const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const periodStr = period === 'weekly' ? weekStr : monthStr;
+  
+  try {
+    const allScores = await db.select().from(memberScores);
+    
+    // Group by chatId and find top referrer for each chat
+    const chatGroups = new Map<string, typeof allScores>();
+    for (const score of allScores) {
+      if (!chatGroups.has(score.chatId)) {
+        chatGroups.set(score.chatId, []);
+      }
+      chatGroups.get(score.chatId)!.push(score);
+    }
+    
+    for (const [chatId, scores] of Array.from(chatGroups.entries())) {
+      // Filter to users with referrals in this period
+      const validScores = scores.filter((s: typeof allScores[0]) => {
+        const resetDate = period === 'weekly' ? s.referralWeeklyResetDate : s.referralMonthlyResetDate;
+        const pts = period === 'weekly' ? s.referralWeeklyPoints : s.referralMonthlyPoints;
+        return resetDate === periodStr && (pts || 0) > 0;
+      });
+      
+      if (validScores.length > 0) {
+        // Sort by referral points for this period
+        const sorted = validScores.sort((a: typeof allScores[0], b: typeof allScores[0]) => {
+          const ptsA = period === 'weekly' ? (a.referralWeeklyPoints || 0) : (a.referralMonthlyPoints || 0);
+          const ptsB = period === 'weekly' ? (b.referralWeeklyPoints || 0) : (b.referralMonthlyPoints || 0);
+          return ptsB - ptsA;
+        });
+        
+        const winner = sorted[0];
+        const referralCount = period === 'weekly' 
+          ? Math.floor((winner.referralWeeklyPoints || 0) / REFERRAL_POINTS)
+          : Math.floor((winner.referralMonthlyPoints || 0) / REFERRAL_POINTS);
+        
+        result.set(chatId, {
+          telegramUserId: winner.telegramUserId,
+          username: winner.username,
+          firstName: winner.firstName,
+          referralCount,
+          chatId
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`Error getting top referrers for ${period}:`, error);
+  }
+  
+  return result;
+}
+
+// Announce referral winners with budify avatar prize
+async function announceReferralWinners(period: 'weekly' | 'monthly') {
+  if (!botInstance) return;
+  
+  const periodLabel = period.charAt(0).toUpperCase() + period.slice(1);
+  console.log(`Announcing ${periodLabel} referral winners with budify prizes...`);
+  
+  const topReferrers = await getTopReferrers(period);
+  
+  for (const [chatId, winner] of Array.from(topReferrers.entries())) {
+    const chatIdNum = parseInt(chatId);
+    if (isNaN(chatIdNum)) continue;
+    
+    const winnerName = winner.username ? `@${winner.username}` : winner.firstName || "Champion";
+    const displayName = winner.firstName || winner.username || "Top Referrer";
+    
+    try {
+      // Generate budify avatar as prize
+      console.log(`Generating budify prize for ${periodLabel} referral winner: ${displayName}`);
+      const { imageBuffer, strain, nickname, funnyComment } = await generateBudAvatar(displayName);
+      
+      const announcement = `${periodLabel.toUpperCase()} REFERRAL CHAMPION\n\n` +
+        `${winnerName} brought ${winner.referralCount} new members this ${period}!\n\n` +
+        `As a reward, here's your exclusive Bud Avatar:\n` +
+        `${strain.name} "${nickname}"\n\n` +
+        `${funnyComment}\n\n` +
+        `Keep growing the fam! Use /myreferrals to get your invite link.`;
+      
+      if (imageBuffer) {
+        await botInstance.api.sendPhoto(chatIdNum, new InputFile(imageBuffer, `${displayName}_${period}_referral_champion.png`), { caption: announcement });
+        console.log(`Sent budify prize to ${periodLabel} referral winner ${displayName} in chat ${chatId}`);
+      } else {
+        // Fallback if image generation fails
+        await botInstance.api.sendMessage(chatIdNum, announcement + "\n\n(Your bud avatar is being generated - check back soon!)");
+      }
+    } catch (err: any) {
+      console.error(`Failed to announce referral winner in chat ${chatId}:`, err);
+      if (err.description?.includes("chat not found") || err.description?.includes("bot was blocked")) {
+        activeChats.delete(chatIdNum);
+      }
+    }
+  }
+  
+  if (topReferrers.size === 0) {
+    console.log(`No ${period} referral winners to announce`);
+  }
+}
+
 async function announceWinners(period: 'daily' | 'weekly' | 'monthly') {
   if (!botInstance) return;
   
@@ -4881,10 +4991,22 @@ function startWinnerAnnouncementScheduler() {
         announceWinners('weekly');
       }
       
+      // Weekly REFERRAL winner with budify prize (Sunday at 11:55 PM Pacific)
+      if (isSunday && lastWeeklyReferralWinnerWeek !== weekStr) {
+        lastWeeklyReferralWinnerWeek = weekStr;
+        announceReferralWinners('weekly');
+      }
+      
       // Monthly announcement (last day of month before 1st reset)
       if (isLastDayOfMonth && lastMonthlyWinnerMonth !== monthStr) {
         lastMonthlyWinnerMonth = monthStr;
         announceWinners('monthly');
+      }
+      
+      // Monthly REFERRAL winner with budify prize (last day of month at 11:55 PM Pacific)
+      if (isLastDayOfMonth && lastMonthlyReferralWinnerMonth !== monthStr) {
+        lastMonthlyReferralWinnerMonth = monthStr;
+        announceReferralWinners('monthly');
       }
     }
   };
