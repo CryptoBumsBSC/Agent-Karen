@@ -10,15 +10,20 @@ export const openai = new OpenAI({
 /**
  * Generate an image and return as Buffer.
  * Uses gpt-image-1 model via Replit AI Integrations.
+ * @param prompt - The image prompt
+ * @param size - Image size (default 1024x1024)
+ * @param quality - Image quality: "auto" (default) or "high" for HD
  */
 export async function generateImageBuffer(
   prompt: string,
-  size: "1024x1024" | "512x512" | "256x256" = "1024x1024"
+  size: "1024x1024" | "512x512" | "256x256" = "1024x1024",
+  quality: "auto" | "high" = "auto"
 ): Promise<Buffer> {
   const response = await openai.images.generate({
     model: "gpt-image-1",
     prompt,
     size,
+    quality,
   });
   const base64 = response.data?.[0]?.b64_json ?? "";
   return Buffer.from(base64, "base64");
