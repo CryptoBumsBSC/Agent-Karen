@@ -3152,11 +3152,14 @@ Touch controls on mobile, keyboard on desktop.
       if (isSeedStormQuestion || isGeneralGameQuestion) {
         gameInfo += `SEED STORM
 
-Space shooting game from Dudley Bud!
+Survive and shoot down enemy buds - get the highest score!
 
 Play here: https://t.me/SeedStormBot/SeedStorm
 
-Blast through space and rack up points!
+Controls:
+Desktop: Arrow keys or WASD to move, Space to shoot
+Mobile: Tap LEFT/RIGHT to move, FIRE to shoot
+Pause: Press Escape
 
 `;
       }
