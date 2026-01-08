@@ -1,4 +1,4 @@
-import { Bot, Context, session } from "grammy";
+import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
 import { communityProfiles, memberScores } from "@shared/schema";
@@ -2353,7 +2353,7 @@ Stay safe, fam!`;
     await ctx.reply(`Creating bud avatar for ${targetUsername}... This takes a moment!`);
     
     try {
-      const { imageUrl, strain, nickname, funnyComment } = await generateBudAvatar(targetUsername);
+      const { imageData, strain, nickname, funnyComment, isBase64 } = await generateBudAvatar(targetUsername);
       
       const caption = `BUD AVATAR UNLOCKED!\n\n` +
         `@${targetUsername} is now...\n` +
@@ -2362,8 +2362,13 @@ Stay safe, fam!`;
         `Color: ${strain.color.toUpperCase()}\n\n` +
         `${funnyComment}`;
       
-      if (imageUrl) {
-        await ctx.replyWithPhoto(imageUrl, { caption });
+      if (imageData) {
+        if (isBase64) {
+          const buffer = Buffer.from(imageData, 'base64');
+          await ctx.replyWithPhoto(new InputFile(buffer, `${targetUsername}_bud.png`), { caption });
+        } else {
+          await ctx.replyWithPhoto(imageData, { caption });
+        }
       } else {
         await ctx.reply(`${caption}\n\n(Image generation failed, but the vibes are still immaculate!)`);
       }
@@ -2766,7 +2771,7 @@ const BUD_BACKGROUNDS = [
   "magical mushroom forest"
 ];
 
-async function generateBudAvatar(username: string): Promise<{ imageUrl: string | null; strain: typeof BUD_STRAINS[0]; nickname: string; funnyComment: string }> {
+async function generateBudAvatar(username: string): Promise<{ imageData: string | null; strain: typeof BUD_STRAINS[0]; nickname: string; funnyComment: string; isBase64: boolean }> {
   const strain = BUD_STRAINS[Math.floor(Math.random() * BUD_STRAINS.length)];
   const nickname = strain.nicknames[Math.floor(Math.random() * strain.nicknames.length)];
   const background = BUD_BACKGROUNDS[Math.floor(Math.random() * BUD_BACKGROUNDS.length)];
@@ -2788,27 +2793,30 @@ async function generateBudAvatar(username: string): Promise<{ imageUrl: string |
   }
 
   try {
-    console.log(`Generating DALL-E 3 image for ${username} (${strain.name}, bg: ${background})...`);
+    console.log(`Generating image for ${username} (${strain.name}, bg: ${background})...`);
     const response = await openai.images.generate({
-      model: "dall-e-3",
+      model: "gpt-image-1",
       prompt: `Square 1:1 trading card image. A cute cartoon flower bud character mascot. The bud is ${strain.color} colored with leaf details. Kawaii chibi style with big friendly eyes and a warm smile. Background: ${background}. The card has "${username}" written at the bottom and "${nickname}" as the title at the top. Golden trading card border with sparkles and holographic effects. Colorful, fun, collectible card game style. The character looks friendly, peaceful and adorable.`,
       n: 1,
-      size: "1024x1024",
-      quality: "standard"
+      size: "1024x1024"
     });
-    const imageUrl = response.data?.[0]?.url || null;
-    if (imageUrl) {
-      console.log(`DALL-E 3 image generated successfully for ${username}`);
+    
+    // Replit AI integration returns base64 data
+    const imageData = response.data?.[0]?.b64_json || response.data?.[0]?.url || null;
+    if (imageData) {
+      console.log(`Image generated successfully for ${username}`);
+      // Return base64 data (will be handled differently when sending)
+      return { imageData, strain, nickname, funnyComment, isBase64: !!response.data?.[0]?.b64_json };
     } else {
-      console.log(`DALL-E 3 returned no image URL for ${username}`);
+      console.log(`Image generation returned no data for ${username}`);
+      return { imageData: null, strain, nickname, funnyComment, isBase64: false };
     }
-    return { imageUrl, strain, nickname, funnyComment };
   } catch (error: any) {
-    console.error(`DALL-E 3 image generation failed for ${username}:`, error?.message || error);
+    console.error(`Image generation failed for ${username}:`, error?.message || error);
     if (error?.response?.data) {
       console.error("OpenAI API error details:", JSON.stringify(error.response.data));
     }
-    return { imageUrl: null, strain, nickname, funnyComment };
+    return { imageData: null, strain, nickname, funnyComment, isBase64: false };
   }
 }
 
@@ -2906,7 +2914,7 @@ async function postCommunityBudAvatar() {
   console.log(`Creating community bud avatar for ${username} (${communityBudCount}/${MAX_DAILY_BUDS} today)`);
   
   try {
-    const { imageUrl, strain, nickname, funnyComment } = await generateBudAvatar(username);
+    const { imageData, strain, nickname, funnyComment, isBase64 } = await generateBudAvatar(username);
     
     const caption = `COMMUNITY BUD OF THE HOUR!\n\n` +
       `Congratulations ${selectedUser.username ? `@${selectedUser.username}` : selectedUser.firstName}!\n` +
@@ -2917,8 +2925,13 @@ async function postCommunityBudAvatar() {
       `${funnyComment}\n\n` +
       `Stay active for your chance to get budified!`;
     
-    if (imageUrl) {
-      await botInstance.api.sendPhoto(chatId, imageUrl, { caption });
+    if (imageData) {
+      if (isBase64) {
+        const buffer = Buffer.from(imageData, 'base64');
+        await botInstance.api.sendPhoto(chatId, new InputFile(buffer, `${username}_bud.png`), { caption });
+      } else {
+        await botInstance.api.sendPhoto(chatId, imageData, { caption });
+      }
       console.log(`Community bud avatar with image posted for ${username}`);
     } else {
       // Image failed but we still have the avatar info - post text version
@@ -2969,18 +2982,20 @@ function startCommunityBudScheduler() {
 // === BIRTHDAY CELEBRATION ===
 let lastBirthdayCheckDate = "";
 
-async function generateBirthdayCakeImage(username: string): Promise<string | null> {
+async function generateBirthdayCakeImage(username: string): Promise<{ imageData: string | null; isBase64: boolean }> {
   try {
     const response = await openai.images.generate({
-      model: "dall-e-3",
-      prompt: `A delicious colorful birthday cake with lit candles, decorated with "Happy Birthday ${username}!" written in icing. Cannabis-themed decorations like small leaf shapes made of green frosting. Cheerful party atmosphere with confetti. Photorealistic, appetizing, celebratory.`,
+      model: "gpt-image-1",
+      prompt: `A delicious colorful birthday cake with lit candles, decorated with "Happy Birthday ${username}!" written in icing. Leaf-shaped decorations made of green frosting. Cheerful party atmosphere with confetti. Photorealistic, appetizing, celebratory.`,
       n: 1,
       size: "1024x1024"
     });
-    return response.data?.[0]?.url || null;
+    const imageData = response.data?.[0]?.b64_json || response.data?.[0]?.url || null;
+    const isBase64 = !!response.data?.[0]?.b64_json;
+    return { imageData, isBase64 };
   } catch (error) {
     console.error("Error generating birthday cake image:", error);
-    return null;
+    return { imageData: null, isBase64: false };
   }
 }
 
@@ -3022,7 +3037,7 @@ async function checkBirthdays() {
       const displayName = profile.firstName || profile.username || "friend";
       
       // Generate birthday cake image
-      const cakeImageUrl = await generateBirthdayCakeImage(displayName);
+      const { imageData: cakeImageData, isBase64: cakeIsBase64 } = await generateBirthdayCakeImage(displayName);
       
       // Create personalized birthday message
       let birthdayMessage = `HAPPY BIRTHDAY ${userName}!\n\n`;
@@ -3040,8 +3055,13 @@ async function checkBirthdays() {
       
       try {
         // Send cake image if available
-        if (cakeImageUrl) {
-          await botInstance.api.sendPhoto(chatId, cakeImageUrl, { caption: birthdayMessage });
+        if (cakeImageData) {
+          if (cakeIsBase64) {
+            const buffer = Buffer.from(cakeImageData, 'base64');
+            await botInstance.api.sendPhoto(chatId, new InputFile(buffer, `${displayName}_birthday.png`), { caption: birthdayMessage });
+          } else {
+            await botInstance.api.sendPhoto(chatId, cakeImageData, { caption: birthdayMessage });
+          }
         } else {
           // Fallback to text only
           await botInstance.api.sendMessage(chatId, birthdayMessage);
