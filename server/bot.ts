@@ -3093,13 +3093,15 @@ Check current standings anytime with /leaderboard (trivia) or /puzzleboard (puzz
     const triviaKeywords = ["trivia", "quiz"];
     const puzzleKeywords = ["puzzle", "word game", "scramble", "unscramble"];
     const spaceKeywords = ["space bud", "invaders", "arcade", "shooter"];
+    const seedStormKeywords = ["seed storm", "seedstorm", "seed game", "planting"];
     
     const isTriviaQuestion = gameKeywords.some(g => lowerText.includes(g)) && triviaKeywords.some(t => lowerText.includes(t));
     const isPuzzleQuestion = gameKeywords.some(g => lowerText.includes(g)) && puzzleKeywords.some(p => lowerText.includes(p));
     const isSpaceQuestion = gameKeywords.some(g => lowerText.includes(g)) && spaceKeywords.some(s => lowerText.includes(s));
+    const isSeedStormQuestion = gameKeywords.some(g => lowerText.includes(g)) && seedStormKeywords.some(s => lowerText.includes(s));
     const isGeneralGameQuestion = lowerText.includes("games") && (lowerText.includes("how") || lowerText.includes("what") || lowerText.includes("play"));
     
-    if (isTriviaQuestion || isPuzzleQuestion || isSpaceQuestion || isGeneralGameQuestion) {
+    if (isTriviaQuestion || isPuzzleQuestion || isSpaceQuestion || isSeedStormQuestion || isGeneralGameQuestion) {
       let gameInfo = "";
       
       if (isTriviaQuestion || isGeneralGameQuestion) {
@@ -3143,6 +3145,18 @@ How to play:
 Classic space shooter! You're Dudley defending against enemy buds.
 Different strains = different points (10-30 pts each)
 Touch controls on mobile, keyboard on desktop.
+
+`;
+      }
+      
+      if (isSeedStormQuestion || isGeneralGameQuestion) {
+        gameInfo += `SEED STORM
+
+The Dudley Bud planting game!
+
+Play here: https://t.me/SeedStormBot/SeedStorm
+
+Plant seeds, grow your garden, and compete with the community!
 
 `;
       }
