@@ -176,6 +176,11 @@ Main tables:
 - **moderation_stats**: Daily moderation analytics (joins, blocks, mutes, warns, flags)
 - **user_moderation_status**: Per-user moderation state (role, mute status, warn count, risk score)
 - **chat_moderation_settings**: Per-chat settings (raid mode, link restrictions, thresholds)
+- **qa_cache**: Stores learned Q&A pairs to reduce AI costs (questionHash, questionText, answerText, askCount)
+- **member_scores**: Trivia/puzzle scores with daily/weekly/monthly tracking
+- **referral_codes**: User invite links for referral program
+- **referrals**: Tracks successful referrals
+- **community_profiles**: Member profiles with birthdays and strain assignments
 
 Schema is defined in `shared/schema.ts` and shared between frontend and backend.
 
