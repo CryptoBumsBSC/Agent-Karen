@@ -4781,62 +4781,271 @@ Ask me anything! I'm literally always here.`
     await next();
   });
 
-  // === STICKER SPAM DETECTION ===
-  const stickerHistory: Map<string, { stickerId: string; count: number; lastTime: number }[]> = new Map();
-  const STICKER_SPAM_THRESHOLD = 3; // Same sticker 3 times
-  const STICKER_WINDOW_MS = 30000; // Within 30 seconds
+  // === MEDIA SPAM DETECTION (Stickers, GIFs, Voice Notes) ===
+  const mediaSpamHistory: Map<string, { mediaId: string; count: number; lastTime: number }[]> = new Map();
+  const MEDIA_SPAM_THRESHOLD = 3; // Same media 3 times
+  const MEDIA_WINDOW_MS = 30000; // Within 30 seconds
+  const MEDIA_CLEANUP_INTERVAL = 60000; // Clean up every minute
   
-  bot.on("message:sticker", async (ctx, next) => {
+  // Periodic cleanup to prevent memory leaks
+  setInterval(() => {
+    const now = Date.now();
+    const entries = Array.from(mediaSpamHistory.entries());
+    for (const [key, history] of entries) {
+      const filtered = history.filter((h: { mediaId: string; count: number; lastTime: number }) => now - h.lastTime < MEDIA_WINDOW_MS * 2);
+      if (filtered.length === 0) {
+        mediaSpamHistory.delete(key);
+      } else {
+        mediaSpamHistory.set(key, filtered);
+      }
+    }
+  }, MEDIA_CLEANUP_INTERVAL);
+  
+  // Helper function for media spam detection
+  async function checkMediaSpam(
+    ctx: MyContext, 
+    mediaId: string, 
+    mediaType: string
+  ): Promise<boolean> {
     const chatId = ctx.chat?.id;
     const userId = ctx.from?.id;
+    
+    if (!chatId || chatId >= 0 || !userId || ctx.from?.is_bot) {
+      return false; // Not spam, continue
+    }
+    
+    // Check if user is admin (admins bypass moderation)
+    const userIsAdmin = await isUserAdmin(ctx, userId);
+    if (userIsAdmin) {
+      return false;
+    }
+    
+    const key = `${chatId}:${userId}:${mediaType}`;
+    const now = Date.now();
+    
+    // Get user's media history
+    let history = mediaSpamHistory.get(key) || [];
+    
+    // Filter to recent media only
+    history = history.filter(h => now - h.lastTime < MEDIA_WINDOW_MS);
+    
+    // Find if this media was recently sent
+    const existing = history.find(h => h.mediaId === mediaId);
+    if (existing) {
+      existing.count++;
+      existing.lastTime = now;
+      
+      if (existing.count >= MEDIA_SPAM_THRESHOLD) {
+        try {
+          await ctx.api.deleteMessage(chatId, ctx.message!.message_id);
+          const chatIdStr = String(chatId);
+          await incrementModStat(chatIdStr, 'spamBlocked');
+          await ctx.reply(`${mediaType} spam detected! Please don't flood the chat.`);
+          
+          // Reset count after warning
+          existing.count = 0;
+        } catch (e) {
+          console.log(`Couldn't delete ${mediaType} spam`);
+        }
+        mediaSpamHistory.set(key, history);
+        return true; // Was spam
+      }
+    } else {
+      history.push({ mediaId, count: 1, lastTime: now });
+    }
+    
+    mediaSpamHistory.set(key, history);
+    return false; // Not spam
+  }
+  
+  // Sticker spam detection
+  bot.on("message:sticker", async (ctx, next) => {
     const stickerId = ctx.message.sticker.file_unique_id;
+    const wasSpam = await checkMediaSpam(ctx, stickerId, "Sticker");
+    if (!wasSpam) await next();
+  });
+  
+  // GIF/Animation spam detection
+  bot.on("message:animation", async (ctx, next) => {
+    // Skip if already handled by caption moderation
+    if (ctx.message.caption) {
+      await next();
+      return;
+    }
+    const animationId = ctx.message.animation.file_unique_id;
+    const wasSpam = await checkMediaSpam(ctx, animationId, "GIF");
+    if (!wasSpam) await next();
+  });
+  
+  // Voice note spam detection
+  bot.on("message:voice", async (ctx, next) => {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
     
     if (!chatId || chatId >= 0 || !userId || ctx.from?.is_bot) {
       await next();
       return;
     }
     
-    // Check if user is admin (admins bypass moderation)
     const userIsAdmin = await isUserAdmin(ctx, userId);
     if (userIsAdmin) {
       await next();
       return;
     }
     
-    const key = `${chatId}:${userId}`;
-    const now = Date.now();
+    // Track voice messages with a simple counter (any voice = 1 count)
+    const voiceId = `voice_${Date.now()}`;
+    const wasSpam = await checkMediaSpam(ctx, voiceId, "Voice");
+    if (!wasSpam) await next();
+  });
+  
+  // Video note (round video) spam detection
+  bot.on("message:video_note", async (ctx, next) => {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
     
-    // Get user's sticker history
-    let history = stickerHistory.get(key) || [];
-    
-    // Filter to recent stickers only
-    history = history.filter(h => now - h.lastTime < STICKER_WINDOW_MS);
-    
-    // Find if this sticker was recently sent
-    const existing = history.find(h => h.stickerId === stickerId);
-    if (existing) {
-      existing.count++;
-      existing.lastTime = now;
-      
-      if (existing.count >= STICKER_SPAM_THRESHOLD) {
-        try {
-          await ctx.api.deleteMessage(chatId, ctx.message.message_id);
-          const chatIdStr = String(chatId);
-          await incrementModStat(chatIdStr, 'spamBlocked');
-          await ctx.reply(`Sticker spam detected! Please don't flood the chat with the same sticker.`);
-          
-          // Reset count after warning
-          existing.count = 0;
-        } catch (e) {
-          console.log("Couldn't delete sticker spam");
-        }
-        return;
-      }
-    } else {
-      history.push({ stickerId, count: 1, lastTime: now });
+    if (!chatId || chatId >= 0 || !userId || ctx.from?.is_bot) {
+      await next();
+      return;
     }
     
-    stickerHistory.set(key, history);
+    const userIsAdmin = await isUserAdmin(ctx, userId);
+    if (userIsAdmin) {
+      await next();
+      return;
+    }
+    
+    const videoNoteId = ctx.message.video_note.file_unique_id;
+    const wasSpam = await checkMediaSpam(ctx, videoNoteId, "Video note");
+    if (!wasSpam) await next();
+  });
+  
+  // === FORWARDED MESSAGE RESTRICTIONS ===
+  bot.on("message", async (ctx, next) => {
+    // Check if message is forwarded (forward_origin is the modern property)
+    const forwardOrigin = ctx.message?.forward_origin;
+    if (!forwardOrigin) {
+      await next();
+      return;
+    }
+    
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    
+    if (!chatId || chatId >= 0 || !userId || ctx.from?.is_bot) {
+      await next();
+      return;
+    }
+    
+    const userIsAdmin = await isUserAdmin(ctx, userId);
+    if (userIsAdmin) {
+      await next();
+      return;
+    }
+    
+    const userIdStr = String(userId);
+    const chatIdStr = String(chatId);
+    
+    // Check if user is new
+    await ensureUserModerationStatus(userIdStr, chatIdStr);
+    const userStatus = await getUserModerationStatus(userIdStr, chatIdStr);
+    const userJoinDate = userStatus?.joinDate || new Date();
+    const hoursInChat = (Date.now() - new Date(userJoinDate).getTime()) / (1000 * 60 * 60);
+    
+    // New users (less than 24 hours) can't forward messages
+    if (hoursInChat < 24 && userStatus?.role === "newbie") {
+      try {
+        await ctx.api.deleteMessage(chatId, ctx.message!.message_id);
+        await incrementModStat(chatIdStr, 'spamBlocked');
+        await ctx.reply("New members can't forward messages during the first 24 hours. This protects our community from spam.");
+      } catch (e) {
+        console.log("Couldn't delete forwarded message from new user");
+      }
+      return;
+    }
+    
+    await next();
+  });
+  
+  // === CONTACT SHARING RESTRICTIONS ===
+  bot.on("message:contact", async (ctx, next) => {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    
+    if (!chatId || chatId >= 0 || !userId || ctx.from?.is_bot) {
+      await next();
+      return;
+    }
+    
+    const userIsAdmin = await isUserAdmin(ctx, userId);
+    if (userIsAdmin) {
+      await next();
+      return;
+    }
+    
+    const userIdStr = String(userId);
+    const chatIdStr = String(chatId);
+    
+    // Check if user is new
+    await ensureUserModerationStatus(userIdStr, chatIdStr);
+    const userStatus = await getUserModerationStatus(userIdStr, chatIdStr);
+    const userJoinDate = userStatus?.joinDate || new Date();
+    const hoursInChat = (Date.now() - new Date(userJoinDate).getTime()) / (1000 * 60 * 60);
+    
+    // New users can't share contacts (scammers share fake support contacts)
+    if (hoursInChat < 48 && userStatus?.role === "newbie") {
+      try {
+        await ctx.api.deleteMessage(chatId, ctx.message!.message_id);
+        await incrementModStat(chatIdStr, 'scamsBlocked');
+        await ctx.reply("Sharing contacts is restricted for new members. This protects our community from scammers impersonating support.");
+      } catch (e) {
+        console.log("Couldn't delete contact share from new user");
+      }
+      return;
+    }
+    
+    await next();
+  });
+  
+  // === DANGEROUS FILE TYPE BLOCKING ===
+  const DANGEROUS_EXTENSIONS = [
+    ".exe", ".bat", ".cmd", ".com", ".scr", ".pif", ".msi",
+    ".vbs", ".vbe", ".js", ".jse", ".ws", ".wsf", ".wsh",
+    ".ps1", ".psm1", ".psd1", ".sh", ".bash", ".run",
+    ".apk", ".app", ".dmg", ".pkg", ".deb", ".rpm"
+  ];
+  
+  bot.on("message:document", async (ctx, next) => {
+    const fileName = ctx.message.document.file_name?.toLowerCase() || "";
+    const chatId = ctx.chat?.id;
+    
+    if (!chatId || chatId >= 0 || !ctx.from?.id || ctx.from.is_bot) {
+      await next();
+      return;
+    }
+    
+    const userIsAdmin = await isUserAdmin(ctx, ctx.from.id);
+    if (userIsAdmin) {
+      await next();
+      return;
+    }
+    
+    // Check for dangerous file extensions
+    const isDangerous = DANGEROUS_EXTENSIONS.some(ext => fileName.endsWith(ext));
+    if (isDangerous) {
+      try {
+        await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+        const chatIdStr = String(chatId);
+        await incrementModStat(chatIdStr, 'scamsBlocked');
+        await ctx.reply("Executable and script files are not allowed. They can contain malware.");
+        await flagForModReview(ctx, String(ctx.from.id), ctx.from.username || "", 
+          `Attempted to share dangerous file: ${fileName}`, 80, "Dangerous file type blocked");
+      } catch (e) {
+        console.log("Couldn't delete dangerous file");
+      }
+      return;
+    }
+    
     await next();
   });
 
