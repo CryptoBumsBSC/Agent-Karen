@@ -5714,14 +5714,17 @@ Card design elements:
 – Sparkles and subtle holographic foil effects
 – Collectible card game aesthetic
 
-Text placement:
-– "${nickname}" as the card title at the top
-– "${username}" written cleanly at the bottom
+Text placement (IMPORTANT - text must be legible and fit within card borders):
+– Top banner area: "${nickname}" in bold stylized text, centered, easy to read
+– Bottom banner area: "${username}" in clean sans-serif font, centered, smaller than title
+– Keep text SHORT and within card frame boundaries
+– Use contrasting text colors against backgrounds for readability
+– Text should never be cut off or extend past card edges
 
 Overall vibe: fun, friendly, peaceful, adorable, and highly collectible.
 No realism, no photorealism — purely stylized cartoon mascot art.
 
-Small watermark text "dudleyBud.com" in the bottom right corner, subtle and unobtrusive.`;
+Small watermark "dudleyBud.com" in bottom right corner, tiny and subtle.`;
     
     const imageBuffer = await generateImageBuffer(prompt, "1024x1024");
     console.log(`Image generated successfully for ${username} (${imageBuffer.length} bytes)`);
