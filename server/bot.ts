@@ -4893,8 +4893,8 @@ Ask me anything! I'm literally always here.`
       return;
     }
     
-    // Track voice messages with a simple counter (any voice = 1 count)
-    const voiceId = `voice_${Date.now()}`;
+    // Track voice messages by file_unique_id for proper duplicate detection
+    const voiceId = ctx.message.voice.file_unique_id;
     const wasSpam = await checkMediaSpam(ctx, voiceId, "Voice");
     if (!wasSpam) await next();
   });
@@ -4922,9 +4922,11 @@ Ask me anything! I'm literally always here.`
   
   // === FORWARDED MESSAGE RESTRICTIONS ===
   bot.on("message", async (ctx, next) => {
-    // Check if message is forwarded (forward_origin is the modern property)
-    const forwardOrigin = ctx.message?.forward_origin;
-    if (!forwardOrigin) {
+    // Check if message is forwarded (check both modern and legacy properties)
+    const msg = ctx.message as any; // Cast to any to access legacy fields
+    const isForwarded = msg?.forward_origin || msg?.forward_from || msg?.forward_from_chat || 
+                        msg?.forward_sender_name || msg?.forward_date;
+    if (!isForwarded) {
       await next();
       return;
     }

@@ -25,9 +25,13 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Scheduled Posts**: Daily and weekly scheduled posts for birthdays, quotes, recipes, community bud avatars, and winner announcements.
     - **Conversational Triggers**: Responds to various casual messages (greetings, info, games, help, characters, referral, safety, mint).
 - **Moderation System**:
-    - **Anti-Spam/Flood Control**: Rate limiting, duplicate message detection, and sticker spam detection.
+    - **Anti-Spam/Flood Control**: Rate limiting, duplicate message detection, sticker/GIF/voice/video spam detection with TTL cleanup.
     - **Scam/Phishing Protection**: Domain blocklists, risk scoring for messages, and auto-quarantine for high-risk content.
     - **Link Control**: Restrictions on new users posting links, with allowlists for official domains.
+    - **Media Caption Moderation**: Scans photo/video/document captions for scam content and links.
+    - **Forwarded Message Restrictions**: New users (< 24 hours) cannot forward messages.
+    - **Contact Sharing Restrictions**: New users (< 48 hours) cannot share contacts (prevents support impersonation).
+    - **Dangerous File Blocking**: Blocks executables (.exe, .bat, .scr, .apk, etc.) with admin alerts.
     - **Contract Address Blocking**: Auto-kicks users with crypto contract addresses in their names.
     - **Role & Permission System**: Granular control over user actions and moderation commands.
     - **Anti-Raid Mode**: Stricter moderation settings for raid scenarios.
