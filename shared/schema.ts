@@ -123,6 +123,8 @@ export const memberScores = pgTable("member_scores", {
   referralCount: integer("referral_count").default(0),
   referralWeeklyPoints: integer("referral_weekly_points").default(0),
   referralWeeklyResetDate: text("referral_weekly_reset_date"),
+  referralMonthlyPoints: integer("referral_monthly_points").default(0),
+  referralMonthlyResetDate: text("referral_monthly_reset_date"),
 });
 
 // === BASE SCHEMAS ===

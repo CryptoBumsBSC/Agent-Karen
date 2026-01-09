@@ -708,6 +708,58 @@ You earn 25 points for each friend who joins using your link. Share it, stack po
   };
 }
 
+// Detect "karen games" keyword and provide instant game list response
+function detectGamesQuery(text: string): { isGames: boolean; response: string | null } {
+  const lowerText = text.toLowerCase();
+  
+  // Keywords for games query
+  const gamesKeywords = [
+    "karen games", "karen game", "games karen", "what games", "game list",
+    "play games", "available games", "show games", "list games", "/games"
+  ];
+  
+  const isGames = gamesKeywords.some(k => lowerText.includes(k)) ||
+    (lowerText.includes("karen") && lowerText.includes("game"));
+  
+  if (!isGames) {
+    return { isGames: false, response: null };
+  }
+  
+  return {
+    isGames: true,
+    response: `DUDLEY BUD GAMES
+
+SPACE BUD INVADERS (Seed Storm)
+Classic arcade shooter where YOU are Dudley defending against enemy bud strains!
+
+Features:
+- Play as Dudley - our cute green cannabis bud mascot
+- Enemies: Purple Haze (30pts), Blue Dream (25pts), Orange Kush (20pts), Sour Diesel (15pts), Northern Lights (10pts)
+- Multiple waves that get harder
+- High scores saved in your browser
+- Works on mobile & desktop!
+
+Type /play to start playing now!
+
+More games coming soon... stay tuned, fam!`
+  };
+}
+
+// Detect "karen recipe" keyword and fetch from chef-420.com
+function detectRecipeKeyword(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  
+  // Direct "karen [the] recipe" patterns
+  const recipePatterns = [
+    "karen recipe", "karen the recipe", "karen a recipe",
+    "karen get recipe", "karen give recipe", "karen show recipe",
+    "karen fetch recipe", "karen gimme recipe", "karen bring recipe"
+  ];
+  
+  return recipePatterns.some(p => lowerText.includes(p)) ||
+    (lowerText.includes("karen") && lowerText.includes("recipe") && !lowerText.includes("how to"));
+}
+
 // Medical cannabis disclaimer
 const MEDICAL_DISCLAIMER = `\n\n--- DISCLAIMER ---\nThis is NOT medical advice. DYOR (Do Your Own Research). Always consult a licensed healthcare provider before using cannabis for medical purposes. Laws vary by location. Stay informed, stay safe!`;
 
@@ -3038,6 +3090,22 @@ Check the leaderboard with /refboard`;
       return;
     }
     
+    // Check for games questions - instant response
+    const { isGames, response: gamesResponse } = detectGamesQuery(question);
+    if (isGames && gamesResponse) {
+      await ctx.reply(gamesResponse);
+      return;
+    }
+    
+    // Check for "karen recipe" - fetch a random recipe from collection
+    if (detectRecipeKeyword(question)) {
+      await ctx.reply("Let me grab a recipe for you from the kitchen...");
+      const recipe = getRandomRecipe();
+      const formattedRecipe = formatRecipePost(recipe);
+      await ctx.reply(formattedRecipe + RECIPE_DISCLAIMER);
+      return;
+    }
+    
     await ctx.reply("Thinking...");
     
     // Check query types
@@ -3533,7 +3601,17 @@ Pause: Press Escape
         const { isReferral, response: referralResponse } = detectReferralQuery(questionText);
         if (isReferral && referralResponse) {
           response = referralResponse;
-        } else {
+        } 
+        // Check for games questions - instant response
+        else if (detectGamesQuery(text).isGames) {
+          response = detectGamesQuery(text).response || "";
+        }
+        // Check for "karen recipe" - fetch a random recipe from collection
+        else if (detectRecipeKeyword(text)) {
+          const recipe = getRandomRecipe();
+          response = formatRecipePost(recipe) + RECIPE_DISCLAIMER;
+        }
+        else {
           const fullContext = rudenessContext 
             ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
             : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
