@@ -55,6 +55,8 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
   - Being nice reduces strikes and Karen acknowledges the improvement
 - **Bud Avatars**: Admin-only `/budify @username` creates DALL-E 3 cartoon trading card avatars with random strain assignment (Purple Haze, Blue Dream, Orange Kush, Sour Diesel, Northern Lights), unique nicknames, and AI-generated funny comments
 - **Community Bud Scheduler**: Automatically generates bud avatars for random active community members every 4-6 hours (max 4/day to control costs). First post 2 minutes after deployment, then random intervals.
+- **Karen Games**: Type "karen games" to see list of available games (Space Bud Invaders / Seed Storm)
+- **Karen Recipe**: Type "karen recipe" to get a random cannabis recipe from the collection
 
 ### Trivia System
 - **Multi-Question Rounds**: `/trivia 5` starts 5-question round (1-25 questions supported)

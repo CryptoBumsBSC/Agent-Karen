@@ -3599,19 +3599,19 @@ Pause: Press Escape
         
         // Check for referral questions first - instant response, no AI needed
         const { isReferral, response: referralResponse } = detectReferralQuery(questionText);
+        
+        // Check for games questions - instant response (compute once)
+        const gamesResult = detectGamesQuery(text);
+        
         if (isReferral && referralResponse) {
           response = referralResponse;
-        } 
-        // Check for games questions - instant response
-        else if (detectGamesQuery(text).isGames) {
-          response = detectGamesQuery(text).response || "";
-        }
-        // Check for "karen recipe" - fetch a random recipe from collection
-        else if (detectRecipeKeyword(text)) {
+        } else if (gamesResult.isGames && gamesResult.response) {
+          response = gamesResult.response;
+        } else if (detectRecipeKeyword(text)) {
+          // Check for "karen recipe" - fetch a random recipe from collection
           const recipe = getRandomRecipe();
           response = formatRecipePost(recipe) + RECIPE_DISCLAIMER;
-        }
-        else {
+        } else {
           const fullContext = rudenessContext 
             ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
             : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
@@ -4105,7 +4105,9 @@ async function confirmReferral(referredUserId: string, chatId: string): Promise<
   
   // Award points to referrer
   const now = new Date();
-  const weekStr = `${now.getFullYear()}-W${String(Math.ceil((now.getDate() + new Date(now.getFullYear(), now.getMonth(), 1).getDay()) / 7)).padStart(2, '0')}`;
+  const weekNum = getWeekNumber(now);
+  const weekStr = `${now.getFullYear()}-W${weekNum}`;
+  const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   
   // Update referrer's scores
   const referrerScore = await db.select().from(memberScores)
@@ -4122,13 +4124,18 @@ async function confirmReferral(referredUserId: string, chatId: string): Promise<
     const newReferralWeeklyPoints = s.referralWeeklyResetDate === weekStr 
       ? (s.referralWeeklyPoints || 0) + REFERRAL_POINTS 
       : REFERRAL_POINTS;
+    const newReferralMonthlyPoints = s.referralMonthlyResetDate === monthStr
+      ? (s.referralMonthlyPoints || 0) + REFERRAL_POINTS
+      : REFERRAL_POINTS;
     
     await db.update(memberScores)
       .set({
         referralPoints: newReferralPoints,
         referralCount: newReferralCount,
         referralWeeklyPoints: newReferralWeeklyPoints,
-        referralWeeklyResetDate: weekStr
+        referralWeeklyResetDate: weekStr,
+        referralMonthlyPoints: newReferralMonthlyPoints,
+        referralMonthlyResetDate: monthStr
       })
       .where(and(
         eq(memberScores.telegramUserId, referrerUserId),
