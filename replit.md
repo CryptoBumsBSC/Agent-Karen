@@ -60,9 +60,10 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 
 ### Advanced Moderation System
 - **Anti-Spam/Flood Control**:
-  - Rate limiting: 5 messages per 10 seconds per user
+  - Rate limiting: 5 messages per 10 seconds per user (game commands exempt)
   - Duplicate detection: Auto-blocks repeated identical messages (3+ times)
   - Silent flood control: Deletes spam without cluttering chat
+  - Game commands (/trivia, /puzzle, /guess, etc.) bypass rate limits for fast gameplay
 - **Scam/Phishing Protection**:
   - Domain blocklist: Known scam domains auto-blocked
   - Domain allowlist: Official links always allowed

@@ -4138,10 +4138,14 @@ Got questions? Just ask! We're here to help!`;
       const chatIdStr = String(chatId);
       const userIdStr = String(ctx.from.id);
       
+      // Skip rate limiting for game commands (they happen fast during gameplay)
+      const gameCommands = ['/trivia', '/puzzle', '/guess', '/leaderboard', '/puzzleboard', '/refboard', '/myreferrals', '/play'];
+      const isGameCommand = gameCommands.some(cmd => text.toLowerCase().startsWith(cmd));
+      
       // Check if user is admin (admins bypass moderation)
       const userIsAdminForMod = await isUserAdmin(ctx, ctx.from.id);
       
-      if (!userIsAdminForMod) {
+      if (!userIsAdminForMod && !isGameCommand) {
         // Get chat settings for raid mode and thresholds
         const settings = await getChatSettings(chatIdStr);
         
