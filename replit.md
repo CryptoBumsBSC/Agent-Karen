@@ -58,6 +58,16 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Community Bud Scheduler**: Automatically generates bud avatars for random active community members every 4-6 hours (max 4/day to control costs). First post 2 minutes after deployment, then random intervals.
 - **Karen Games**: Type "karen games" to see list of available games (Space Bud Invaders / Seed Storm)
 - **Karen Recipe**: Type "karen recipe" to get a random cannabis recipe from the collection
+- **Conversational Triggers**: Bot responds to casual messages without commands:
+  - Greetings: "hi", "hey", "hello", "yo", "sup" → Karen introduces herself
+  - Info: "info", "about", "project" → Project description
+  - Games: "games", "game", "play" → Shows all available games
+  - Help: "help", "commands" → Full command list
+  - Characters: "characters", "who is dudley" → Character introductions
+  - Referral: "referral", "invite" → Referral program explanation
+  - Safety: "scam", "legit", "safe" → Safety info and official links
+  - Mint: "mint", "nft", "price" → NFT collection info
+- **New Member Welcome**: When someone joins, Karen gives a friendly personalized welcome with tips
 
 ### Advanced Moderation System
 - **Anti-Spam/Flood Control**:
@@ -134,6 +144,7 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Daily Recipe**: 4 PM Pacific - Cannabis recipes from chef-420.com
 - **Community Bud**: Every 20-28 hours - Random active member gets an AI-generated bud avatar (1/day to control costs)
 - **Winner Announcements**: 11:55 PM Pacific - Announces top scorers before resets with AI-generated images and Karen's sassy congratulations
+- **Referral Reminder**: Every 6 hours - Karen reminds the community about the referral program and how to earn points
   - Daily: Every night at 11:55 PM Pacific
   - Weekly: Sunday nights at 11:55 PM Pacific (before Monday reset)
   - Monthly: Last day of month at 11:55 PM Pacific (before 1st reset)

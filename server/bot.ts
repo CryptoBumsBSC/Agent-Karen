@@ -1292,6 +1292,252 @@ More games coming soon... stay tuned, fam!`
   };
 }
 
+// === CONVERSATIONAL TRIGGERS ===
+// Detect casual greetings, info requests, and common questions without /commands
+// Uses strict matching to avoid false positives
+function detectConversationalTrigger(text: string): { triggered: boolean; response: string | null; category: string | null } {
+  const lowerText = text.toLowerCase().trim();
+  const words = lowerText.split(/\s+/);
+  const wordCount = words.length;
+  
+  // Only trigger on very short messages (1-5 words) to avoid false positives
+  if (wordCount > 5) {
+    return { triggered: false, response: null, category: null };
+  }
+  
+  // Helper function to check if text is EXACTLY or STARTS WITH a trigger word
+  const isExactOrStart = (triggers: string[]): boolean => {
+    return triggers.some(t => lowerText === t || lowerText === t + "!" || lowerText === t + "?");
+  };
+  
+  // Helper to check if first word matches exactly
+  const firstWordIs = (triggers: string[]): boolean => {
+    return triggers.includes(words[0].replace(/[!?,.]$/, ''));
+  };
+  
+  // === GREETINGS === (only exact matches like "hi", "hey!", "hello")
+  const greetings = ["hi", "hey", "hello", "yo", "sup", "hola", "wassup", "hii", "hiii", "heyyy", "henlo"];
+  const isGreeting = isExactOrStart(greetings) || (wordCount <= 2 && firstWordIs(greetings));
+  
+  if (isGreeting && wordCount <= 2) {
+    const greetingResponses = [
+      `Hey there! What's good? I'm Karen, your community manager. Need help with something? Just ask about the project, games, or anything really!`,
+      `Yo! Welcome to the chat! I'm Karen. Want to know about Dudley Bud? Just say "info". Want to play games? Say "games". I gotchu!`,
+      `Hey hey! Nice to see you! I'm here 24/7 if you need anything. Project info, games, how stuff works - just ask!`
+    ];
+    return { triggered: true, response: greetingResponses[Math.floor(Math.random() * greetingResponses.length)], category: "greeting" };
+  }
+  
+  // === PROJECT INFO === (exact phrases only)
+  const infoExact = ["info", "about", "info?", "about?"];
+  const infoPhrase = ["what is this", "what's this", "whats this", "what is dudley", "what is dudley bud", "tell me about dudley"];
+  const isInfo = isExactOrStart(infoExact) || infoPhrase.some(p => lowerText === p || lowerText === p + "?");
+  
+  if (isInfo) {
+    return { 
+      triggered: true, 
+      response: `DUDLEY BUD - Web3 Cannabis Character Universe
+
+Built on Base blockchain, we're a creative storytelling project featuring cannabis-themed characters!
+
+COLLECTIONS:
+- Limited Whitelist NFTs (priority access)
+- Dudley420 Collection: 1,000 NFTs @ 0.01 BASE
+
+WHAT WE ARE:
+- Creative Web3 storytelling & digital art
+- Community-driven entertainment
+- Animation, games & fun experiences
+
+WHAT WE'RE NOT:
+- Not an investment opportunity
+- No financial returns promised
+- NFTs are for entertainment only!
+
+Links: dudleybud.com | x.com/dudley420 | t.me/dudley420
+
+Got questions? Just ask me anything!`,
+      category: "info"
+    };
+  }
+  
+  // === GAMES === (exact matches only)
+  const gamesExact = ["games", "game", "games?", "game?"];
+  const gamesPhrases = ["what games", "any games", "play games", "play a game", "show games", "list games", "wanna play", "want to play"];
+  const isGames = isExactOrStart(gamesExact) || gamesPhrases.some(p => lowerText === p || lowerText.startsWith(p));
+  
+  if (isGames) {
+    return {
+      triggered: true,
+      response: `DUDLEY BUD GAMES
+
+TRIVIA - Test your cannabis & crypto knowledge!
+/trivia - Single question
+/trivia 5 - 5-question round (up to 25)
+/leaderboard - See rankings
+
+WORD PUZZLE - Unscramble the letters!
+/puzzle - Random difficulty
+/puzzle easy or /puzzle hard
+/puzzleboard - Puzzle rankings
+
+SPACE BUD INVADERS
+/play - Opens the arcade game!
+Classic shooter - you're Dudley vs enemy buds!
+
+Pick your game and let's go!`,
+      category: "games"
+    };
+  }
+  
+  // === HELP === (exact matches only)
+  const helpExact = ["help", "commands", "help?", "commands?", "menu"];
+  const helpPhrases = ["what can you do", "how do i use", "how to use bot", "how to use karen"];
+  const isHelp = isExactOrStart(helpExact) || helpPhrases.some(p => lowerText === p || lowerText === p + "?");
+  
+  if (isHelp) {
+    return {
+      triggered: true,
+      response: `KAREN'S COMMAND CENTER
+
+JUST CHAT:
+- Say "info" - Learn about the project
+- Say "games" - See available games
+- Ask any question - I'll answer!
+
+GAMES:
+/trivia [#] - Start trivia (1-25 questions)
+/puzzle - Word scramble game
+/play - Space Bud Invaders arcade
+
+COMMUNITY:
+/myreferrals - Get your invite link
+/refboard - Referral leaderboard
+/leaderboard - Trivia rankings
+/puzzleboard - Puzzle rankings
+
+FUN STUFF:
+/roast @username - I'll roast someone
+/market - Crypto prices
+/ask [question] - Ask me anything
+
+I'm here 24/7! Just talk to me like a normal person.`,
+      category: "help"
+    };
+  }
+  
+  // === CHARACTERS === (specific phrases only)
+  const characterPhrases = ["who is dudley", "who are the characters", "characters", "meet the team", "the characters", "who is blaze", "who is kush"];
+  const isCharacters = characterPhrases.some(p => lowerText === p || lowerText === p + "?" || lowerText.startsWith(p + " "));
+  
+  if (isCharacters) {
+    return {
+      triggered: true,
+      response: `THE DUDLEY BUD CREW
+
+DUDLEY - The main bud! Our green mascot who's always chillin' and spreading good vibes.
+
+BLAZE - The energetic one. Always hyped and ready for action.
+
+KUSH - The chill philosopher. Deep thoughts and mellow energy.
+
+SATIVA - The creative spirit. Artistic, inspiring, and uplifting.
+
+INDICA - The relaxed one. Calm, cozy, and all about that couch life.
+
+Each character represents different aspects of cannabis culture and our community!
+
+Visit dudleybud.com to see them all!`,
+      category: "characters"
+    };
+  }
+  
+  // === REFERRAL === (specific phrases only)
+  const referralPhrases = ["referral", "referral program", "invite friends", "how to invite", "get referral link", "referral link"];
+  const isReferral = referralPhrases.some(p => lowerText === p || lowerText === p + "?" || lowerText.startsWith(p + " "));
+  
+  if (isReferral) {
+    return {
+      triggered: true,
+      response: `REFERRAL PROGRAM
+
+Bring friends, earn points! Here's how:
+
+1. Get your personal invite link: /myreferrals
+2. Share that link with friends
+3. When they join using YOUR link, you get 25 points!
+
+LEADERBOARDS:
+/refboard - Weekly top referrers
+/refboard all - All-time rankings
+
+The more friends you bring, the higher you climb. Top referrers get special recognition!
+
+Ready? Type /myreferrals to get your link!`,
+      category: "referral"
+    };
+  }
+  
+  // === SAFETY/SCAM === (specific phrases only)
+  const safetyPhrases = ["is this legit", "is this a scam", "is this safe", "is it safe", "is it legit", "rugpull", "rug pull", "scam?"];
+  const isSafety = safetyPhrases.some(p => lowerText === p || lowerText.includes(p));
+  
+  if (isSafety) {
+    return {
+      triggered: true,
+      response: `SAFETY FIRST!
+
+OFFICIAL LINKS ONLY:
+- Website: dudleybud.com
+- X/Twitter: x.com/dudley420
+- Telegram: t.me/dudley420
+
+RED FLAGS TO WATCH:
+- Our team NEVER DMs first
+- We NEVER ask for wallet seeds/keys
+- Don't click random links
+- No "secret" mints or airdrops
+
+THIS PROJECT IS:
+- Entertainment & collectibles
+- NOT a financial investment
+- No returns promised
+
+If something seems sketchy, ask in the group! We're here to help keep everyone safe.`,
+      category: "safety"
+    };
+  }
+  
+  // === MINT/NFT === (specific phrases only)
+  const mintPhrases = ["mint", "nft", "mint price", "nft price", "how much to mint", "wen mint", "when mint", "mint info"];
+  const isMint = mintPhrases.some(p => lowerText === p || lowerText === p + "?" || (lowerText.startsWith(p) && wordCount <= 3));
+  
+  if (isMint) {
+    return {
+      triggered: true,
+      response: `DUDLEY BUD NFT INFO
+
+COLLECTIONS:
+- Limited Whitelist NFTs (priority access for OGs)
+- Dudley420 Collection: 1,000 NFTs @ 0.01 BASE
+
+BLOCKCHAIN: Base (Ethereum L2 - low gas fees!)
+
+WHAT YOU GET:
+- Unique digital art from our character universe
+- Part of the community
+- Access to games, events & more
+
+REMINDER: These are collectibles for FUN, not investments. Only mint what you can afford!
+
+Check dudleybud.com for the latest mint info.`,
+      category: "mint"
+    };
+  }
+  
+  return { triggered: false, response: null, category: null };
+}
+
 // Detect "karen recipe" keyword and fetch from chef-420.com
 function detectRecipeKeyword(text: string): boolean {
   const lowerText = text.toLowerCase();
@@ -4097,16 +4343,41 @@ Check the leaderboard with /refboard`;
       // Track new join in moderation stats
       await incrementModStat(chatIdStr, 'newJoins');
 
-      const welcome = `Welcome to Dudley Bud, ${name}!
+      const welcomeMessages = [
+        `Hey ${name}! Welcome to the Dudley Bud fam!
 
-Great to have you here! Before we get started:
+I'm Karen, your friendly (okay, sometimes sassy) community manager. Here's the deal:
 
-- Please read the pinned messages
+- Read the pinned messages first
+- Our team NEVER DMs first - anyone who does is a scammer
+- Just type "info" or "games" to learn more!
+
+Got questions? Just ask me anything - I don't bite... much.`,
+
+        `Well well, ${name} just walked in!
+
+Welcome to Dudley Bud! I'm Karen, I run this place.
+
+Quick tips:
+- Check the pinned messages
+- Nobody from our team will DM you first
+- Say "hi" or "help" if you need anything
+
+Don't be shy - I'm here 24/7!`,
+
+        `Welcome ${name}! Good to see a new face!
+
+I'm Karen - community manager, trivia host, and occasional roaster.
+
+Before you dive in:
+- Pinned messages = must read
 - Our team NEVER DMs first
-- NEVER click links unless approved by admins
+- Type "games" to see what we've got!
 
-Got questions? Just ask! We're here to help!`;
-
+Ask me anything! I'm literally always here.`
+      ];
+      
+      const welcome = welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)];
       await ctx.reply(welcome);
     }
   });
@@ -4369,6 +4640,18 @@ Got questions? Just ask! We're here to help!`;
 
     const lowerText = text.toLowerCase();
     const firstName = ctx.from?.first_name || "friend";
+    
+    // === CONVERSATIONAL TRIGGERS (no commands needed) ===
+    // Check for casual greetings, info requests, games, help, etc.
+    const conversational = detectConversationalTrigger(text);
+    if (conversational.triggered && conversational.response) {
+      // Add Karen sass based on mode
+      const response = ctx.session.karenMode 
+        ? karenResponse(conversational.response)
+        : conversational.response;
+      await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
+      return;
+    }
     
     // Instant dad joke when someone types "joke"
     if (lowerText === "joke" || lowerText === "jokes" || lowerText.includes("tell me a joke") || lowerText.includes("got a joke")) {
@@ -6124,6 +6407,66 @@ function startWinnerAnnouncementScheduler() {
   
   setInterval(checkAndAnnounce, 60 * 1000);
   console.log("Winner announcement scheduler started - announces at 11:55 PM Pacific before resets");
+  
+  // === 6-HOUR REFERRAL PROGRAM REMINDER ===
+  let lastReferralReminder = 0;
+  const REFERRAL_REMINDER_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+  
+  const referralReminderMessages = [
+    `REFERRAL REMINDER!
+
+Want to earn points while helping the community grow? Here's how:
+
+1. Type /myreferrals to get YOUR personal invite link
+2. Share it with friends who'd love Dudley Bud
+3. When they join using your link, you get 25 points!
+
+Top referrers get special recognition! Check the leaderboard with /refboard`,
+
+    `Hey fam! Quick reminder about our REFERRAL PROGRAM
+
+Every friend you bring = 25 points for YOU!
+
+How it works:
+/myreferrals - Get your unique invite link
+/refboard - See who's bringing the most new members
+
+The more friends you invite, the higher you climb! Top weekly and monthly referrers get exclusive budify avatar prizes!`,
+
+    `COMMUNITY BUILDING TIME!
+
+Did you know you can earn points just by inviting friends?
+
+The Dudley Bud Referral Program:
+- Get your personal link: /myreferrals
+- Share with friends
+- Earn 25 points per new member!
+
+Weekly top referrer gets a special budify avatar! Type /refboard to see current rankings.`
+  ];
+  
+  const postReferralReminder = async () => {
+    const now = Date.now();
+    if (now - lastReferralReminder < REFERRAL_REMINDER_INTERVAL) return;
+    
+    lastReferralReminder = now;
+    const message = referralReminderMessages[Math.floor(Math.random() * referralReminderMessages.length)];
+    
+    for (const chatId of Array.from(activeChats)) {
+      try {
+        await botInstance?.api.sendMessage(chatId, message);
+        console.log(`Posted referral reminder to chat ${chatId}`);
+      } catch (error) {
+        console.log(`Couldn't post referral reminder to chat ${chatId}`);
+      }
+    }
+  };
+  
+  // Check every hour, post every 6 hours
+  setInterval(postReferralReminder, 60 * 60 * 1000);
+  // Post first reminder 10 minutes after startup
+  setTimeout(postReferralReminder, 10 * 60 * 1000);
+  console.log("Referral reminder scheduler started - posts every 6 hours");
 }
 
 // === START BOT ===
