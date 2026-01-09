@@ -350,7 +350,7 @@ async function getChatSettings(chatId: string, forceRefresh: boolean = false): P
   const result = {
     raidMode: settings[0]?.raidModeEnabled ?? false,
     spamThreshold: settings[0]?.spamThreshold ?? 5,
-    newUserLinkHours: settings[0]?.newUserLinkRestriction ?? 24,
+    newUserLinkHours: Math.max(4, settings[0]?.newUserLinkRestriction ?? 4), // Minimum 4 hours
   };
   
   chatSettingsCache.set(chatId, { ...result, lastFetched: Date.now() });
@@ -412,8 +412,8 @@ async function isUserAdmin(ctx: MyContext, userId: number): Promise<boolean> {
   }
 }
 
-// Mute a user
-async function muteUser(ctx: MyContext, userId: number, duration: number, reason: string): Promise<boolean> {
+// Mute a user and notify admins
+async function muteUser(ctx: MyContext, userId: number, duration: number, reason: string, mutedUsername?: string): Promise<boolean> {
   try {
     const chatId = ctx.chat?.id;
     if (!chatId) return false;
@@ -446,6 +446,33 @@ async function muteUser(ctx: MyContext, userId: number, duration: number, reason
       ));
     
     await incrementModStat(chatIdStr, 'muteCount');
+    
+    // Notify admins about the mute
+    try {
+      const admins = await ctx.api.getChatAdministrators(chatId);
+      const adminMentions = admins
+        .filter(a => !a.user.is_bot)
+        .slice(0, 3) // Limit to 3 admins to avoid spam
+        .map(a => a.user.username ? `@${a.user.username}` : a.user.first_name)
+        .join(", ");
+      
+      const durationText = duration >= 3600 
+        ? `${Math.floor(duration / 3600)} hour(s)` 
+        : `${Math.floor(duration / 60)} minute(s)`;
+      const userDisplay = mutedUsername || `User ${userId}`;
+      
+      await ctx.api.sendMessage(chatId, 
+        `🔇 *MUTE ALERT* ${adminMentions}\n\n` +
+        `User: ${userDisplay}\n` +
+        `Duration: ${durationText}\n` +
+        `Reason: ${reason}\n\n` +
+        `Karen handled it, but thought you should know!`,
+        { parse_mode: "Markdown" }
+      );
+    } catch (adminErr) {
+      console.log("Couldn't notify admins about mute:", adminErr);
+    }
+    
     return true;
   } catch (error) {
     console.error("Failed to mute user:", error);
@@ -3667,7 +3694,8 @@ Check the leaderboard with /refboard`;
       return;
     }
     
-    const success = await muteUser(ctx, targetUserId, duration, reason);
+    const targetUsername = replyTo?.username || replyTo?.first_name || `User ${targetUserId}`;
+    const success = await muteUser(ctx, targetUserId, duration, reason, targetUsername);
     if (success) {
       const durationStr = duration < 3600 ? `${Math.round(duration/60)} minutes` : 
                           duration < 86400 ? `${Math.round(duration/3600)} hour(s)` :
@@ -3745,7 +3773,8 @@ Check the leaderboard with /refboard`;
     if (newWarnCount >= 3) {
       const targetIsAdmin = await isUserAdmin(ctx, replyTo.id);
       if (!targetIsAdmin) {
-        await muteUser(ctx, replyTo.id, 3600, "3 warnings received");
+        const warnedUsername = replyTo.username || replyTo.first_name || `User ${replyTo.id}`;
+        await muteUser(ctx, replyTo.id, 3600, "3 warnings received", warnedUsername);
         await ctx.reply(`⚠️ @${replyTo.username || replyTo.first_name} - Warning #${newWarnCount}\nReason: ${reason}\n\nYou have been automatically muted for 1 hour due to receiving 3 warnings.`);
       }
     } else {
@@ -3897,9 +3926,49 @@ Check the leaderboard with /refboard`;
     for (const member of ctx.message.new_chat_members) {
       const name = member.first_name || "friend";
       const username = member.username || "";
+      const fullName = `${member.first_name || ""} ${member.last_name || ""}`.trim();
       const chatId = ctx.chat.id;
       const chatIdStr = chatId.toString();
       const newMemberId = member.id.toString();
+
+      // Check for contract addresses in username or name
+      // Ethereum/Base pattern: 0x followed by 40 hex chars
+      // Also check for partial addresses that scammers use
+      const contractAddressPattern = /0x[a-fA-F0-9]{8,40}/i;
+      const checkStrings = [username, fullName, member.first_name || "", member.last_name || ""];
+      const hasContractAddress = checkStrings.some(str => contractAddressPattern.test(str));
+      
+      if (hasContractAddress) {
+        try {
+          // Kick user with contract address in name
+          await ctx.api.banChatMember(chatId, member.id);
+          // Immediately unban so they can rejoin with a proper name
+          await ctx.api.unbanChatMember(chatId, member.id);
+          
+          // Notify admins
+          const admins = await ctx.api.getChatAdministrators(chatId);
+          const adminMentions = admins
+            .filter(a => !a.user.is_bot)
+            .slice(0, 3)
+            .map(a => a.user.username ? `@${a.user.username}` : a.user.first_name)
+            .join(", ");
+          
+          await ctx.reply(
+            `🚫 *BLOCKED* ${adminMentions}\n\n` +
+            `User with contract address in name was removed:\n` +
+            `Name: ${fullName}\n` +
+            `Username: @${username || "none"}\n\n` +
+            `Karen doesn't play with scammers!`,
+            { parse_mode: "Markdown" }
+          );
+          
+          await incrementModStat(chatIdStr, 'scamsBlocked');
+          continue; // Skip rest of welcome for this blocked user
+        } catch (kickErr) {
+          console.log("Couldn't kick user with contract address:", kickErr);
+          await ctx.reply(`⚠️ Warning: User @${username || name} has a contract address in their name. Admins please verify!`);
+        }
+      }
 
       const { isScam, flags } = detectScam("", username);
 

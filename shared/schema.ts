@@ -132,7 +132,7 @@ export const chatModerationSettings = pgTable("chat_moderation_settings", {
   raidModeEnabledBy: text("raid_mode_enabled_by"),
   linkBlockingEnabled: boolean("link_blocking_enabled").default(true),
   spamThreshold: integer("spam_threshold").default(5), // messages per 10 sec
-  newUserLinkRestriction: integer("new_user_link_restriction").default(24), // hours
+  newUserLinkRestriction: integer("new_user_link_restriction").default(4), // hours (minimum 4)
   modChannelId: text("mod_channel_id"), // where to send alerts
 });
 
