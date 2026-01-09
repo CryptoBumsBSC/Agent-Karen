@@ -70,16 +70,20 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
   - Auto-quarantine: High-risk messages (60+) auto-deleted and flagged
   - Human handoff: Medium-risk messages (40-60) flagged for mod review
 - **Link Control for New Users**:
-  - New members cannot post links for first 24 hours (48 hours in raid mode)
+  - New members cannot post links for first 4 hours minimum (48 hours in raid mode)
+  - Links are automatically deleted (not just warned)
   - Only allowed domains permitted during restriction period
   - Verified/helper+ roles exempt from link restrictions
+- **Contract Address Blocking**:
+  - Users with crypto contract addresses (0x...) in username/name are auto-kicked on join
+  - Admins are notified when scammer accounts are blocked
 - **Role & Permission System**:
   - Roles: admin > mod > helper > verified > newbie
   - Permission checks before all moderation actions
   - Admins and mods bypass all moderation checks
   - `/setrole <role>` - Set user's trust level (admin only)
-- **Moderation Commands (Admin Only)**:
-  - `/mute [duration] [reason]` - Mute user (reply to message). Duration: 30m, 1h, 1d
+- **Moderation Commands (Admin/Mod Only)**:
+  - `/mute [duration] [reason]` - Mute user (reply to message). Duration: 30m, 1h, 1d. Admins are @ mentioned when users are muted
   - `/unmute` - Unmute user (reply to message)
   - `/warn [reason]` - Warn user. 3 warnings = 1 hour auto-mute
   - `/raidmode on|off` - Toggle anti-raid protections
