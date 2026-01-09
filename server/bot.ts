@@ -1734,6 +1734,18 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   { question: "Are Dudley Bud NFTs meant for financial returns?", options: ["Yes, guaranteed profits", "No, entertainment only", "Maybe, depends on market", "Only for whales"], correctIndex: 1, category: 'dudley', points: 15 },
   { question: "Which is NOT a Dudley Bud character?", options: ["Blaze", "Kush", "Sativa", "Bitcoin Bob"], correctIndex: 3, category: 'dudley', points: 10 },
   { question: "What type of community is Dudley Bud building?", options: ["Pump and dump", "Creative and educational", "Mining pool", "Exchange platform"], correctIndex: 1, category: 'dudley', points: 15 },
+  // Namast-Hay strain questions
+  { question: "What is Dudley's signature strain called?", options: ["OG Bud", "Namast-Hay", "Dudley Kush", "Base Haze"], correctIndex: 1, category: 'dudley', points: 15 },
+  { question: "Who did Dudley create Namast-Hay with?", options: ["Blaze", "Blinked", "Karen", "Kush"], correctIndex: 1, category: 'dudley', points: 15 },
+  { question: "Namast-Hay is a cross of Candyland and what?", options: ["OG Kush", "Blue Dream", "Ghost Train Haze", "Sour Diesel"], correctIndex: 2, category: 'cannabis', points: 15 },
+  { question: "What type of hybrid is Namast-Hay?", options: ["Indica-dominant", "Sativa-dominant", "50/50 balanced", "Pure Indica"], correctIndex: 1, category: 'cannabis', points: 10 },
+  { question: "What color are Namast-Hay's buds?", options: ["Deep purple", "Bright green with orange hairs", "White and frosty", "Dark brown"], correctIndex: 1, category: 'cannabis', points: 10 },
+  // Referral program questions
+  { question: "How many points do you earn per referral?", options: ["10 points", "25 points", "50 points", "100 points"], correctIndex: 1, category: 'dudley', points: 10 },
+  { question: "What command shows your referral link?", options: ["/mylink", "/myreferrals", "/getlink", "/referme"], correctIndex: 1, category: 'dudley', points: 10 },
+  { question: "What command shows the referral leaderboard?", options: ["/leaders", "/refboard", "/topref", "/scoreboard"], correctIndex: 1, category: 'dudley', points: 10 },
+  { question: "What does the weekly top referrer win?", options: ["Crypto tokens", "Budify avatar", "Free NFT", "Cash prize"], correctIndex: 1, category: 'dudley', points: 15 },
+  { question: "When is the weekly referral winner announced?", options: ["Friday night", "Saturday morning", "Sunday night", "Monday morning"], correctIndex: 2, category: 'dudley', points: 10 },
 ];
 
 interface RoundScore {
@@ -1775,6 +1787,21 @@ Dudley Bud Universe:
 - AgentKarenBot is the AI community manager
 - NFTs are for collecting and entertainment only
 - Project emphasizes cannabis culture meets Web3 creativity
+
+Dudley's Signature Strain - Namast-Hay:
+- Created by Dudley with Blinked
+- Sativa-dominant hybrid from Candyland x Ghost Train Haze
+- Bright green buds with vibrant orange hairs and purple hints
+- Thick frosty trichome coating
+- Sweet berry notes blended with sour citrus and pine
+- Uplifting, creative, and energizing effects
+
+Referral Program:
+- /myreferrals - Get your personal invite link
+- /refboard - See weekly referral leaderboard
+- Earn 25 points for every new member you invite
+- Weekly top referrer gets exclusive budify avatar prize (announced Sunday night)
+- Monthly top referrer also gets special recognition
 `;
 
 // Generate AI trivia question
@@ -3152,11 +3179,11 @@ Stay safe, fam!`;
   bot.command("play", async (ctx) => {
     if (!ctx.chat) return;
     
-    // Use the deployment URL - update this after publishing
-    const gameUrl = "https://dudley-bud-web3-universe-dankprof.replit.app/game.html";
+    // Seed Storm game URL
+    const gameUrl = "https://t.me/SeedStormBot/SeedStorm";
     
     await ctx.reply(
-      "SPACE BUD INVADERS\n\n" +
+      "SEED STORM\n\n" +
       "Help Dudley defend Earth from evil alien buds!\n" +
       "Blast waves of Purple Haze, Blue Dream, Orange Kush and more!\n\n" +
       "Controls:\n" +
@@ -3818,12 +3845,15 @@ Check the leaderboard with /refboard`;
     }
     
     recordBudifyUsage(); // Record timestamp before generation
-    console.log(`Creating /budify avatar for ${targetUsername} (${getBudifyUsageCount()}/${MAX_DAILY_BUDIFY} in last 24h)`);
+    
+    // Check if owner is creating (owner gets chance for exclusive Namast-Hay strain)
+    const ownerCreating = await isOwner(ctx);
+    console.log(`Creating /budify avatar for ${targetUsername} (${getBudifyUsageCount()}/${MAX_DAILY_BUDIFY} in last 24h)${ownerCreating ? ' [OWNER - Namast-Hay eligible]' : ''}`);
     
     await ctx.reply(`Creating bud avatar for ${targetUsername}... This takes a moment!`);
     
     try {
-      const { imageBuffer, strain, nickname, funnyComment } = await generateBudAvatar(targetUsername);
+      const { imageBuffer, strain, nickname, funnyComment } = await generateBudAvatar(targetUsername, ownerCreating);
       
       const caption = `BUD AVATAR UNLOCKED!\n\n` +
         `@${targetUsername} is now...\n` +
@@ -5095,6 +5125,8 @@ const EASY_WORDS = [
   "OG", "BUD", "THC", "CBD", "WAX", "DAB", "POT", "GAS", "ZEN", "NFT",
   "ETH", "APE", "GEM", "BAG", "RUG", "DEX", "DAO", "FUD", "APY", "TVL",
   "SOL", "BTC", "LIT", "HIT", "TOP", "DIP", "RIP", "WIN", "VIP", "MAX",
+  // Referral program words
+  "REF", "LINK", "FAM", "GROW", "EARN",
   // 4-5 letter words (cannabis)
   "KUSH", "BONG", "DANK", "HIGH", "HEMP", "LEAF", "BUDS", "DOPE", "HAZE", "HASH",
   "MINT", "LIME", "GLOW", "CHILL", "BLAZE", "GREEN", "SMOKE", "VIBES", "PEACE", "DREAM",
@@ -5110,7 +5142,9 @@ const EASY_WORDS = [
 
 const HARD_WORDS = [
   // 6-8 letter words (cannabis strains)
-  "SATIVA", "INDICA", "HYBRID", "CHRONIC", "GELATO", "ZKITTLEZ", "RUNTZ", "COOKIES",
+  "SATIVA", "INDICA", "HYBRID", "CHRONIC", "GELATO", "ZKITTLEZ", "RUNTZ", "COOKIES", "NAMASTAY",
+  // Dudley Bud special
+  "CANDYLAND", "GHOSTTRAIN",
   "TERPENE", "EXTRACT", "DIAMOND", "SHATTER", "BUDDER", "ROSIN", "FLOWER", "NUGGET",
   "EDIBLE", "TOPICAL", "PREROLL", "GRINDER", "VAPORIZE", "BUBBLER", "SPLIFF", "BLUNTS",
   "GORILLA", "TRAINWRECK", "SKYWALKER", "HEADBAND", "CHEMDAWG", "GRANDDADDY", "TANGIE",
@@ -5124,6 +5158,8 @@ const HARD_WORDS = [
   "CROSSCHAIN", "MULTICHAIN", "ROLLUP", "ZEROKNOW", "CONSENSUS", "DELEGATE", "PROPOSER",
   "SLASHING", "REWARDS", "TREASURY", "MULTISIG", "TIMELOCK", "MERKLE", "HASHRATE",
   "DECENTRALIZED", "IMMUTABLE", "PERMISSIONLESS", "TRUSTLESS", "COMPOSABLE",
+  // Referral program words
+  "REFERRAL", "REFBOARD", "INVITES", "CHAMPION", "LEADERBOARD",
   // Dudley themed (6-8 letters)
   "DUDLEY", "BLAZER", "PURPLE", "NORTHERN", "AGENTKARENS", "COMMUNITY", "TRADING",
   "COLLECTOR", "ARTWORK", "CARTOON", "CHARACTER", "UNIVERSE", "CREATIVE", "CANNABIS"
@@ -5577,6 +5613,14 @@ const BUD_STRAINS = [
   { name: "Modified Grapes", color: "deep purple", nicknames: ["Grape God", "Modified Master", "Vine King", "Purple Perfection", "Cluster Captain"], description: "Sweet grape candy flavor with heavy relaxation. A cross of GMO and Purple Punch." }
 ];
 
+// OWNER-ONLY EXCLUSIVE STRAIN - Dudley's signature strain (only available when owner creates budify)
+const NAMASTAY_STRAIN = {
+  name: "Namast-Hay",
+  color: "bright green with orange hairs and purple hints",
+  nicknames: ["Dudley's Choice", "Namaste Master", "Hay Day Hero", "Blinked Boss", "Zen Garden King"],
+  description: "Dudley's signature sativa-dominant hybrid created with Blinked. A cross of Candyland and Ghost Train Haze. Features bright green buds with vibrant orange hairs, purple hints, and thick frosty trichome coating. Sweet berry notes from Candyland blend with pungent sour citrus and pine from Ghost Train Haze. Uplifting, creative, and energizing effects."
+};
+
 const BUD_BACKGROUNDS = [
   "cosmic galaxy with stars and nebula",
   "tropical sunset with palm trees",
@@ -5667,8 +5711,15 @@ const CARD_STYLES = [
   "emerald green jeweled border"
 ];
 
-async function generateBudAvatar(username: string): Promise<{ imageBuffer: Buffer | null; strain: typeof BUD_STRAINS[0]; nickname: string; funnyComment: string }> {
-  const strain = BUD_STRAINS[Math.floor(Math.random() * BUD_STRAINS.length)];
+async function generateBudAvatar(username: string, isOwnerCreated: boolean = false): Promise<{ imageBuffer: Buffer | null; strain: typeof BUD_STRAINS[0]; nickname: string; funnyComment: string }> {
+  // Owner-created budify has 20% chance to get exclusive Namast-Hay strain
+  let strain: typeof BUD_STRAINS[0];
+  if (isOwnerCreated && Math.random() < 0.2) {
+    strain = NAMASTAY_STRAIN;
+    console.log(`Owner gets EXCLUSIVE Namast-Hay strain for ${username}!`);
+  } else {
+    strain = BUD_STRAINS[Math.floor(Math.random() * BUD_STRAINS.length)];
+  }
   const nickname = strain.nicknames[Math.floor(Math.random() * strain.nicknames.length)];
   const background = BUD_BACKGROUNDS[Math.floor(Math.random() * BUD_BACKGROUNDS.length)];
   const pose = BUD_POSES[Math.floor(Math.random() * BUD_POSES.length)];
