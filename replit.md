@@ -113,7 +113,7 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
   - Hard: 6-8 letter cannabis/crypto words, 20 seconds, 15 points
 - **Separate Leaderboard**: `/puzzleboard` shows puzzle-only rankings (daily/weekly/monthly)
 - **Word Lists**: 50 easy words, 50+ hard words (cannabis strains, crypto terms)
-- **Duplicate Prevention**: Tracks last 30 words per chat to avoid repeats
+- **Duplicate Prevention**: Tracks last 100 words per chat to avoid repeats
 - **One Guess Per Round**: Users get one attempt per puzzle
 
 ### Referral Program

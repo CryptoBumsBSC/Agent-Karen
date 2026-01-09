@@ -4761,7 +4761,7 @@ const activePuzzles: Map<number, ActivePuzzle> = new Map();
 
 // Track recently used puzzle words per chat to avoid repeats
 const recentPuzzleWords: Map<number, string[]> = new Map();
-const MAX_RECENT_PUZZLE_WORDS = 30; // Remember last 30 words per chat
+const MAX_RECENT_PUZZLE_WORDS = 100; // Remember last 100 words per chat
 
 function getUnusedPuzzleWord(chatId: number, wordList: string[]): string {
   const recentWords = recentPuzzleWords.get(chatId) || [];
