@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 
@@ -396,6 +396,86 @@ async function incrementModStat(chatId: string, field: 'newJoins' | 'messagesBlo
       date: today,
       [field]: 1,
     });
+  }
+}
+
+// === Q&A KNOWLEDGE CACHE ===
+// Normalize question for hashing - lowercase, remove punctuation, trim spaces
+function normalizeQuestion(question: string): string {
+  return question.toLowerCase()
+    .replace(/[^\w\s]/g, '') // Remove punctuation
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
+}
+
+// Simple string hash function (djb2 algorithm)
+function simpleHash(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(36);
+}
+
+// Create a hash of the normalized question
+function hashQuestion(question: string): string {
+  const normalized = normalizeQuestion(question);
+  // Use djb2 hash + first 50 chars for uniqueness
+  return simpleHash(normalized) + "_" + normalized.substring(0, 50);
+}
+
+// Look up a question in the cache
+async function findCachedAnswer(question: string): Promise<{ answer: string; askCount: number } | null> {
+  const hash = hashQuestion(question);
+  
+  try {
+    const cached = await db.select().from(qaCache)
+      .where(eq(qaCache.questionHash, hash))
+      .limit(1);
+    
+    if (cached.length > 0) {
+      // Update ask count and last asked time
+      await db.update(qaCache)
+        .set({ 
+          askCount: (cached[0].askCount || 1) + 1,
+          lastAsked: sql`CURRENT_TIMESTAMP`
+        })
+        .where(eq(qaCache.id, cached[0].id));
+      
+      return { 
+        answer: cached[0].answerText, 
+        askCount: (cached[0].askCount || 1) + 1 
+      };
+    }
+  } catch (error) {
+    console.log("Error checking Q&A cache:", error);
+  }
+  
+  return null;
+}
+
+// Save a new Q&A to the cache
+async function cacheAnswer(question: string, answer: string): Promise<void> {
+  const hash = hashQuestion(question);
+  
+  try {
+    // Check if already exists (race condition protection)
+    const existing = await db.select().from(qaCache)
+      .where(eq(qaCache.questionHash, hash))
+      .limit(1);
+    
+    if (existing.length === 0) {
+      await db.insert(qaCache).values({
+        questionHash: hash,
+        questionText: question.substring(0, 500), // Limit stored question length
+        answerText: answer.substring(0, 2000), // Limit stored answer length
+        askCount: 1,
+      });
+      console.log("Cached new Q&A:", hash.substring(0, 30) + "...");
+    }
+  } catch (error) {
+    console.log("Error caching Q&A:", error);
   }
 }
 
@@ -3573,11 +3653,24 @@ Check the leaderboard with /refboard`;
       return;
     }
     
-    await ctx.reply("Thinking...");
-    
-    // Check query types
+    // Check query types BEFORE cache check (crypto needs live data)
     const { isCrypto, tokens } = detectCryptoQuery(question);
     const { isRecipe, isMedical } = detectCannabisQuery(question);
+    
+    // Skip cache for crypto queries (need live prices) and recipe generation
+    const skipCache = isCrypto || isRecipe;
+    
+    // Check Q&A cache first for non-crypto/recipe questions
+    if (!skipCache) {
+      const cached = await findCachedAnswer(question);
+      if (cached) {
+        await ctx.reply(cached.answer + "\n\n[From Karen's brain - asked " + cached.askCount + " times]");
+        return;
+      }
+    }
+    
+    await ctx.reply("Thinking...");
+    
     let liveData = "";
     let disclaimer = "";
     
@@ -3637,6 +3730,11 @@ Check the leaderboard with /refboard`;
     
     const aiResponse = await getAIResponse(question, context);
     const fullResponse = aiResponse + liveData + disclaimer;
+    
+    // Cache the response for future use (only for non-crypto/recipe questions)
+    if (!skipCache && aiResponse) {
+      await cacheAnswer(question, aiResponse);
+    }
     
     await ctx.reply(fullResponse);
   });

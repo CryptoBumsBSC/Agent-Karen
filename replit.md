@@ -37,6 +37,7 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 
 ### Bot Features (AgentKarenBot)
 - **AI-Powered Q&A**: /ask command answers questions about Dudley Bud using OpenAI
+- **Q&A Learning Cache**: Stores popular questions and answers to reduce AI costs. Crypto/recipe questions always use live data.
 - **Market Reports**: /market fetches live crypto prices (top 10 or specific token search)
 - **AI Roasts**: /roast generates witty roasts for community members
 - **Smart Responses**: Auto-responds when mentioned or when questions are asked

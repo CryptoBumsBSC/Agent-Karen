@@ -173,6 +173,17 @@ export const memberScores = pgTable("member_scores", {
   referralMonthlyResetDate: text("referral_monthly_reset_date"),
 });
 
+// Q&A Knowledge Cache - stores learned questions and answers to reduce AI costs
+export const qaCache = pgTable("qa_cache", {
+  id: serial("id").primaryKey(),
+  questionHash: text("question_hash").notNull(), // Normalized hash of the question
+  questionText: text("question_text").notNull(), // Original question
+  answerText: text("answer_text").notNull(), // AI-generated answer
+  askCount: integer("ask_count").default(1), // How many times this was asked
+  lastAsked: timestamp("last_asked").default(sql`CURRENT_TIMESTAMP`),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
 export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true });
@@ -186,6 +197,7 @@ export const insertReferralSchema = createInsertSchema(referrals).omit({ id: tru
 export const insertModerationStatsSchema = createInsertSchema(moderationStats).omit({ id: true });
 export const insertUserModerationStatusSchema = createInsertSchema(userModerationStatus).omit({ id: true });
 export const insertChatModerationSettingsSchema = createInsertSchema(chatModerationSettings).omit({ id: true });
+export const insertQaCacheSchema = createInsertSchema(qaCache).omit({ id: true, createdAt: true, lastAsked: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -200,6 +212,7 @@ export type Referral = typeof referrals.$inferSelect;
 export type ModerationStats = typeof moderationStats.$inferSelect;
 export type UserModerationStatus = typeof userModerationStatus.$inferSelect;
 export type ChatModerationSettings = typeof chatModerationSettings.$inferSelect;
+export type QaCache = typeof qaCache.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
