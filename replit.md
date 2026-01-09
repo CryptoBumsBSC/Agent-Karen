@@ -58,6 +58,43 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 - **Karen Games**: Type "karen games" to see list of available games (Space Bud Invaders / Seed Storm)
 - **Karen Recipe**: Type "karen recipe" to get a random cannabis recipe from the collection
 
+### Advanced Moderation System
+- **Anti-Spam/Flood Control**:
+  - Rate limiting: 5 messages per 10 seconds per user
+  - Duplicate detection: Auto-blocks repeated identical messages (3+ times)
+  - Silent flood control: Deletes spam without cluttering chat
+- **Scam/Phishing Protection**:
+  - Domain blocklist: Known scam domains auto-blocked
+  - Domain allowlist: Official links always allowed
+  - Risk scoring (0-100): Calculates risk based on links, phrases, account age, patterns
+  - Auto-quarantine: High-risk messages (60+) auto-deleted and flagged
+  - Human handoff: Medium-risk messages (40-60) flagged for mod review
+- **Link Control for New Users**:
+  - New members cannot post links for first 24 hours (48 hours in raid mode)
+  - Only allowed domains permitted during restriction period
+  - Verified/helper+ roles exempt from link restrictions
+- **Role & Permission System**:
+  - Roles: admin > mod > helper > verified > newbie
+  - Permission checks before all moderation actions
+  - Admins and mods bypass all moderation checks
+  - `/setrole <role>` - Set user's trust level (admin only)
+- **Moderation Commands (Admin Only)**:
+  - `/mute [duration] [reason]` - Mute user (reply to message). Duration: 30m, 1h, 1d
+  - `/unmute` - Unmute user (reply to message)
+  - `/warn [reason]` - Warn user. 3 warnings = 1 hour auto-mute
+  - `/raidmode on|off` - Toggle anti-raid protections
+  - `/modstats [week]` - View moderation statistics (today or week)
+  - `/setrole <role>` - Set user's role (admin, mod, helper, verified, newbie)
+- **Anti-Raid Mode** (`/raidmode on`):
+  - New users cannot post links for 48 hours (vs 24)
+  - Lower risk thresholds for auto-action (40 vs 60)
+  - Stricter spam detection
+  - Quick toggle for when raids are detected
+- **Community Analytics**:
+  - Tracks: new joins, messages blocked, spam blocked, scams blocked, links blocked, mutes, warns, flags
+  - Daily and weekly stats via `/modstats`
+  - Stored in `moderation_stats` table
+
 ### Trivia System
 - **Multi-Question Rounds**: `/trivia 5` starts 5-question round (1-25 questions supported)
 - **AI-Generated Questions**: Uses GPT-4o-mini with 13 topic categories (cannabis strains/science/history, crypto basics/slang, DeFi, Dudley characters, etc.)
@@ -129,6 +166,9 @@ Main tables:
 - **conversations**: AI chat conversation tracking
 - **messages**: Individual messages within conversations
 - **user_memory**: Per-user interaction tracking for the bot
+- **moderation_stats**: Daily moderation analytics (joins, blocks, mutes, warns, flags)
+- **user_moderation_status**: Per-user moderation state (role, mute status, warn count, risk score)
+- **chat_moderation_settings**: Per-chat settings (raid mode, link restrictions, thresholds)
 
 Schema is defined in `shared/schema.ts` and shared between frontend and backend.
 

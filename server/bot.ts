@@ -1,8 +1,8 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals } from "@shared/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings } from "@shared/schema";
+import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 
 // === BOT TOKEN ===
@@ -127,6 +127,446 @@ const SCAM_PATTERNS = {
 
 const SUSPICIOUS_USERNAMES = ["xxx", "porn", "nsfw", "onlyfans", "sex"];
 const CRYPTO_ADDRESS_REGEX = /(0x[a-fA-F0-9]{40}|bc1[a-zA-HJ-NP-Z0-9]{25,39}|eth:|btc:)/i;
+
+// === ADVANCED MODERATION SYSTEM ===
+
+// Domain blocklist for known scam/phishing sites
+const BLOCKED_DOMAINS = [
+  "bit.ly", "tinyurl.com", // URL shorteners often used for scams (careful with allowlist)
+  "walletconnect.to", "metamask-airdrop", "opensea-claim",
+  "eth-claim", "bnb-airdrop", "trust-wallet-claim",
+  "phantom-airdrop", "solana-drop", "mint-nft-free",
+  "uniswap-airdrop", "pancakeswap-reward", "coinbase-giveaway",
+  "binance-bonus", "crypto-reward", "nft-mint-free",
+  "telegram-premium", "tg-premium-free", "free-usdt",
+  "double-btc", "send-eth-receive", "guaranteed-profit",
+];
+
+// Allowed domains (your official links)
+const ALLOWED_DOMAINS = [
+  "dudleybud.com", "dudley420", "t.me/dudley420",
+  "x.com/dudley420", "twitter.com/dudley420",
+  "opensea.io", "base.org", "basescan.org",
+  "chef-420.com", // Recipe source
+  "replit.app", // Your app domain
+];
+
+// High-risk phrases that increase risk score
+const HIGH_RISK_PHRASES = [
+  "connect your wallet", "claim your", "free airdrop", "limited time",
+  "send me", "dm me", "private message", "verify your wallet",
+  "approve transaction", "gas fee", "double your crypto",
+  "guaranteed profit", "risk free", "act now", "expires in",
+  "whitelist spot", "free mint", "seed phrase", "recovery phrase",
+  "support team", "official admin", "customer service",
+];
+
+// In-memory rate limiting (per user per chat)
+interface RateLimitEntry {
+  messages: number[];  // timestamps of recent messages
+  lastMessage: string;
+  duplicateCount: number;
+}
+const rateLimitCache = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW = 10000; // 10 seconds
+const MAX_MESSAGES_PER_WINDOW = 5;
+const DUPLICATE_THRESHOLD = 3; // same message 3+ times = spam
+
+// In-memory cache for chat settings (reduce DB calls)
+const chatSettingsCache = new Map<string, {
+  raidMode: boolean;
+  spamThreshold: number;
+  newUserLinkHours: number;
+  lastFetched: number;
+}>();
+const SETTINGS_CACHE_TTL = 60000; // 1 minute
+
+// Role hierarchy for permission checks
+const ROLE_HIERARCHY: Record<string, number> = {
+  admin: 100,
+  mod: 80,
+  helper: 60,
+  verified: 40,
+  newbie: 20,
+};
+
+// Check if user can moderate another user
+function canModerate(moderatorRole: string, targetRole: string): boolean {
+  return (ROLE_HIERARCHY[moderatorRole] || 0) > (ROLE_HIERARCHY[targetRole] || 0);
+}
+
+// Get today's date string in YYYY-MM-DD format
+function getTodayDateString(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+// Calculate message risk score (0-100)
+function calculateRiskScore(text: string, username: string | undefined, accountAgeDays: number): number {
+  let score = 0;
+  const lowerText = text.toLowerCase();
+  
+  // Check for blocked domains
+  for (const domain of BLOCKED_DOMAINS) {
+    if (lowerText.includes(domain)) {
+      score += 40;
+      break;
+    }
+  }
+  
+  // Check for high-risk phrases
+  for (const phrase of HIGH_RISK_PHRASES) {
+    if (lowerText.includes(phrase)) {
+      score += 15;
+    }
+  }
+  
+  // Check for links (excluding allowed domains)
+  const urlRegex = /https?:\/\/[^\s]+/gi;
+  const urls = text.match(urlRegex) || [];
+  for (const url of urls) {
+    const isAllowed = ALLOWED_DOMAINS.some(d => url.toLowerCase().includes(d));
+    if (!isAllowed) {
+      score += 10; // Unknown links add risk
+    }
+  }
+  
+  // Check for suspicious patterns
+  if (CRYPTO_ADDRESS_REGEX.test(text)) score += 25;
+  if (text.includes("@") && text.toLowerCase().includes("dm")) score += 20;
+  
+  // New accounts are riskier
+  if (accountAgeDays < 1) score += 25;
+  else if (accountAgeDays < 7) score += 15;
+  else if (accountAgeDays < 30) score += 5;
+  
+  // Suspicious username
+  for (const term of SUSPICIOUS_USERNAMES) {
+    if (username?.toLowerCase().includes(term)) {
+      score += 20;
+      break;
+    }
+  }
+  
+  // Excessive caps or emoji
+  const capsRatio = (text.match(/[A-Z]/g) || []).length / text.length;
+  if (capsRatio > 0.5 && text.length > 20) score += 10;
+  
+  // Count emoji using simpler pattern (common emoji ranges)
+  const emojiPattern = /[\uD83C-\uDBFF\uDC00-\uDFFF]/g;
+  const emojiCount = (text.match(emojiPattern) || []).length;
+  if (emojiCount > 20) score += 10; // Doubled threshold since we're counting surrogate pairs
+  
+  return Math.min(score, 100);
+}
+
+// Check rate limiting for a user (with configurable threshold)
+function checkRateLimit(userId: string, chatId: string, messageText: string, spamThreshold?: number): { blocked: boolean; reason: string | null } {
+  const key = `${chatId}:${userId}`;
+  const now = Date.now();
+  const effectiveThreshold = spamThreshold || MAX_MESSAGES_PER_WINDOW;
+  
+  let entry = rateLimitCache.get(key);
+  if (!entry) {
+    entry = { messages: [], lastMessage: "", duplicateCount: 0 };
+    rateLimitCache.set(key, entry);
+  }
+  
+  // Clean old messages outside window AND reset duplicate count if window expired
+  const oldMessageCount = entry.messages.length;
+  entry.messages = entry.messages.filter(ts => now - ts < RATE_LIMIT_WINDOW);
+  
+  // Reset duplicate count if all messages expired (window passed)
+  if (oldMessageCount > 0 && entry.messages.length === 0) {
+    entry.duplicateCount = 0;
+    entry.lastMessage = "";
+  }
+  
+  // Check for duplicates
+  if (messageText === entry.lastMessage) {
+    entry.duplicateCount++;
+    if (entry.duplicateCount >= DUPLICATE_THRESHOLD) {
+      return { blocked: true, reason: "duplicate_spam" };
+    }
+  } else {
+    entry.duplicateCount = 1;
+    entry.lastMessage = messageText;
+  }
+  
+  // Check rate limit with configurable threshold
+  entry.messages.push(now);
+  if (entry.messages.length > effectiveThreshold) {
+    return { blocked: true, reason: "flood" };
+  }
+  
+  return { blocked: false, reason: null };
+}
+
+// Get or create user moderation status
+async function getUserModerationStatus(userId: string, chatId: string): Promise<typeof userModerationStatus.$inferSelect | null> {
+  const existing = await db.select().from(userModerationStatus)
+    .where(and(
+      eq(userModerationStatus.telegramUserId, userId),
+      eq(userModerationStatus.chatId, chatId)
+    ))
+    .limit(1);
+  return existing[0] || null;
+}
+
+// Create user moderation status if not exists
+async function ensureUserModerationStatus(userId: string, chatId: string): Promise<void> {
+  const existing = await getUserModerationStatus(userId, chatId);
+  if (!existing) {
+    await db.insert(userModerationStatus).values({
+      telegramUserId: userId,
+      chatId: chatId,
+      role: "newbie",
+    });
+  }
+}
+
+// Get chat moderation settings (with caching)
+async function getChatSettings(chatId: string, forceRefresh: boolean = false): Promise<{
+  raidMode: boolean;
+  spamThreshold: number;
+  newUserLinkHours: number;
+}> {
+  // Skip cache if force refresh requested
+  if (!forceRefresh) {
+    const cached = chatSettingsCache.get(chatId);
+    if (cached && Date.now() - cached.lastFetched < SETTINGS_CACHE_TTL) {
+      return {
+        raidMode: cached.raidMode,
+        spamThreshold: cached.spamThreshold,
+        newUserLinkHours: cached.newUserLinkHours,
+      };
+    }
+  }
+  
+  const settings = await db.select().from(chatModerationSettings)
+    .where(eq(chatModerationSettings.chatId, chatId))
+    .limit(1);
+  
+  const result = {
+    raidMode: settings[0]?.raidModeEnabled ?? false,
+    spamThreshold: settings[0]?.spamThreshold ?? 5,
+    newUserLinkHours: settings[0]?.newUserLinkRestriction ?? 24,
+  };
+  
+  chatSettingsCache.set(chatId, { ...result, lastFetched: Date.now() });
+  return result;
+}
+
+// Check if a user can moderate based on stored role (or Telegram admin status)
+async function canUserModerate(ctx: MyContext, userId: number, chatId: string): Promise<boolean> {
+  // Telegram admins always can moderate
+  const isAdmin = await isUserAdmin(ctx, userId);
+  if (isAdmin) return true;
+  
+  // Check stored role
+  const status = await getUserModerationStatus(String(userId), chatId);
+  if (status) {
+    const role = status.role || "newbie";
+    return ROLE_HIERARCHY[role] >= ROLE_HIERARCHY["mod"]; // mod or higher
+  }
+  
+  return false;
+}
+
+// Update moderation stats
+async function incrementModStat(chatId: string, field: 'newJoins' | 'messagesBlocked' | 'spamBlocked' | 'scamsBlocked' | 'linksBlocked' | 'muteCount' | 'warnCount' | 'raidAttempts' | 'flaggedForReview'): Promise<void> {
+  const today = getTodayDateString();
+  
+  const existing = await db.select().from(moderationStats)
+    .where(and(
+      eq(moderationStats.chatId, chatId),
+      eq(moderationStats.date, today)
+    ))
+    .limit(1);
+  
+  if (existing.length > 0) {
+    const stat = existing[0];
+    const currentValue = stat[field as keyof typeof stat] as number || 0;
+    await db.update(moderationStats)
+      .set({ [field]: currentValue + 1 })
+      .where(eq(moderationStats.id, existing[0].id));
+  } else {
+    await db.insert(moderationStats).values({
+      chatId,
+      date: today,
+      [field]: 1,
+    });
+  }
+}
+
+// Check if user is an admin/mod in Telegram
+async function isUserAdmin(ctx: MyContext, userId: number): Promise<boolean> {
+  try {
+    const chatId = ctx.chat?.id;
+    if (!chatId) return false;
+    
+    const member = await ctx.api.getChatMember(chatId, userId);
+    return member.status === 'administrator' || member.status === 'creator';
+  } catch {
+    return false;
+  }
+}
+
+// Mute a user
+async function muteUser(ctx: MyContext, userId: number, duration: number, reason: string): Promise<boolean> {
+  try {
+    const chatId = ctx.chat?.id;
+    if (!chatId) return false;
+    
+    const untilDate = Math.floor(Date.now() / 1000) + duration;
+    await ctx.api.restrictChatMember(chatId, userId, {
+      can_send_messages: false,
+      can_send_audios: false,
+      can_send_documents: false,
+      can_send_photos: false,
+      can_send_videos: false,
+      can_send_video_notes: false,
+      can_send_voice_notes: false,
+      can_send_polls: false,
+      can_send_other_messages: false,
+      can_add_web_page_previews: false,
+    }, { until_date: untilDate });
+    
+    // Update database
+    const chatIdStr = String(chatId);
+    await db.update(userModerationStatus)
+      .set({
+        isMuted: true,
+        muteUntil: new Date(untilDate * 1000),
+        muteReason: reason,
+      })
+      .where(and(
+        eq(userModerationStatus.telegramUserId, String(userId)),
+        eq(userModerationStatus.chatId, chatIdStr)
+      ));
+    
+    await incrementModStat(chatIdStr, 'muteCount');
+    return true;
+  } catch (error) {
+    console.error("Failed to mute user:", error);
+    return false;
+  }
+}
+
+// Unmute a user
+async function unmuteUser(ctx: MyContext, userId: number): Promise<boolean> {
+  try {
+    const chatId = ctx.chat?.id;
+    if (!chatId) return false;
+    
+    await ctx.api.restrictChatMember(chatId, userId, {
+      can_send_messages: true,
+      can_send_audios: true,
+      can_send_documents: true,
+      can_send_photos: true,
+      can_send_videos: true,
+      can_send_video_notes: true,
+      can_send_voice_notes: true,
+      can_send_polls: true,
+      can_send_other_messages: true,
+      can_add_web_page_previews: true,
+    });
+    
+    // Update database
+    const chatIdStr = String(chatId);
+    await db.update(userModerationStatus)
+      .set({
+        isMuted: false,
+        muteUntil: null,
+        muteReason: null,
+      })
+      .where(and(
+        eq(userModerationStatus.telegramUserId, String(userId)),
+        eq(userModerationStatus.chatId, chatIdStr)
+      ));
+    
+    return true;
+  } catch (error) {
+    console.error("Failed to unmute user:", error);
+    return false;
+  }
+}
+
+// Flag message for mod review
+async function flagForModReview(ctx: MyContext, userId: string, username: string, messageText: string, riskScore: number, reason: string): Promise<void> {
+  const chatId = String(ctx.chat?.id || "");
+  await incrementModStat(chatId, 'flaggedForReview');
+  
+  // Try to notify admins in the chat
+  try {
+    const alertMessage = `⚠️ *FLAGGED FOR REVIEW*\n\n` +
+      `👤 User: ${username || userId}\n` +
+      `📊 Risk Score: ${riskScore}/100\n` +
+      `📝 Reason: ${reason}\n\n` +
+      `💬 Message:\n\`${messageText.substring(0, 200)}${messageText.length > 200 ? '...' : ''}\`\n\n` +
+      `_Review and take action if needed._`;
+    
+    // Get chat admins
+    if (ctx.chat?.id) {
+      const admins = await ctx.api.getChatAdministrators(ctx.chat.id);
+      // Send to first admin (or could be mod channel if configured)
+      if (admins.length > 0) {
+        // Just log for now - could DM admins or post to mod channel
+        console.log(`[MOD ALERT] ${alertMessage}`);
+      }
+    }
+  } catch (error) {
+    console.error("Failed to send mod alert:", error);
+  }
+}
+
+// Get moderation stats for a period
+async function getModStats(chatId: string, days: number): Promise<{
+  newJoins: number;
+  messagesBlocked: number;
+  spamBlocked: number;
+  scamsBlocked: number;
+  linksBlocked: number;
+  muteCount: number;
+  warnCount: number;
+  flaggedForReview: number;
+}> {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+  const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+  
+  const stats = await db.select().from(moderationStats)
+    .where(and(
+      eq(moderationStats.chatId, chatId),
+      gte(moderationStats.date, startDateStr)
+    ));
+  
+  const totals = {
+    newJoins: 0,
+    messagesBlocked: 0,
+    spamBlocked: 0,
+    scamsBlocked: 0,
+    linksBlocked: 0,
+    muteCount: 0,
+    warnCount: 0,
+    flaggedForReview: 0,
+  };
+  
+  for (const stat of stats) {
+    totals.newJoins += stat.newJoins || 0;
+    totals.messagesBlocked += stat.messagesBlocked || 0;
+    totals.spamBlocked += stat.spamBlocked || 0;
+    totals.scamsBlocked += stat.scamsBlocked || 0;
+    totals.linksBlocked += stat.linksBlocked || 0;
+    totals.muteCount += stat.muteCount || 0;
+    totals.warnCount += stat.warnCount || 0;
+    totals.flaggedForReview += stat.flaggedForReview || 0;
+  }
+  
+  return totals;
+}
+
+// === END MODERATION SYSTEM ===
 
 // === HELPER FUNCTIONS ===
 function getRandomItem<T>(arr: T[]): T {
@@ -3174,6 +3614,284 @@ Check the leaderboard with /refboard`;
     await ctx.reply(fullResponse);
   });
 
+  // === MODERATION COMMANDS ===
+
+  // /mute - Mute a user (admin/mod only)
+  bot.command("mute", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") {
+      await ctx.reply("This command only works in groups.");
+      return;
+    }
+    
+    // Check if caller can moderate (admin or mod role)
+    const chatIdStr = String(ctx.chat.id);
+    const callerCanMod = await canUserModerate(ctx, ctx.from.id, chatIdStr);
+    if (!callerCanMod) {
+      await ctx.reply("Only admins and mods can use this command.");
+      return;
+    }
+    
+    // Get mentioned user or replied-to user
+    const replyTo = ctx.message?.reply_to_message?.from;
+    const args = ctx.message?.text?.split(/\s+/) || [];
+    let targetUserId: number | null = null;
+    let duration = 3600; // Default 1 hour
+    let reason = "Muted by admin";
+    
+    if (replyTo) {
+      targetUserId = replyTo.id;
+      // Parse duration from args if provided: /mute 1h reason
+      if (args[1]) {
+        const durationMatch = args[1].match(/^(\d+)([mhd])$/i);
+        if (durationMatch) {
+          const num = parseInt(durationMatch[1]);
+          const unit = durationMatch[2].toLowerCase();
+          if (unit === 'm') duration = num * 60;
+          else if (unit === 'h') duration = num * 3600;
+          else if (unit === 'd') duration = num * 86400;
+          reason = args.slice(2).join(" ") || reason;
+        } else {
+          reason = args.slice(1).join(" ") || reason;
+        }
+      }
+    } else {
+      await ctx.reply("Reply to a user's message to mute them.\nUsage: /mute [duration] [reason]\nDuration: 30m, 1h, 1d");
+      return;
+    }
+    
+    // Don't mute admins
+    const targetIsAdmin = await isUserAdmin(ctx, targetUserId);
+    if (targetIsAdmin) {
+      await ctx.reply("Cannot mute an admin.");
+      return;
+    }
+    
+    const success = await muteUser(ctx, targetUserId, duration, reason);
+    if (success) {
+      const durationStr = duration < 3600 ? `${Math.round(duration/60)} minutes` : 
+                          duration < 86400 ? `${Math.round(duration/3600)} hour(s)` :
+                          `${Math.round(duration/86400)} day(s)`;
+      await ctx.reply(`User muted for ${durationStr}.\nReason: ${reason}`);
+    } else {
+      await ctx.reply("Failed to mute user. Make sure I have the right permissions.");
+    }
+  });
+
+  // /unmute - Unmute a user (admin/mod only)
+  bot.command("unmute", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const chatIdStr = String(ctx.chat.id);
+    const callerCanMod = await canUserModerate(ctx, ctx.from.id, chatIdStr);
+    if (!callerCanMod) {
+      await ctx.reply("Only admins and mods can use this command.");
+      return;
+    }
+    
+    const replyTo = ctx.message?.reply_to_message?.from;
+    if (!replyTo) {
+      await ctx.reply("Reply to a user's message to unmute them.");
+      return;
+    }
+    
+    const success = await unmuteUser(ctx, replyTo.id);
+    if (success) {
+      await ctx.reply(`User @${replyTo.username || replyTo.first_name} has been unmuted.`);
+    } else {
+      await ctx.reply("Failed to unmute user.");
+    }
+  });
+
+  // /warn - Warn a user
+  bot.command("warn", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const chatIdStr = String(ctx.chat.id);
+    const callerCanMod = await canUserModerate(ctx, ctx.from.id, chatIdStr);
+    if (!callerCanMod) {
+      await ctx.reply("Only admins and mods can use this command.");
+      return;
+    }
+    
+    const replyTo = ctx.message?.reply_to_message?.from;
+    if (!replyTo) {
+      await ctx.reply("Reply to a user's message to warn them.");
+      return;
+    }
+    
+    const reason = ctx.message?.text?.replace(/^\/warn\s*/i, '') || "Breaking community rules";
+    
+    // Update warn count in database
+    await ensureUserModerationStatus(String(replyTo.id), chatIdStr);
+    const status = await getUserModerationStatus(String(replyTo.id), chatIdStr);
+    const newWarnCount = (status?.warnCount || 0) + 1;
+    
+    await db.update(userModerationStatus)
+      .set({
+        warnCount: newWarnCount,
+        lastWarnDate: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(and(
+        eq(userModerationStatus.telegramUserId, String(replyTo.id)),
+        eq(userModerationStatus.chatId, chatIdStr)
+      ));
+    
+    await incrementModStat(chatIdStr, 'warnCount');
+    
+    // Auto-mute after 3 warnings
+    if (newWarnCount >= 3) {
+      const targetIsAdmin = await isUserAdmin(ctx, replyTo.id);
+      if (!targetIsAdmin) {
+        await muteUser(ctx, replyTo.id, 3600, "3 warnings received");
+        await ctx.reply(`⚠️ @${replyTo.username || replyTo.first_name} - Warning #${newWarnCount}\nReason: ${reason}\n\nYou have been automatically muted for 1 hour due to receiving 3 warnings.`);
+      }
+    } else {
+      await ctx.reply(`⚠️ @${replyTo.username || replyTo.first_name} - Warning #${newWarnCount}/3\nReason: ${reason}\n\n3 warnings = 1 hour mute`);
+    }
+  });
+
+  // /raidmode - Toggle anti-raid mode (admin only)
+  bot.command("raidmode", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const callerIsAdmin = await isUserAdmin(ctx, ctx.from.id);
+    if (!callerIsAdmin) {
+      await ctx.reply("Only admins can use this command.");
+      return;
+    }
+    
+    const chatIdStr = String(ctx.chat.id);
+    const args = ctx.message?.text?.split(/\s+/) || [];
+    const action = args[1]?.toLowerCase();
+    
+    // Get current settings
+    const settings = await getChatSettings(chatIdStr);
+    
+    if (action === "on") {
+      // Enable raid mode
+      const existing = await db.select().from(chatModerationSettings)
+        .where(eq(chatModerationSettings.chatId, chatIdStr))
+        .limit(1);
+      
+      if (existing.length > 0) {
+        await db.update(chatModerationSettings)
+          .set({
+            raidModeEnabled: true,
+            raidModeEnabledAt: sql`CURRENT_TIMESTAMP`,
+            raidModeEnabledBy: String(ctx.from.id),
+          })
+          .where(eq(chatModerationSettings.chatId, chatIdStr));
+      } else {
+        await db.insert(chatModerationSettings).values({
+          chatId: chatIdStr,
+          raidModeEnabled: true,
+          raidModeEnabledAt: new Date(),
+          raidModeEnabledBy: String(ctx.from.id),
+        });
+      }
+      
+      // Clear cache to force refresh
+      chatSettingsCache.delete(chatIdStr);
+      
+      await ctx.reply(`🚨 *RAID MODE ACTIVATED*\n\n` +
+        `Anti-raid protections enabled:\n` +
+        `• New users cannot post links\n` +
+        `• Stricter spam thresholds\n` +
+        `• Enhanced scam detection\n\n` +
+        `Use /raidmode off to disable.`, { parse_mode: "Markdown" });
+    } else if (action === "off") {
+      // Disable raid mode
+      await db.update(chatModerationSettings)
+        .set({ raidModeEnabled: false })
+        .where(eq(chatModerationSettings.chatId, chatIdStr));
+      
+      chatSettingsCache.delete(chatIdStr);
+      
+      await ctx.reply(`✅ Raid mode disabled. Normal moderation settings restored.`);
+    } else {
+      // Show current status
+      await ctx.reply(`*Raid Mode Status:* ${settings.raidMode ? "🚨 ACTIVE" : "✅ Inactive"}\n\n` +
+        `Usage:\n` +
+        `/raidmode on - Enable anti-raid protections\n` +
+        `/raidmode off - Disable anti-raid protections`, { parse_mode: "Markdown" });
+    }
+  });
+
+  // /modstats - Show moderation statistics (admin only)
+  bot.command("modstats", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const callerIsAdmin = await isUserAdmin(ctx, ctx.from.id);
+    if (!callerIsAdmin) {
+      await ctx.reply("Only admins can view moderation stats.");
+      return;
+    }
+    
+    const chatIdStr = String(ctx.chat.id);
+    const args = ctx.message?.text?.split(/\s+/) || [];
+    const period = args[1]?.toLowerCase() === "week" ? 7 : 1;
+    
+    const stats = await getModStats(chatIdStr, period);
+    const periodLabel = period === 7 ? "This Week" : "Today";
+    
+    await ctx.reply(`📊 *Moderation Stats - ${periodLabel}*\n\n` +
+      `👋 New Joins: ${stats.newJoins}\n` +
+      `🚫 Messages Blocked: ${stats.messagesBlocked}\n` +
+      `📵 Spam Blocked: ${stats.spamBlocked}\n` +
+      `⚠️ Scams Blocked: ${stats.scamsBlocked}\n` +
+      `🔗 Links Blocked: ${stats.linksBlocked}\n` +
+      `🔇 Users Muted: ${stats.muteCount}\n` +
+      `⚠️ Warnings Given: ${stats.warnCount}\n` +
+      `🏳️ Flagged for Review: ${stats.flaggedForReview}\n\n` +
+      `_Use /modstats week for weekly stats_`, { parse_mode: "Markdown" });
+  });
+
+  // /setrole - Set a user's role (admin only)
+  bot.command("setrole", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const callerIsAdmin = await isUserAdmin(ctx, ctx.from.id);
+    if (!callerIsAdmin) {
+      await ctx.reply("Only admins can set roles.");
+      return;
+    }
+    
+    const replyTo = ctx.message?.reply_to_message?.from;
+    const args = ctx.message?.text?.split(/\s+/) || [];
+    const role = args[1]?.toLowerCase();
+    
+    if (!replyTo) {
+      await ctx.reply("Reply to a user's message to set their role.\nUsage: /setrole <role>\nRoles: admin, mod, helper, verified, newbie");
+      return;
+    }
+    
+    const validRoles = ["admin", "mod", "helper", "verified", "newbie"];
+    if (!role || !validRoles.includes(role)) {
+      await ctx.reply(`Invalid role. Choose from: ${validRoles.join(", ")}`);
+      return;
+    }
+    
+    const chatIdStr = String(ctx.chat.id);
+    await ensureUserModerationStatus(String(replyTo.id), chatIdStr);
+    
+    await db.update(userModerationStatus)
+      .set({ role })
+      .where(and(
+        eq(userModerationStatus.telegramUserId, String(replyTo.id)),
+        eq(userModerationStatus.chatId, chatIdStr)
+      ));
+    
+    await ctx.reply(`✅ @${replyTo.username || replyTo.first_name}'s role set to: ${role}`);
+  });
+
+  // === END MODERATION COMMANDS ===
+
   // === NEW MEMBER HANDLER ===
   bot.on("message:new_chat_members", async (ctx) => {
     for (const member of ctx.message.new_chat_members) {
@@ -3205,6 +3923,12 @@ Check the leaderboard with /refboard`;
       } catch (error) {
         console.log("Error tracking referral from invite link:", error);
       }
+
+      // Initialize moderation status for new member
+      await ensureUserModerationStatus(newMemberId, chatIdStr);
+      
+      // Track new join in moderation stats
+      await incrementModStat(chatIdStr, 'newJoins');
 
       const welcome = `Welcome to Dudley Bud, ${name}!
 
@@ -3340,7 +4064,109 @@ Got questions? Just ask! We're here to help!`;
       }
     }
 
-    // Scam detection
+    // === ADVANCED MODERATION CHECKS ===
+    if (chatId && chatId < 0 && ctx.from?.id && !ctx.from.is_bot) {
+      const chatIdStr = String(chatId);
+      const userIdStr = String(ctx.from.id);
+      
+      // Check if user is admin (admins bypass moderation)
+      const userIsAdminForMod = await isUserAdmin(ctx, ctx.from.id);
+      
+      if (!userIsAdminForMod) {
+        // Get chat settings for raid mode and thresholds
+        const settings = await getChatSettings(chatIdStr);
+        
+        // 1. Rate limiting check (use stricter threshold in raid mode)
+        const rateThreshold = settings.raidMode ? Math.max(3, settings.spamThreshold - 2) : settings.spamThreshold;
+        const rateCheck = checkRateLimit(userIdStr, chatIdStr, text, rateThreshold);
+        if (rateCheck.blocked) {
+          try {
+            await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+            await incrementModStat(chatIdStr, rateCheck.reason === "flood" ? 'spamBlocked' : 'messagesBlocked');
+            
+            if (rateCheck.reason === "duplicate_spam") {
+              await ctx.reply(`Slow down! Sending the same message repeatedly is not allowed.`);
+            }
+            // Silent delete for flood - just delete without message
+          } catch (e) {
+            console.log("Couldn't delete rate-limited message");
+          }
+          return; // Stop processing
+        }
+        
+        // 2. Link restriction for new users
+        const urlRegex = /https?:\/\/[^\s]+/gi;
+        const urls = text.match(urlRegex) || [];
+        if (urls.length > 0) {
+          // Get user moderation status to check join date and role
+          await ensureUserModerationStatus(userIdStr, chatIdStr);
+          const userStatus = await getUserModerationStatus(userIdStr, chatIdStr);
+          const userJoinDate = userStatus?.joinDate || new Date();
+          const hoursInChat = (Date.now() - new Date(userJoinDate).getTime()) / (1000 * 60 * 60);
+          
+          // Block links from new users (raid mode = stricter)
+          const linkHoursLimit = settings.raidMode ? 48 : settings.newUserLinkHours;
+          if (hoursInChat < linkHoursLimit && userStatus?.role === "newbie") {
+            // Check if ALL links are allowed
+            const allLinksAllowed = urls.every(url => 
+              ALLOWED_DOMAINS.some(d => url.toLowerCase().includes(d))
+            );
+            
+            if (!allLinksAllowed) {
+              try {
+                await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+                await incrementModStat(chatIdStr, 'linksBlocked');
+                await ctx.reply(`Links are restricted for new members during the first ${linkHoursLimit} hours. Ask an admin if you need to share a link!`);
+              } catch (e) {
+                console.log("Couldn't delete link from new user");
+              }
+              return;
+            }
+          }
+        }
+        
+        // 3. Risk scoring for scam/phishing detection
+        const userJoinDate = (await getUserModerationStatus(userIdStr, chatIdStr))?.joinDate || new Date();
+        const accountAgeDays = (Date.now() - new Date(userJoinDate).getTime()) / (1000 * 60 * 60 * 24);
+        const riskScore = calculateRiskScore(text, username, accountAgeDays);
+        
+        // Raid mode = lower threshold for action
+        const highRiskThreshold = settings.raidMode ? 40 : 60;
+        const mediumRiskThreshold = settings.raidMode ? 25 : 40;
+        
+        if (riskScore >= highRiskThreshold) {
+          // Auto-quarantine: delete message and flag
+          try {
+            await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+            await incrementModStat(chatIdStr, 'scamsBlocked');
+            
+            // Update user risk score
+            await db.update(userModerationStatus)
+              .set({ 
+                riskScore: riskScore,
+                isQuarantined: true,
+                quarantineReason: `High risk score: ${riskScore}`
+              })
+              .where(and(
+                eq(userModerationStatus.telegramUserId, userIdStr),
+                eq(userModerationStatus.chatId, chatIdStr)
+              ));
+            
+            await ctx.reply(`⚠️ Suspicious message blocked. Admins have been notified.`);
+            await flagForModReview(ctx, userIdStr, username || "", text, riskScore, "High risk score - auto-quarantined");
+          } catch (e) {
+            console.log("Couldn't auto-quarantine high-risk message");
+          }
+          return;
+        } else if (riskScore >= mediumRiskThreshold) {
+          // Medium risk: flag for review but don't delete
+          await flagForModReview(ctx, userIdStr, username || "", text, riskScore, "Medium risk score - flagged for review");
+        }
+      }
+    }
+    // === END ADVANCED MODERATION ===
+
+    // Scam detection (existing - keep for backwards compatibility)
     const { isScam, flags } = detectScam(text, username);
 
     if (isScam) {

@@ -90,6 +90,52 @@ export const referrals = pgTable("referrals", {
   status: text("status").default("pending"), // pending, confirmed, invalid
 });
 
+// Moderation stats for community analytics
+export const moderationStats = pgTable("moderation_stats", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  date: text("date").notNull(), // YYYY-MM-DD format
+  newJoins: integer("new_joins").default(0),
+  messagesBlocked: integer("messages_blocked").default(0),
+  spamBlocked: integer("spam_blocked").default(0),
+  scamsBlocked: integer("scams_blocked").default(0),
+  linksBlocked: integer("links_blocked").default(0),
+  muteCount: integer("mute_count").default(0),
+  warnCount: integer("warn_count").default(0),
+  raidAttempts: integer("raid_attempts").default(0),
+  flaggedForReview: integer("flagged_for_review").default(0),
+});
+
+// User moderation status
+export const userModerationStatus = pgTable("user_moderation_status", {
+  id: serial("id").primaryKey(),
+  telegramUserId: text("telegram_user_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  role: text("role").default("newbie"), // admin, mod, helper, verified, newbie
+  isMuted: boolean("is_muted").default(false),
+  muteUntil: timestamp("mute_until"),
+  muteReason: text("mute_reason"),
+  warnCount: integer("warn_count").default(0),
+  lastWarnDate: timestamp("last_warn_date"),
+  riskScore: integer("risk_score").default(0),
+  joinDate: timestamp("join_date").default(sql`CURRENT_TIMESTAMP`),
+  isQuarantined: boolean("is_quarantined").default(false),
+  quarantineReason: text("quarantine_reason"),
+});
+
+// Chat moderation settings
+export const chatModerationSettings = pgTable("chat_moderation_settings", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull().unique(),
+  raidModeEnabled: boolean("raid_mode_enabled").default(false),
+  raidModeEnabledAt: timestamp("raid_mode_enabled_at"),
+  raidModeEnabledBy: text("raid_mode_enabled_by"),
+  linkBlockingEnabled: boolean("link_blocking_enabled").default(true),
+  spamThreshold: integer("spam_threshold").default(5), // messages per 10 sec
+  newUserLinkRestriction: integer("new_user_link_restriction").default(24), // hours
+  modChannelId: text("mod_channel_id"), // where to send alerts
+});
+
 // Member scores for trivia and activity tracking
 export const memberScores = pgTable("member_scores", {
   id: serial("id").primaryKey(),
@@ -137,6 +183,9 @@ export const insertCommunityProfileSchema = createInsertSchema(communityProfiles
 export const insertMemberScoreSchema = createInsertSchema(memberScores).omit({ id: true });
 export const insertReferralCodeSchema = createInsertSchema(referralCodes).omit({ id: true, createdAt: true });
 export const insertReferralSchema = createInsertSchema(referrals).omit({ id: true, joinDate: true });
+export const insertModerationStatsSchema = createInsertSchema(moderationStats).omit({ id: true });
+export const insertUserModerationStatusSchema = createInsertSchema(userModerationStatus).omit({ id: true });
+export const insertChatModerationSettingsSchema = createInsertSchema(chatModerationSettings).omit({ id: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -148,6 +197,9 @@ export type CommunityProfile = typeof communityProfiles.$inferSelect;
 export type MemberScore = typeof memberScores.$inferSelect;
 export type ReferralCode = typeof referralCodes.$inferSelect;
 export type Referral = typeof referrals.$inferSelect;
+export type ModerationStats = typeof moderationStats.$inferSelect;
+export type UserModerationStatus = typeof userModerationStatus.$inferSelect;
+export type ChatModerationSettings = typeof chatModerationSettings.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
