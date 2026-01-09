@@ -191,6 +191,19 @@ export const memberScores = pgTable("member_scores", {
   referralMonthlyResetDate: text("referral_monthly_reset_date"),
 });
 
+// Pending referral verifications - persisted so restarts don't strand users
+export const pendingVerifications = pgTable("pending_verifications", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  userId: text("user_id").notNull(),
+  referrerId: text("referrer_id").notNull(),
+  username: text("username"),
+  firstName: text("first_name"),
+  messageId: integer("message_id"),
+  deadline: timestamp("deadline").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // Q&A Knowledge Cache - stores learned questions and answers to reduce AI costs
 export const qaCache = pgTable("qa_cache", {
   id: serial("id").primaryKey(),
@@ -217,6 +230,7 @@ export const insertUserModerationStatusSchema = createInsertSchema(userModeratio
 export const insertChatModerationSettingsSchema = createInsertSchema(chatModerationSettings).omit({ id: true });
 export const insertQaCacheSchema = createInsertSchema(qaCache).omit({ id: true, createdAt: true, lastAsked: true });
 export const insertReferrerStatusSchema = createInsertSchema(referrerStatus).omit({ id: true });
+export const insertPendingVerificationSchema = createInsertSchema(pendingVerifications).omit({ id: true, createdAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -233,6 +247,7 @@ export type UserModerationStatus = typeof userModerationStatus.$inferSelect;
 export type ChatModerationSettings = typeof chatModerationSettings.$inferSelect;
 export type QaCache = typeof qaCache.$inferSelect;
 export type ReferrerStatus = typeof referrerStatus.$inferSelect;
+export type PendingVerification = typeof pendingVerifications.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;

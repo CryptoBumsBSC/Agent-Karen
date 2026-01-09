@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 
@@ -4680,6 +4680,166 @@ Ask me anything! I'm literally always here.`
     }
   });
 
+  // === MEDIA CAPTION MODERATION (photos, videos, documents) ===
+  bot.on(["message:photo", "message:video", "message:document", "message:animation"], async (ctx, next) => {
+    const caption = ctx.message.caption;
+    if (!caption) {
+      await next();
+      return;
+    }
+    
+    const username = ctx.from?.username;
+    const chatId = ctx.chat?.id;
+    const userIdStr = ctx.from?.id?.toString() || "unknown";
+    
+    if (!chatId || chatId >= 0 || !ctx.from?.id || ctx.from.is_bot) {
+      await next();
+      return;
+    }
+    
+    const chatIdStr = String(chatId);
+    
+    // Check if user is admin (admins bypass moderation)
+    const userIsAdmin = await isUserAdmin(ctx, ctx.from.id);
+    if (userIsAdmin) {
+      await next();
+      return;
+    }
+    
+    // Get chat settings for raid mode and thresholds
+    const settings = await getChatSettings(chatIdStr);
+    
+    // Check for links in caption (new users can't post links)
+    const urlRegex = /https?:\/\/[^\s]+/gi;
+    const urls = caption.match(urlRegex) || [];
+    if (urls.length > 0) {
+      await ensureUserModerationStatus(userIdStr, chatIdStr);
+      const userStatus = await getUserModerationStatus(userIdStr, chatIdStr);
+      const userJoinDate = userStatus?.joinDate || new Date();
+      const hoursInChat = (Date.now() - new Date(userJoinDate).getTime()) / (1000 * 60 * 60);
+      
+      const linkHoursLimit = settings.raidMode ? 48 : settings.newUserLinkHours;
+      if (hoursInChat < linkHoursLimit && userStatus?.role === "newbie") {
+        const allLinksAllowed = urls.every(url => 
+          ALLOWED_DOMAINS.some(d => url.toLowerCase().includes(d))
+        );
+        
+        if (!allLinksAllowed) {
+          try {
+            await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+            await incrementModStat(chatIdStr, 'linksBlocked');
+            await ctx.reply(`Links in media captions are restricted for new members during the first ${linkHoursLimit} hours.`);
+          } catch (e) {
+            console.log("Couldn't delete media with link caption from new user");
+          }
+          return;
+        }
+      }
+    }
+    
+    // Risk scoring for scam detection in captions
+    const userJoinDate = (await getUserModerationStatus(userIdStr, chatIdStr))?.joinDate || new Date();
+    const accountAgeDays = (Date.now() - new Date(userJoinDate).getTime()) / (1000 * 60 * 60 * 24);
+    const riskScore = calculateRiskScore(caption, username, accountAgeDays);
+    
+    const highRiskThreshold = settings.raidMode ? 40 : 60;
+    const mediumRiskThreshold = settings.raidMode ? 25 : 40;
+    
+    if (riskScore >= highRiskThreshold) {
+      try {
+        await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+        await incrementModStat(chatIdStr, 'scamsBlocked');
+        
+        await db.update(userModerationStatus)
+          .set({ 
+            riskScore: riskScore,
+            isQuarantined: true,
+            quarantineReason: `High risk caption: ${riskScore}`
+          })
+          .where(and(
+            eq(userModerationStatus.telegramUserId, userIdStr),
+            eq(userModerationStatus.chatId, chatIdStr)
+          ));
+        
+        await ctx.reply(`Suspicious media blocked. Admins have been notified.`);
+        await flagForModReview(ctx, userIdStr, username || "", caption, riskScore, "High risk caption - auto-quarantined");
+      } catch (e) {
+        console.log("Couldn't auto-quarantine high-risk media");
+      }
+      return;
+    } else if (riskScore >= mediumRiskThreshold) {
+      await flagForModReview(ctx, userIdStr, username || "", caption, riskScore, "Medium risk caption - flagged for review");
+    }
+    
+    // Legacy scam detection
+    const { isScam, flags } = detectScam(caption, username);
+    if (isScam) {
+      await ctx.reply(`Suspicious media detected!\n\nFlags:\n${flags.join("\n")}\n\nAdmins, please review!`, 
+        { reply_parameters: { message_id: ctx.message.message_id } });
+    }
+    
+    await next();
+  });
+
+  // === STICKER SPAM DETECTION ===
+  const stickerHistory: Map<string, { stickerId: string; count: number; lastTime: number }[]> = new Map();
+  const STICKER_SPAM_THRESHOLD = 3; // Same sticker 3 times
+  const STICKER_WINDOW_MS = 30000; // Within 30 seconds
+  
+  bot.on("message:sticker", async (ctx, next) => {
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+    const stickerId = ctx.message.sticker.file_unique_id;
+    
+    if (!chatId || chatId >= 0 || !userId || ctx.from?.is_bot) {
+      await next();
+      return;
+    }
+    
+    // Check if user is admin (admins bypass moderation)
+    const userIsAdmin = await isUserAdmin(ctx, userId);
+    if (userIsAdmin) {
+      await next();
+      return;
+    }
+    
+    const key = `${chatId}:${userId}`;
+    const now = Date.now();
+    
+    // Get user's sticker history
+    let history = stickerHistory.get(key) || [];
+    
+    // Filter to recent stickers only
+    history = history.filter(h => now - h.lastTime < STICKER_WINDOW_MS);
+    
+    // Find if this sticker was recently sent
+    const existing = history.find(h => h.stickerId === stickerId);
+    if (existing) {
+      existing.count++;
+      existing.lastTime = now;
+      
+      if (existing.count >= STICKER_SPAM_THRESHOLD) {
+        try {
+          await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+          const chatIdStr = String(chatId);
+          await incrementModStat(chatIdStr, 'spamBlocked');
+          await ctx.reply(`Sticker spam detected! Please don't flood the chat with the same sticker.`);
+          
+          // Reset count after warning
+          existing.count = 0;
+        } catch (e) {
+          console.log("Couldn't delete sticker spam");
+        }
+        return;
+      }
+    } else {
+      history.push({ stickerId, count: 1, lastTime: now });
+    }
+    
+    stickerHistory.set(key, history);
+    await next();
+  });
+
   // === SCAM DETECTION & AI RESPONSE MIDDLEWARE ===
   bot.on("message:text", async (ctx, next) => {
     const text = ctx.message.text;
@@ -5781,19 +5941,11 @@ async function getReferralLeaderboard(chatId: string, period: 'weekly' | 'alltim
 const REFERRAL_VERIFY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const FAILED_REFERRAL_THRESHOLD = 3; // Suspend referrer after 3 failed referrals
 
-// Track pending verifications: chatId:userId -> { deadline, referrerId, timeoutHandle, messageId }
-interface PendingVerification {
-  deadline: number;
-  referrerId: string;
-  chatId: number;
-  userId: number;
-  username: string;
-  firstName: string;
+// Runtime tracking for timeouts (database stores the state, this stores the handles)
+interface RuntimeVerification {
   timeoutHandle: NodeJS.Timeout;
-  messageId?: number;
 }
-
-const pendingVerifications: Map<string, PendingVerification> = new Map();
+const verificationTimeouts: Map<string, RuntimeVerification> = new Map();
 
 // Referral velocity tracking: referrerId -> join timestamps (last hour)
 const referralVelocity: Map<string, number[]> = new Map();
@@ -5975,19 +6127,22 @@ async function startReferralVerification(
 ): Promise<void> {
   const key = getVerificationKey(chatId, userId);
   const chatIdStr = chatId.toString();
+  const userIdStr = userId.toString();
   
   // Mute the new joiner immediately
   await muteReferralJoiner(bot, chatId, userId);
   
-  // Set verify deadline in database
+  // Set verify deadline
   const deadline = new Date(Date.now() + REFERRAL_VERIFY_TIMEOUT_MS);
+  
+  // Update referrals table with deadline
   await db.update(referrals)
     .set({ 
       verifyDeadline: deadline,
       status: "pending"
     })
     .where(and(
-      eq(referrals.referredTelegramUserId, userId.toString()),
+      eq(referrals.referredTelegramUserId, userIdStr),
       eq(referrals.chatId, chatIdStr)
     ));
   
@@ -6006,22 +6161,24 @@ async function startReferralVerification(
     }
   );
   
-  // Set up auto-kick timer
+  // Store pending verification in database (persists across restarts)
+  await db.insert(pendingVerifications).values({
+    chatId: chatIdStr,
+    userId: userIdStr,
+    referrerId: referrerId,
+    username: username || null,
+    firstName: firstName || null,
+    messageId: verifyMessage.message_id,
+    deadline: deadline
+  }).onConflictDoNothing();
+  
+  // Set up auto-kick timer (runtime only)
   const timeoutHandle = setTimeout(async () => {
     await handleVerificationTimeout(bot, chatId, userId, referrerId);
   }, REFERRAL_VERIFY_TIMEOUT_MS);
   
-  // Store pending verification
-  pendingVerifications.set(key, {
-    deadline: Date.now() + REFERRAL_VERIFY_TIMEOUT_MS,
-    referrerId,
-    chatId,
-    userId,
-    username,
-    firstName,
-    timeoutHandle,
-    messageId: verifyMessage.message_id
-  });
+  // Store timeout handle for cleanup
+  verificationTimeouts.set(key, { timeoutHandle });
 }
 
 // Handle verification timeout - auto kick
@@ -6032,11 +6189,30 @@ async function handleVerificationTimeout(
   referrerId: string
 ): Promise<void> {
   const key = getVerificationKey(chatId, userId);
-  const pending = pendingVerifications.get(key);
+  const chatIdStr = chatId.toString();
+  const userIdStr = userId.toString();
   
-  if (!pending) return; // Already handled
+  // Check if still pending in database
+  const pendingRecords = await db.select().from(pendingVerifications)
+    .where(and(
+      eq(pendingVerifications.chatId, chatIdStr),
+      eq(pendingVerifications.userId, userIdStr)
+    ))
+    .limit(1);
   
-  pendingVerifications.delete(key);
+  if (pendingRecords.length === 0) return; // Already handled
+  
+  const pending = pendingRecords[0];
+  
+  // Remove from database
+  await db.delete(pendingVerifications)
+    .where(and(
+      eq(pendingVerifications.chatId, chatIdStr),
+      eq(pendingVerifications.userId, userIdStr)
+    ));
+  
+  // Remove timeout handle
+  verificationTimeouts.delete(key);
   
   try {
     // Kick the user
@@ -6047,8 +6223,8 @@ async function handleVerificationTimeout(
     await db.update(referrals)
       .set({ status: "kicked", flagReason: "Failed to verify within 5 minutes" })
       .where(and(
-        eq(referrals.referredTelegramUserId, userId.toString()),
-        eq(referrals.chatId, chatId.toString())
+        eq(referrals.referredTelegramUserId, userIdStr),
+        eq(referrals.chatId, chatIdStr)
       ));
     
     // Increment failed referral for referrer
@@ -6063,7 +6239,7 @@ async function handleVerificationTimeout(
     
     // Notify chat
     await bot.api.sendMessage(chatId, 
-      `${pending.firstName} was removed for not verifying within 5 minutes.`
+      `${pending.firstName || 'User'} was removed for not verifying within 5 minutes.`
     );
     
     console.log(`Auto-kicked unverified referral: ${userId} (referred by ${referrerId})`);
@@ -6079,17 +6255,36 @@ async function handleVerificationSuccess(
   userId: number
 ): Promise<{ success: boolean; referrerName?: string }> {
   const key = getVerificationKey(chatId, userId);
-  const pending = pendingVerifications.get(key);
+  const chatIdStr = chatId.toString();
+  const userIdStr = userId.toString();
   
-  if (!pending) {
+  // Check database for pending verification
+  const pendingRecords = await db.select().from(pendingVerifications)
+    .where(and(
+      eq(pendingVerifications.chatId, chatIdStr),
+      eq(pendingVerifications.userId, userIdStr)
+    ))
+    .limit(1);
+  
+  if (pendingRecords.length === 0) {
     return { success: false };
   }
   
-  // Clear the timeout
-  clearTimeout(pending.timeoutHandle);
-  pendingVerifications.delete(key);
+  const pending = pendingRecords[0];
   
-  const chatIdStr = chatId.toString();
+  // Clear the timeout if it exists
+  const timeoutEntry = verificationTimeouts.get(key);
+  if (timeoutEntry) {
+    clearTimeout(timeoutEntry.timeoutHandle);
+    verificationTimeouts.delete(key);
+  }
+  
+  // Remove from database
+  await db.delete(pendingVerifications)
+    .where(and(
+      eq(pendingVerifications.chatId, chatIdStr),
+      eq(pendingVerifications.userId, userIdStr)
+    ));
   
   // Unmute the user
   await unmuteVerifiedReferral(bot, chatId, userId);
@@ -6102,15 +6297,18 @@ async function handleVerificationSuccess(
       confirmedDate: sql`CURRENT_TIMESTAMP`
     })
     .where(and(
-      eq(referrals.referredTelegramUserId, userId.toString()),
+      eq(referrals.referredTelegramUserId, userIdStr),
       eq(referrals.chatId, chatIdStr)
     ));
   
   // NOW award points to referrer (only after verification)
-  const result = await confirmReferral(userId.toString(), chatIdStr);
+  const result = await confirmReferral(userIdStr, chatIdStr);
   
-  // Increment successful referral count
-  await incrementSuccessfulReferral(pending.referrerId, chatIdStr);
+  // Increment successful referral count (only if referrer ID is valid)
+  const referrerId = pending.referrerId || "unknown";
+  if (referrerId !== "unknown") {
+    await incrementSuccessfulReferral(referrerId, chatIdStr);
+  }
   
   // Delete the verification message
   if (pending.messageId) {
@@ -6130,6 +6328,84 @@ async function handleVerificationSuccess(
   const referrerName = referrerInfo[0]?.username ? `@${referrerInfo[0].username}` : referrerInfo[0]?.firstName || "Someone";
   
   return { success: true, referrerName };
+}
+
+// Recover pending verifications on bot restart
+async function recoverPendingVerifications(bot: Bot<MyContext>): Promise<void> {
+  try {
+    const allPending = await db.select().from(pendingVerifications);
+    const now = new Date();
+    
+    let expired = 0;
+    let restored = 0;
+    let cleaned = 0;
+    
+    for (const pending of allPending) {
+      // Safely parse IDs with validation
+      const chatId = parseInt(pending.chatId);
+      const userId = parseInt(pending.userId);
+      const referrerId = pending.referrerId || "unknown";
+      
+      // Skip invalid entries
+      if (isNaN(chatId) || isNaN(userId)) {
+        await db.delete(pendingVerifications).where(eq(pendingVerifications.id, pending.id));
+        cleaned++;
+        continue;
+      }
+      
+      const deadline = pending.deadline ? new Date(pending.deadline) : new Date(0);
+      
+      if (deadline <= now) {
+        // Expired - kick the user and clean up
+        try {
+          await bot.api.banChatMember(chatId, userId);
+          await bot.api.unbanChatMember(chatId, userId);
+          
+          // Mark referral as kicked
+          await db.update(referrals)
+            .set({ status: "kicked", flagReason: "Bot restarted - verification expired" })
+            .where(and(
+              eq(referrals.referredTelegramUserId, pending.userId),
+              eq(referrals.chatId, pending.chatId)
+            ));
+          
+          // Increment failed referral (only if referrer ID is valid)
+          if (referrerId !== "unknown") {
+            await incrementFailedReferral(bot, referrerId, chatId);
+          }
+          
+          // Delete verification message
+          if (pending.messageId) {
+            try { await bot.api.deleteMessage(chatId, pending.messageId); } catch (e) { /* ignore */ }
+          }
+          
+          expired++;
+        } catch (e) {
+          console.log(`Failed to kick expired verification ${userId}:`, e);
+        }
+        
+        // Remove from database
+        await db.delete(pendingVerifications).where(eq(pendingVerifications.id, pending.id));
+      } else {
+        // Still valid - set up new timeout
+        const remainingMs = deadline.getTime() - now.getTime();
+        const key = getVerificationKey(chatId, userId);
+        
+        const timeoutHandle = setTimeout(async () => {
+          await handleVerificationTimeout(bot, chatId, userId, referrerId);
+        }, remainingMs);
+        
+        verificationTimeouts.set(key, { timeoutHandle });
+        restored++;
+      }
+    }
+    
+    if (expired > 0 || restored > 0 || cleaned > 0) {
+      console.log(`Verification recovery: ${expired} expired (kicked), ${restored} restored, ${cleaned} cleaned (invalid)`);
+    }
+  } catch (error) {
+    console.log("Error recovering pending verifications:", error);
+  }
 }
 
 // === BUD AVATAR SYSTEM ===
@@ -7131,6 +7407,9 @@ export async function startBot() {
   
   // Load existing member data from database before starting schedulers
   await loadLeaderboardFromDatabase();
+  
+  // Recover pending verifications from database (handle restarts gracefully)
+  await recoverPendingVerifications(bot);
 
   bot.catch((err) => {
     console.error("Bot error:", err);
