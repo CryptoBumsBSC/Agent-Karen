@@ -38,7 +38,6 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 ### Bot Features (AgentKarenBot)
 - **AI-Powered Q&A**: /ask command answers questions about Dudley Bud using OpenAI
 - **Q&A Learning Cache**: Stores popular questions and answers to reduce AI costs. Crypto/recipe questions always use live data.
-- **Market Reports**: /market fetches live crypto prices (top 10 or specific token search)
 - **AI Roasts**: /roast generates witty roasts for community members
 - **Smart Responses**: Auto-responds when mentioned or when questions are asked
 - **Scam Detection**: Monitors for suspicious messages and crypto addresses
@@ -131,12 +130,20 @@ The server primarily runs the Telegram bot with a lightweight HTTP server for he
 ### Referral Program
 - **Commands**: `/myreferrals` gets your personal invite link and stats, `/refboard` shows leaderboard
 - **Tracking**: Bot creates unique invite links per user, tracks when new members join via those links
-- **Points**: 25 points per confirmed referral
+- **Points**: 25 points per confirmed referral (only after verification)
 - **Leaderboards**: Weekly and All-time rankings (`/refboard` or `/refboard all`)
-- **Database**: Uses `referral_codes` and `referrals` tables, scores stored in `memberScores`
+- **Database**: Uses `referral_codes`, `referrals`, and `referrerStatus` tables, scores stored in `memberScores`
 - **Detection**: Uses Telegram's chat_member updates to detect invite link usage
 - **AI Knowledge**: Bot can explain referral program via `/ask` or when mentioned - instant responses for referral questions (no AI cost)
 - **Winner Prizes**: Top weekly referrer (announced Sunday 11:55 PM Pacific) and top monthly referrer (announced last day of month 11:55 PM Pacific) automatically receive exclusive budify avatar rewards
+- **Referral Security System**:
+  - New members from referral links are auto-muted on join
+  - They have 5 minutes to click a "Verify" button to prove they're human
+  - If they don't verify in time, they're auto-kicked (can rejoin later)
+  - Referrer only gets 25 points AFTER their referral verifies successfully
+  - Velocity tracking: Flags referrers with >10 joins/hour as suspicious
+  - Penalty system: After 3 failed referrals, referrer is auto-muted and owner notified
+  - Owner commands: `/purge_referrals` (mass-ban a referrer's joiners), `/restore @username` (unmute suspended referrers)
 
 ### Daily Scheduled Posts
 - **Birthday Check**: 9 AM Pacific - Celebrates member birthdays with AI-generated cake images
@@ -190,7 +197,8 @@ Main tables:
 - **qa_cache**: Stores learned Q&A pairs to reduce AI costs (questionHash, questionText, answerText, askCount)
 - **member_scores**: Trivia/puzzle scores with daily/weekly/monthly tracking
 - **referral_codes**: User invite links for referral program
-- **referrals**: Tracks successful referrals
+- **referrals**: Tracks referrals with security fields (status, riskScore, isQuarantined, flagReason, verifiedAt, verifyDeadline)
+- **referrerStatus**: Tracks referrer trustworthiness (failedReferrals, successfulReferrals, isSuspended, suspendReason)
 - **community_profiles**: Member profiles with birthdays and strain assignments
 
 Schema is defined in `shared/schema.ts` and shared between frontend and backend.
