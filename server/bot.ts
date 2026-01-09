@@ -3036,7 +3036,7 @@ Check the leaderboard with /refboard`;
     }
     
     const wordList = difficulty === 'easy' ? EASY_WORDS : HARD_WORDS;
-    const word = wordList[Math.floor(Math.random() * wordList.length)];
+    const word = getUnusedPuzzleWord(ctx.chat.id, wordList);
     const scrambled = scrambleWord(word);
     const timeLimit = difficulty === 'easy' ? 45 : 20;
     const points = difficulty === 'easy' ? 5 : 15;
@@ -4758,6 +4758,35 @@ interface ActivePuzzle {
 }
 
 const activePuzzles: Map<number, ActivePuzzle> = new Map();
+
+// Track recently used puzzle words per chat to avoid repeats
+const recentPuzzleWords: Map<number, string[]> = new Map();
+const MAX_RECENT_PUZZLE_WORDS = 30; // Remember last 30 words per chat
+
+function getUnusedPuzzleWord(chatId: number, wordList: string[]): string {
+  const recentWords = recentPuzzleWords.get(chatId) || [];
+  
+  // Filter out recently used words
+  const availableWords = wordList.filter(w => !recentWords.includes(w));
+  
+  // If we've used most words, reset the tracker
+  if (availableWords.length < 5) {
+    recentPuzzleWords.set(chatId, []);
+    return wordList[Math.floor(Math.random() * wordList.length)];
+  }
+  
+  // Pick a random word from available ones
+  const word = availableWords[Math.floor(Math.random() * availableWords.length)];
+  
+  // Track this word as used
+  recentWords.push(word);
+  if (recentWords.length > MAX_RECENT_PUZZLE_WORDS) {
+    recentWords.shift(); // Remove oldest
+  }
+  recentPuzzleWords.set(chatId, recentWords);
+  
+  return word;
+}
 
 function scrambleWord(word: string): string {
   const chars = word.split('');
