@@ -87,7 +87,25 @@ export const referrals = pgTable("referrals", {
   chatId: text("chat_id").notNull(),
   joinDate: timestamp("join_date").default(sql`CURRENT_TIMESTAMP`),
   confirmedDate: timestamp("confirmed_date"),
-  status: text("status").default("pending"), // pending, confirmed, invalid
+  status: text("status").default("pending"), // pending, confirmed, invalid, kicked
+  // Security fields
+  riskScore: integer("risk_score").default(0),
+  isQuarantined: boolean("is_quarantined").default(false),
+  flagReason: text("flag_reason"),
+  verifiedAt: timestamp("verified_at"),
+  verifyDeadline: timestamp("verify_deadline"),
+});
+
+// Referrer status - tracks referrer trustworthiness
+export const referrerStatus = pgTable("referrer_status", {
+  id: serial("id").primaryKey(),
+  telegramUserId: text("telegram_user_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  failedReferrals: integer("failed_referrals").default(0),
+  successfulReferrals: integer("successful_referrals").default(0),
+  isSuspended: boolean("is_suspended").default(false),
+  suspendedAt: timestamp("suspended_at"),
+  suspendReason: text("suspend_reason"),
 });
 
 // Moderation stats for community analytics
@@ -198,6 +216,7 @@ export const insertModerationStatsSchema = createInsertSchema(moderationStats).o
 export const insertUserModerationStatusSchema = createInsertSchema(userModerationStatus).omit({ id: true });
 export const insertChatModerationSettingsSchema = createInsertSchema(chatModerationSettings).omit({ id: true });
 export const insertQaCacheSchema = createInsertSchema(qaCache).omit({ id: true, createdAt: true, lastAsked: true });
+export const insertReferrerStatusSchema = createInsertSchema(referrerStatus).omit({ id: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -213,6 +232,7 @@ export type ModerationStats = typeof moderationStats.$inferSelect;
 export type UserModerationStatus = typeof userModerationStatus.$inferSelect;
 export type ChatModerationSettings = typeof chatModerationSettings.$inferSelect;
 export type QaCache = typeof qaCache.$inferSelect;
+export type ReferrerStatus = typeof referrerStatus.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;

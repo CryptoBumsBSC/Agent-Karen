@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 
@@ -2438,7 +2438,6 @@ export function createBot(): Bot<MyContext> {
     { command: "fact", description: "Learn a medical fact" },
     { command: "legal", description: "Legal disclaimers" },
     { command: "characters", description: "Meet the cast" },
-    { command: "market", description: "Live crypto prices" },
     { command: "roast", description: "Roast someone" },
     { command: "ask", description: "Ask me anything" },
     { command: "karen", description: "Toggle Karen mode" },
@@ -3873,6 +3872,184 @@ Check the leaderboard with /refboard`;
     }
   });
 
+  // /restore - Owner-only: Restore suspended referrer's posting rights
+  bot.command("restore", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can use this command.");
+      return;
+    }
+    
+    const chatId = ctx.chat.id;
+    const chatIdStr = chatId.toString();
+    
+    // Get username from command or reply
+    const targetUser = ctx.message?.reply_to_message?.from;
+    const usernameArg = ctx.message?.text?.replace("/restore", "").trim().replace("@", "");
+    
+    if (!targetUser && !usernameArg) {
+      await ctx.reply("Usage: /restore @username\nOr reply to someone's message with /restore\n\nThis restores posting rights for a suspended referrer.");
+      return;
+    }
+    
+    if (targetUser) {
+      // Restore via reply
+      const userId = targetUser.id.toString();
+      
+      // Unsuspend the referrer
+      await db.update(referrerStatus)
+        .set({ isSuspended: false, suspendReason: null })
+        .where(and(
+          eq(referrerStatus.telegramUserId, userId),
+          eq(referrerStatus.chatId, chatIdStr)
+        ));
+      
+      // Unmute the user
+      await unmuteUser(ctx, targetUser.id);
+      
+      await ctx.reply(`${targetUser.first_name}'s posting rights have been restored!`);
+    } else if (usernameArg) {
+      // Restore via @username - look up the user in memberScores by username
+      const userRecord = await db.select().from(memberScores)
+        .where(and(
+          eq(memberScores.chatId, chatIdStr),
+          eq(memberScores.username, usernameArg)
+        ))
+        .limit(1);
+      
+      if (userRecord.length === 0) {
+        await ctx.reply(`Couldn't find @${usernameArg} in this chat. Try replying to one of their messages instead.`);
+        return;
+      }
+      
+      const userId = userRecord[0].telegramUserId;
+      const firstName = userRecord[0].firstName || usernameArg;
+      
+      // Unsuspend the referrer
+      await db.update(referrerStatus)
+        .set({ isSuspended: false, suspendReason: null })
+        .where(and(
+          eq(referrerStatus.telegramUserId, userId),
+          eq(referrerStatus.chatId, chatIdStr)
+        ));
+      
+      // Unmute the user by ID
+      try {
+        await ctx.api.restrictChatMember(chatId, parseInt(userId), {
+          can_send_messages: true,
+          can_send_audios: true,
+          can_send_documents: true,
+          can_send_photos: true,
+          can_send_videos: true,
+          can_send_video_notes: true,
+          can_send_voice_notes: true,
+          can_send_polls: true,
+          can_send_other_messages: true,
+          can_add_web_page_previews: true
+        });
+      } catch (e) {
+        console.log(`Failed to unmute ${usernameArg}:`, e);
+      }
+      
+      await ctx.reply(`@${usernameArg}'s posting rights have been restored!`);
+    }
+  });
+
+  // /purge_referrals - Owner-only: Kick all users referred by a specific person
+  bot.command("purge_referrals", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can use this command.");
+      return;
+    }
+    
+    // Get referrer from reply
+    const targetUser = ctx.message?.reply_to_message?.from;
+    
+    if (!targetUser) {
+      await ctx.reply("Usage: Reply to a message from the referrer you want to purge, then type /purge_referrals\n\nThis will kick all users they referred.");
+      return;
+    }
+    
+    const referrerId = targetUser.id.toString();
+    const chatId = ctx.chat.id;
+    const chatIdStr = chatId.toString();
+    
+    // Find all referrals by this person
+    const referralsByPerson = await db.select().from(referrals)
+      .where(and(
+        eq(referrals.referrerTelegramUserId, referrerId),
+        eq(referrals.chatId, chatIdStr)
+      ));
+    
+    if (referralsByPerson.length === 0) {
+      await ctx.reply(`${targetUser.first_name} hasn't referred anyone.`);
+      return;
+    }
+    
+    await ctx.reply(`Purging ${referralsByPerson.length} referrals from ${targetUser.first_name}...`);
+    
+    let kicked = 0;
+    let failed = 0;
+    
+    for (const ref of referralsByPerson) {
+      try {
+        const referredUserId = parseInt(ref.referredTelegramUserId);
+        await ctx.api.banChatMember(chatId, referredUserId);
+        await ctx.api.unbanChatMember(chatId, referredUserId);
+        
+        // Mark as purged
+        await db.update(referrals)
+          .set({ status: "kicked", flagReason: "Purged by owner" })
+          .where(eq(referrals.id, ref.id));
+        
+        kicked++;
+      } catch (e) {
+        failed++;
+      }
+    }
+    
+    // Suspend the referrer
+    await db.update(referrerStatus)
+      .set({ 
+        isSuspended: true, 
+        suspendedAt: sql`CURRENT_TIMESTAMP`,
+        suspendReason: "All referrals purged by owner"
+      })
+      .where(and(
+        eq(referrerStatus.telegramUserId, referrerId),
+        eq(referrerStatus.chatId, chatIdStr)
+      ));
+    
+    // Mute the referrer
+    await ctx.api.restrictChatMember(chatId, targetUser.id, {
+      can_send_messages: false,
+      can_send_audios: false,
+      can_send_documents: false,
+      can_send_photos: false,
+      can_send_videos: false,
+      can_send_video_notes: false,
+      can_send_voice_notes: false,
+      can_send_polls: false,
+      can_send_other_messages: false,
+      can_add_web_page_previews: false
+    });
+    
+    await ctx.reply(
+      `PURGE COMPLETE\n\n` +
+      `Kicked: ${kicked}\n` +
+      `Failed: ${failed}\n\n` +
+      `${targetUser.first_name} has been muted and their referral privileges suspended.\n` +
+      `Use /restore to restore their rights if needed.`
+    );
+  });
+
   // /leaderboard - Show top active members
   bot.command("leaderboard", async (ctx) => {
     if (!ctx.chat) return;
@@ -4412,7 +4589,7 @@ Ask me anything! I'm literally always here.`
     }
   });
 
-  // === CHAT MEMBER UPDATE HANDLER (for referral tracking) ===
+  // === CHAT MEMBER UPDATE HANDLER (for referral tracking with verification) ===
   bot.on("chat_member", async (ctx) => {
     const update = ctx.chatMember;
     if (!update) return;
@@ -4425,36 +4602,81 @@ Ask me anything! I'm literally always here.`
     // Check if someone just joined (status changed to 'member' from something else)
     if (newMember.status === "member" && oldMember.status !== "member") {
       const newMemberId = newMember.user.id.toString();
+      const newMemberIdNum = newMember.user.id;
       const firstName = newMember.user.first_name || "friend";
+      const username = newMember.user.username || "";
       
-      // Check if they joined via an invite link
+      // Check if they joined via an invite link (referral)
       const inviteLink = update.invite_link;
       if (inviteLink && inviteLink.invite_link) {
         try {
           const referrerId = await findReferrerByInviteLink(chatId, inviteLink.invite_link);
           if (referrerId && referrerId !== newMemberId) {
+            // Check referrer status - is the referrer suspended?
+            const referrerStatusData = await getOrCreateReferrerStatus(referrerId, chatIdStr);
+            if (referrerStatusData.isSuspended) {
+              console.log(`Referrer ${referrerId} is suspended, not processing referral`);
+              return;
+            }
+            
+            // Check referral velocity (mass join detection)
+            const velocity = checkReferralVelocity(referrerId);
+            if (velocity.suspicious) {
+              console.log(`Suspicious referral velocity for ${referrerId}: ${velocity.count} in last hour`);
+              await notifyOwnerAboutReferral(bot, chatId, 
+                `SUSPICIOUS REFERRAL ACTIVITY\n\nReferrer has ${velocity.count} joins in the last hour. This may be a raid attempt.`
+              );
+            }
+            
+            // Record the referral (pending verification)
             const recorded = await recordReferral(referrerId, newMemberId, chatIdStr);
             if (recorded) {
-              console.log(`Recorded referral via chat_member: ${referrerId} referred ${newMemberId}`);
+              console.log(`Recorded referral via chat_member: ${referrerId} referred ${newMemberId} - PENDING VERIFICATION`);
               
-              // Immediately confirm the referral and award points
-              const result = await confirmReferral(newMemberId, chatIdStr);
-              if (result) {
-                // Notify the referrer
-                try {
-                  await ctx.api.sendMessage(chatId, 
-                    `Referral confirmed! Someone earned ${REFERRAL_POINTS} points for inviting ${firstName} to the group!`
-                  );
-                } catch (e) {
-                  // Silently fail if we can't send message
-                }
-              }
+              // Start the verification process (mute, send verify button, set timeout)
+              await startReferralVerification(bot, chatId, newMemberIdNum, referrerId, username, firstName);
             }
           }
         } catch (error) {
           console.log("Error tracking referral from chat_member:", error);
         }
       }
+    }
+  });
+  
+  // === REFERRAL VERIFICATION CALLBACK HANDLER ===
+  bot.callbackQuery(/^verify_referral:(\d+)$/, async (ctx) => {
+    const match = ctx.callbackQuery.data.match(/^verify_referral:(\d+)$/);
+    if (!match) return;
+    
+    const expectedUserId = parseInt(match[1]);
+    const actualUserId = ctx.from.id;
+    const chatId = ctx.chat?.id;
+    
+    if (!chatId) {
+      await ctx.answerCallbackQuery({ text: "Error: No chat context" });
+      return;
+    }
+    
+    // Only the person who joined can verify themselves
+    if (actualUserId !== expectedUserId) {
+      await ctx.answerCallbackQuery({ text: "This button is not for you!", show_alert: true });
+      return;
+    }
+    
+    // Process the verification
+    const result = await handleVerificationSuccess(bot, chatId, actualUserId);
+    
+    if (result.success) {
+      await ctx.answerCallbackQuery({ text: "Verified! Welcome to the community!" });
+      
+      // Send confirmation
+      await ctx.api.sendMessage(chatId, 
+        `${ctx.from.first_name} is now verified and can post!\n\n` +
+        `${result.referrerName} earned ${REFERRAL_POINTS} points for the invite!`
+      );
+    } else {
+      await ctx.answerCallbackQuery({ text: "Verification already processed or expired" });
     }
   });
 
@@ -5555,6 +5777,361 @@ async function getReferralLeaderboard(chatId: string, period: 'weekly' | 'alltim
   return scores;
 }
 
+// === REFERRAL VERIFICATION SYSTEM ===
+const REFERRAL_VERIFY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const FAILED_REFERRAL_THRESHOLD = 3; // Suspend referrer after 3 failed referrals
+
+// Track pending verifications: chatId:userId -> { deadline, referrerId, timeoutHandle, messageId }
+interface PendingVerification {
+  deadline: number;
+  referrerId: string;
+  chatId: number;
+  userId: number;
+  username: string;
+  firstName: string;
+  timeoutHandle: NodeJS.Timeout;
+  messageId?: number;
+}
+
+const pendingVerifications: Map<string, PendingVerification> = new Map();
+
+// Referral velocity tracking: referrerId -> join timestamps (last hour)
+const referralVelocity: Map<string, number[]> = new Map();
+const VELOCITY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const MAX_VELOCITY = 10; // Max 10 referrals per hour before flagging
+
+function getVerificationKey(chatId: number, userId: number): string {
+  return `${chatId}:${userId}`;
+}
+
+// Check referral velocity - returns true if suspicious
+function checkReferralVelocity(referrerId: string): { suspicious: boolean; count: number } {
+  const now = Date.now();
+  const timestamps = referralVelocity.get(referrerId) || [];
+  
+  // Filter to last hour
+  const recent = timestamps.filter(t => now - t < VELOCITY_WINDOW_MS);
+  recent.push(now);
+  referralVelocity.set(referrerId, recent);
+  
+  return { suspicious: recent.length > MAX_VELOCITY, count: recent.length };
+}
+
+// Mute a referral joiner completely (no posting rights) - uses bot instance directly
+async function muteReferralJoiner(bot: Bot<MyContext>, chatId: number, userId: number): Promise<boolean> {
+  try {
+    await bot.api.restrictChatMember(chatId, userId, {
+      can_send_messages: false,
+      can_send_audios: false,
+      can_send_documents: false,
+      can_send_photos: false,
+      can_send_videos: false,
+      can_send_video_notes: false,
+      can_send_voice_notes: false,
+      can_send_polls: false,
+      can_send_other_messages: false,
+      can_add_web_page_previews: false
+    });
+    return true;
+  } catch (error) {
+    console.log(`Failed to mute referral joiner ${userId} in chat ${chatId}:`, error);
+    return false;
+  }
+}
+
+// Unmute a verified referral joiner (restore posting rights) - uses bot instance directly
+async function unmuteVerifiedReferral(bot: Bot<MyContext>, chatId: number, userId: number): Promise<boolean> {
+  try {
+    await bot.api.restrictChatMember(chatId, userId, {
+      can_send_messages: true,
+      can_send_audios: true,
+      can_send_documents: true,
+      can_send_photos: true,
+      can_send_videos: true,
+      can_send_video_notes: true,
+      can_send_voice_notes: true,
+      can_send_polls: true,
+      can_send_other_messages: true,
+      can_add_web_page_previews: true
+    });
+    return true;
+  } catch (error) {
+    console.log(`Failed to unmute verified referral ${userId} in chat ${chatId}:`, error);
+    return false;
+  }
+}
+
+// Notify owner about referral issues
+async function notifyOwnerAboutReferral(bot: Bot<MyContext>, chatId: number, message: string): Promise<void> {
+  try {
+    const admins = await bot.api.getChatAdministrators(chatId);
+    const owner = admins.find(a => a.status === "creator");
+    if (owner) {
+      const ownerMention = owner.user.username ? `@${owner.user.username}` : owner.user.first_name;
+      await bot.api.sendMessage(chatId, `${ownerMention} ${message}`);
+    }
+  } catch (error) {
+    console.log("Failed to notify owner:", error);
+  }
+}
+
+// Get or create referrer status
+async function getOrCreateReferrerStatus(userId: string, chatId: string): Promise<{ failedReferrals: number; successfulReferrals: number; isSuspended: boolean }> {
+  const existing = await db.select().from(referrerStatus)
+    .where(and(
+      eq(referrerStatus.telegramUserId, userId),
+      eq(referrerStatus.chatId, chatId)
+    ))
+    .limit(1);
+  
+  if (existing.length > 0) {
+    return {
+      failedReferrals: existing[0].failedReferrals || 0,
+      successfulReferrals: existing[0].successfulReferrals || 0,
+      isSuspended: existing[0].isSuspended || false
+    };
+  }
+  
+  // Create new status
+  await db.insert(referrerStatus).values({
+    telegramUserId: userId,
+    chatId: chatId,
+    failedReferrals: 0,
+    successfulReferrals: 0,
+    isSuspended: false
+  });
+  
+  return { failedReferrals: 0, successfulReferrals: 0, isSuspended: false };
+}
+
+// Increment failed referrals and potentially suspend referrer
+async function incrementFailedReferral(bot: Bot<MyContext>, referrerId: string, chatId: number): Promise<boolean> {
+  const chatIdStr = chatId.toString();
+  const status = await getOrCreateReferrerStatus(referrerId, chatIdStr);
+  const newFailedCount = status.failedReferrals + 1;
+  
+  await db.update(referrerStatus)
+    .set({ failedReferrals: newFailedCount })
+    .where(and(
+      eq(referrerStatus.telegramUserId, referrerId),
+      eq(referrerStatus.chatId, chatIdStr)
+    ));
+  
+  // Check if should suspend
+  if (newFailedCount >= FAILED_REFERRAL_THRESHOLD && !status.isSuspended) {
+    await db.update(referrerStatus)
+      .set({ 
+        isSuspended: true, 
+        suspendedAt: sql`CURRENT_TIMESTAMP`,
+        suspendReason: `${newFailedCount} failed referrals`
+      })
+      .where(and(
+        eq(referrerStatus.telegramUserId, referrerId),
+        eq(referrerStatus.chatId, chatIdStr)
+      ));
+    
+    // Mute the referrer
+    await muteReferralJoiner(bot, chatId, parseInt(referrerId));
+    
+    // Notify owner
+    const referrerInfo = await db.select().from(memberScores)
+      .where(and(
+        eq(memberScores.telegramUserId, referrerId),
+        eq(memberScores.chatId, chatIdStr)
+      ))
+      .limit(1);
+    
+    const referrerName = referrerInfo[0]?.username ? `@${referrerInfo[0].username}` : referrerInfo[0]?.firstName || referrerId;
+    await notifyOwnerAboutReferral(bot, chatId, 
+      `REFERRER SUSPENDED\n\n${referrerName} has been muted - their referrals keep failing verification (${newFailedCount} failed).\n\nUse /restore to restore their posting rights if needed.`
+    );
+    
+    return true; // Suspended
+  }
+  
+  return false; // Not suspended
+}
+
+// Increment successful referral
+async function incrementSuccessfulReferral(referrerId: string, chatId: string): Promise<void> {
+  const status = await getOrCreateReferrerStatus(referrerId, chatId);
+  
+  await db.update(referrerStatus)
+    .set({ successfulReferrals: status.successfulReferrals + 1 })
+    .where(and(
+      eq(referrerStatus.telegramUserId, referrerId),
+      eq(referrerStatus.chatId, chatId)
+    ));
+}
+
+// Start referral verification for a new joiner
+async function startReferralVerification(
+  bot: Bot<MyContext>,
+  chatId: number,
+  userId: number,
+  referrerId: string,
+  username: string,
+  firstName: string
+): Promise<void> {
+  const key = getVerificationKey(chatId, userId);
+  const chatIdStr = chatId.toString();
+  
+  // Mute the new joiner immediately
+  await muteReferralJoiner(bot, chatId, userId);
+  
+  // Set verify deadline in database
+  const deadline = new Date(Date.now() + REFERRAL_VERIFY_TIMEOUT_MS);
+  await db.update(referrals)
+    .set({ 
+      verifyDeadline: deadline,
+      status: "pending"
+    })
+    .where(and(
+      eq(referrals.referredTelegramUserId, userId.toString()),
+      eq(referrals.chatId, chatIdStr)
+    ));
+  
+  // Send welcome with verify button
+  const verifyMessage = await bot.api.sendMessage(chatId, 
+    `Welcome ${firstName}!\n\n` +
+    `You joined via a referral link. To get full access to the community, please verify yourself by clicking the button below.\n\n` +
+    `You have 5 minutes to verify or you'll be removed.\n\n` +
+    `This protects our community from bots and scammers.`,
+    {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "VERIFY ME", callback_data: `verify_referral:${userId}` }
+        ]]
+      }
+    }
+  );
+  
+  // Set up auto-kick timer
+  const timeoutHandle = setTimeout(async () => {
+    await handleVerificationTimeout(bot, chatId, userId, referrerId);
+  }, REFERRAL_VERIFY_TIMEOUT_MS);
+  
+  // Store pending verification
+  pendingVerifications.set(key, {
+    deadline: Date.now() + REFERRAL_VERIFY_TIMEOUT_MS,
+    referrerId,
+    chatId,
+    userId,
+    username,
+    firstName,
+    timeoutHandle,
+    messageId: verifyMessage.message_id
+  });
+}
+
+// Handle verification timeout - auto kick
+async function handleVerificationTimeout(
+  bot: Bot<MyContext>,
+  chatId: number,
+  userId: number,
+  referrerId: string
+): Promise<void> {
+  const key = getVerificationKey(chatId, userId);
+  const pending = pendingVerifications.get(key);
+  
+  if (!pending) return; // Already handled
+  
+  pendingVerifications.delete(key);
+  
+  try {
+    // Kick the user
+    await bot.api.banChatMember(chatId, userId);
+    await bot.api.unbanChatMember(chatId, userId); // Allow them to rejoin
+    
+    // Mark referral as kicked
+    await db.update(referrals)
+      .set({ status: "kicked", flagReason: "Failed to verify within 5 minutes" })
+      .where(and(
+        eq(referrals.referredTelegramUserId, userId.toString()),
+        eq(referrals.chatId, chatId.toString())
+      ));
+    
+    // Increment failed referral for referrer
+    await incrementFailedReferral(bot, referrerId, chatId);
+    
+    // Delete the verification message
+    if (pending.messageId) {
+      try {
+        await bot.api.deleteMessage(chatId, pending.messageId);
+      } catch (e) { /* ignore */ }
+    }
+    
+    // Notify chat
+    await bot.api.sendMessage(chatId, 
+      `${pending.firstName} was removed for not verifying within 5 minutes.`
+    );
+    
+    console.log(`Auto-kicked unverified referral: ${userId} (referred by ${referrerId})`);
+  } catch (error) {
+    console.log(`Failed to kick unverified user ${userId}:`, error);
+  }
+}
+
+// Handle successful verification
+async function handleVerificationSuccess(
+  bot: Bot<MyContext>,
+  chatId: number,
+  userId: number
+): Promise<{ success: boolean; referrerName?: string }> {
+  const key = getVerificationKey(chatId, userId);
+  const pending = pendingVerifications.get(key);
+  
+  if (!pending) {
+    return { success: false };
+  }
+  
+  // Clear the timeout
+  clearTimeout(pending.timeoutHandle);
+  pendingVerifications.delete(key);
+  
+  const chatIdStr = chatId.toString();
+  
+  // Unmute the user
+  await unmuteVerifiedReferral(bot, chatId, userId);
+  
+  // Mark as verified in database
+  await db.update(referrals)
+    .set({ 
+      status: "confirmed",
+      verifiedAt: sql`CURRENT_TIMESTAMP`,
+      confirmedDate: sql`CURRENT_TIMESTAMP`
+    })
+    .where(and(
+      eq(referrals.referredTelegramUserId, userId.toString()),
+      eq(referrals.chatId, chatIdStr)
+    ));
+  
+  // NOW award points to referrer (only after verification)
+  const result = await confirmReferral(userId.toString(), chatIdStr);
+  
+  // Increment successful referral count
+  await incrementSuccessfulReferral(pending.referrerId, chatIdStr);
+  
+  // Delete the verification message
+  if (pending.messageId) {
+    try {
+      await bot.api.deleteMessage(chatId, pending.messageId);
+    } catch (e) { /* ignore */ }
+  }
+  
+  // Get referrer name
+  const referrerInfo = await db.select().from(memberScores)
+    .where(and(
+      eq(memberScores.telegramUserId, pending.referrerId),
+      eq(memberScores.chatId, chatIdStr)
+    ))
+    .limit(1);
+  
+  const referrerName = referrerInfo[0]?.username ? `@${referrerInfo[0].username}` : referrerInfo[0]?.firstName || "Someone";
+  
+  return { success: true, referrerName };
+}
+
 // === BUD AVATAR SYSTEM ===
 const BUD_STRAINS = [
   // Modern Exotics (1-15)
@@ -6473,17 +7050,21 @@ Want to earn points while helping the community grow? Here's how:
 
 1. Type /myreferrals to get YOUR personal invite link
 2. Share it with friends who'd love Dudley Bud
-3. When they join using your link, you get 25 points!
+3. When they join and verify, you get 25 points!
+
+Note: New members joining via referral must verify within 5 minutes to protect our community from bots.
 
 Top referrers get special recognition! Check the leaderboard with /refboard`,
 
     `Hey fam! Quick reminder about our REFERRAL PROGRAM
 
-Every friend you bring = 25 points for YOU!
+Every verified friend you bring = 25 points for YOU!
 
 How it works:
 /myreferrals - Get your unique invite link
 /refboard - See who's bringing the most new members
+
+Safety first: New members must click "Verify" within 5 minutes to gain full community access.
 
 The more friends you invite, the higher you climb! Top weekly and monthly referrers get exclusive budify avatar prizes!`,
 
@@ -6494,7 +7075,9 @@ Did you know you can earn points just by inviting friends?
 The Dudley Bud Referral Program:
 - Get your personal link: /myreferrals
 - Share with friends
-- Earn 25 points per new member!
+- Earn 25 points per verified member!
+
+Safety Note: New members joining via referral must verify within 5 minutes to gain full community access. This protects our community from bots and scammers.
 
 Weekly top referrer gets a special budify avatar! Type /refboard to see current rankings.`
   ];
