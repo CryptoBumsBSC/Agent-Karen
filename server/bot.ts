@@ -1082,9 +1082,18 @@ function karenResponse(message: string): string {
     "I demand to speak to the manager about this! ",
     "This is absolutely unacceptable! ",
     "Do you know who I am?! ",
-    "I'm going to report this! "
+    "I'm going to report this! ",
+    "Cowabunga man! ",
+    "It's safety meeting time! ",
+    "Awe man... ",
+    "Awe man I did it again! ",
   ];
   return getRandomItem(karenPhrases) + message;
+}
+
+// Get a random Karen interjection (for adding flavor to responses)
+function getRandomInterjection(): string {
+  return getRandomItem(KAREN_INTERJECTIONS);
 }
 
 // === RUDENESS DETECTION & TRACKING ===
@@ -2016,7 +2025,23 @@ const AUTO_ENGAGE_MESSAGES = [
   "The vibes are immaculate today. How's everyone feeling?",
   "Remember: We're not just a project, we're a family. Stay chill!",
   "Anyone checking the markets? Type /market for the latest crypto report!",
-  "Dudley Bud tip of the day: Always verify, never trust random DMs!"
+  "Dudley Bud tip of the day: Always verify, never trust random DMs!",
+  "Cowabunga man! The vibes are flowing today!",
+  "It's safety meeting time! Remember to stay chill and stay safe!",
+  "Awe man... it's too quiet in here. Someone say something!",
+  "Awe man I did it again - got lost thinking about those good vibes!",
+];
+
+// === KAREN'S RANDOM INTERJECTIONS ===
+const KAREN_INTERJECTIONS = [
+  "Cowabunga man!",
+  "It's safety meeting time!",
+  "Awe man...",
+  "Awe man I did it again!",
+  "Stay chill, fam!",
+  "The vibes are immaculate!",
+  "That's what I'm talking about!",
+  "Now we're cooking with gas!",
 ];
 
 // === AUTO-ENGAGE TIMER ===
@@ -6069,7 +6094,11 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
           ? `${rudenessContext}\n\nSomeone just dropped a one-liner or joke: "${text}". Give them a witty, sassy Karen comeback. Be playful but with attitude. Keep it short - one or two sentences max. Address them as ${displayName}.`
           : `Someone just dropped a one-liner or joke: "${text}". Give them a witty, sassy Karen comeback. Be playful but with attitude. Keep it short - one or two sentences max. Address them as ${displayName}.`;
         
-        const sassyResponse = await getAIResponse(text, sassyPrompt);
+        let sassyResponse = await getAIResponse(text, sassyPrompt);
+        // 40% chance to add a fun interjection at the end
+        if (Math.random() < 0.4) {
+          sassyResponse += ` ${getRandomInterjection()}`;
+        }
         await ctx.reply(sassyResponse, { reply_parameters: { message_id: ctx.message.message_id } });
         return;
       } catch (error) {
