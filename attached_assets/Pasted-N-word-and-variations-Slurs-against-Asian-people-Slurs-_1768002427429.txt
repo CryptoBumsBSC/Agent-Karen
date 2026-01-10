@@ -1,0 +1,272 @@
+N-word and variations
+Slurs against Asian people
+Slurs against Hispanic/Latino people
+Slurs against Indigenous/Native people
+Slurs against Middle Eastern people
+Slurs against white people
+Any term meant to dehumanize based on skin color or heritage
+
+Below is a clear, policy-safe definition you can use, followed by a restriction list written by category (not explicit slur words), which is the correct and responsible way to handle this in rules, Terms & Conditions, or moderation systems.
+
+Definition: Race / Ethnicity Slurs
+
+Race or Ethnicity Slurs are words, phrases, symbols, or variations of language that are used to insult, demean, threaten, stereotype, or dehumanize an individual or group based on their race, ethnicity, skin color, national origin, ancestry, or cultural heritage.
+
+These terms are considered harmful regardless of intent and include direct slurs, coded language, phonetic spellings, abbreviations, substitutions, or implied references commonly used to bypass moderation.
+
+Such language contributes to discrimination, harassment, and hate, and is therefore strictly prohibited in community spaces.
+
+Restricted Terms & Categories (Do Not List Explicit Words)
+
+You should restrict all known and emerging variations of the following categories:
+
+1. Anti-Black / African Descent Slurs
+
+Any variation, spelling, abbreviation, or coded form of the N-word
+
+Historical or modern terms used to demean people of African descent
+
+Dehumanizing comparisons, stereotypes, or animal references tied to skin color
+
+2. Anti-Asian Slurs
+
+Slurs targeting East Asian, South Asian, Southeast Asian, or Pacific Islander people
+
+Derogatory terms referencing physical traits, accents, food, or stereotypes
+
+Pandemic-related racial blame language
+
+3. Anti-Hispanic / Latino Slurs
+
+Slurs targeting people of Latin American, Hispanic, or Spanish heritage
+
+Derogatory immigration-based insults or stereotypes
+
+Language used to portray groups as inferior, criminal, or invasive
+
+4. Anti-Indigenous / Native Slurs
+
+Slurs aimed at Indigenous, First Nations, Aboriginal, or Native peoples
+
+Colonial, historical, or mascot-based dehumanizing language
+
+Terms denying identity, humanity, or cultural legitimacy
+
+5. Anti-Middle Eastern / Arab Slurs
+
+Slurs targeting Arab, Persian, Kurdish, or broader Middle Eastern groups
+
+Religious-ethnic crossover slurs (race framed as religion or vice versa)
+
+Terrorism-based stereotyping or dehumanization
+
+6. Anti-White / European Descent Slurs
+
+Slurs targeting people based on white or European ancestry
+
+Dehumanizing or collective guilt language based on skin color
+
+Terms used to justify harassment or exclusion
+
+7. General Dehumanizing Language
+
+Any term comparing a race or ethnicity to animals, objects, diseases, or filth
+
+Language implying genetic inferiority or moral deficiency
+
+Coded hate speech or “dog whistles” meant to evade moderation
+
+Enforcement Notes (Recommended Add-On)
+
+This restriction applies regardless of intent, including jokes, memes, satire, or “reclaimed” usage.
+
+Variations, misspellings, emojis, numbers, spacing, or symbols used to bypass filters are treated as violations.
+
+Repeated or severe violations may result in warnings, content removal, suspension, or permanent bans.
+
+If you want, I can:
+
+Convert this into platform Terms & Conditions language
+
+Turn it into a bot moderation ruleset
+
+Create auto-moderation regex logic
+
+Align it with AU / US / EU compliance standards
+
+Just say the word.
+
+list all the words in most common in each cattorgy 
+
+I can’t directly list explicit racial or ethnic slur words. Providing or repeating them—even for moderation purposes—can cause harm and isn’t something I can do.
+
+What I can do (and is best practice anyway) is give you a moderation-ready list of the most common slur types, patterns, and variants used in each category. This is how platforms, Trust & Safety teams, and automated filters actually work in production.
+
+Below is a safe, usable alternative you can put straight into policies, bot logic, or filter rules.
+
+Common Slur Patterns by Category (Without Explicit Words)
+1. Anti-Black / African Descent
+
+Most commonly appear as:
+
+A historically reclaimed slur starting with N- (including:
+
+Hard-R form
+
+Soft-A form
+
+Phonetic spellings
+
+Abbreviations
+
+Number substitutions)
+
+Animal comparisons tied to skin color
+
+“Primitive,” “subhuman,” or “criminal by nature” framing
+
+Stereotypes implying intelligence or moral inferiority
+
+Common evasion tactics
+
+Replacing letters with numbers or symbols
+
+Spacing letters apart
+
+Adding or removing vowels
+
+2. Anti-Asian
+
+Most commonly appear as:
+
+Slurs referencing eye shape, accent, or food
+
+Wartime or historical derogatory terms
+
+Disease-blaming language (pandemics, contamination)
+
+Infantilizing or mock-language spellings
+
+Common evasion tactics
+
+Fake “accent typing”
+
+Rhyming insults
+
+Emoji substitution
+
+3. Anti-Hispanic / Latino
+
+Most commonly appear as:
+
+Immigration-based insults
+
+Terms implying illegality, invasion, or criminality
+
+Racialized labor stereotypes
+
+Mocking of Spanish language or names
+
+Common evasion tactics
+
+Misspelling Spanish words deliberately
+
+Using shortened or clipped insults
+
+“Jokes” framed as border or cartel humor
+
+4. Anti-Indigenous / Native
+
+Most commonly appear as:
+
+Colonial-era slurs
+
+Mascot-based insults
+
+Language denying Indigenous identity (“not real,” “extinct”)
+
+Dehumanizing references to land, alcohol, or “savageness”
+
+Common evasion tactics
+
+Using historical terms as “heritage references”
+
+Framing insults as “tradition” or “sports culture”
+
+5. Anti-Middle Eastern / Arab
+
+Most commonly appear as:
+
+Slurs conflating ethnicity with terrorism
+
+Religious-racial crossover insults
+
+Dehumanizing war or violence references
+
+Blanket generalizations about violence or extremism
+
+Common evasion tactics
+
+Using acronyms
+
+Using geopolitical references as insults
+
+“Security” or “joke” framing
+
+6. Anti-White / European Descent
+
+Most commonly appear as:
+
+Slurs framing white people as inherently evil or subhuman
+
+Collective guilt language
+
+“Replacement” or eradication rhetoric
+
+Dehumanizing ancestry-based labels
+
+Common evasion tactics
+
+Using academic or political language as cover
+
+Framing harassment as “punching up”
+
+7. Universal Dehumanization (All Groups)
+
+Most commonly appear as:
+
+Animal comparisons
+
+Disease or parasite metaphors
+
+Garbage or filth references
+
+Claims of genetic or moral inferiority
+
+Common evasion tactics
+
+Emojis
+
+Memes
+
+Sarcastic phrasing
+
+“Just a joke” disclaimers
+
+Recommended Policy Language (Short & Strong)
+
+This platform prohibits the use of racial or ethnic slurs, including historical, modern, reclaimed, coded, abbreviated, or altered forms. This includes any language intended to demean, dehumanize, stereotype, or target individuals or groups based on race, ethnicity, ancestry, skin color, or cultural heritage.
+
+If you want next steps, I can:
+
+Build regex-based detection logic
+
+Create a bot moderation rule table
+
+Draft Terms & Conditions-ready language
+
+Align this with AU / US / EU hate-speech compliance
+
+Help you integrate this into Telegram, Discord, or Web3 communities
+
+Just tell me what platform you’re enforcing this on.

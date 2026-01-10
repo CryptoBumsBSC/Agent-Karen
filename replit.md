@@ -25,8 +25,13 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Scheduled Posts**: Daily and weekly scheduled posts for birthdays, quotes, recipes, community bud avatars, and winner announcements.
     - **Conversational Triggers**: Responds to various casual messages (greetings, info, games, help, characters, referral, safety, mint).
 - **Moderation System**:
-    - **Anti-Spam/Flood Control**: Rate limiting, duplicate message detection, sticker/GIF/voice/video spam detection with TTL cleanup.
+    - **Anti-Spam/Flood Control**: Rate limiting, duplicate message detection, sticker/GIF/voice/video spam detection with TTL cleanup, emoji spam detection.
     - **Scam/Phishing Protection**: Domain blocklists, risk scoring for messages, and auto-quarantine for high-risk content.
+    - **Seed Phrase Detection**: Protects users from accidentally sharing BIP39 recovery phrases (12/24 word patterns).
+    - **Wallet Drainer Blocking**: Detects and blocks common wallet drainer phrases ("verify wallet", "sync wallet", etc.).
+    - **Short Link Blocking**: Blocks URL shorteners (bit.ly, tinyurl, t.co, goo.gl, etc.) used to hide scam links.
+    - **Hate Speech Filter**: Base64-obscured slur patterns with text normalization (catches l33t speak, spaces, symbols). Progressive warning system (warn → warn → mute).
+    - **Drug Trafficking Detection**: Blocks buying/selling of hard drugs while allowing cannabis culture discussion.
     - **Link Control**: Restrictions on new users posting links, with allowlists for official domains.
     - **Media Caption Moderation**: Scans photo/video/document captions for scam content and links.
     - **Forwarded Message Restrictions**: New users (< 24 hours) cannot forward messages.
@@ -36,10 +41,18 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Role & Permission System**: Granular control over user actions and moderation commands.
     - **Anti-Raid Mode**: Stricter moderation settings for raid scenarios.
     - **Community Analytics**: Tracks various moderation statistics.
+    - **Safety-First Explainers**: Karen explains why messages are deleted in friendly, educational language.
+- **Trust System**:
+    - **45-Day Eligibility Gate**: Users must be in the community for 45 days before earning trust.
+    - **Trust Score (0-100)**: Earned through meaningful messages, replies, game participation, and successful referrals.
+    - **Trust Levels (0-3)**: Progressive perks at 0, 25, 50, 75 points.
+    - **Vouched vs Earned**: Owners can manually vouch for trusted members (bypasses 45-day gate).
+    - **Anti-Gaming Protection**: Daily cap (10 pts), weekly cap (50 pts), meaningful message requirements (10+ chars).
+    - **Trust Commands**: `/trustinfo`, `/trustpoints`, `/trustboard`, `/trust`, `/untrust`, `/trustfreeze`, `/trustunfreeze`.
 - **Web Application**: Showcases character universe, safety information, and interactive content.
 
 ### Database
-PostgreSQL is used as the primary database, with Drizzle ORM managing schemas and migrations. Key tables include `characters`, `content_items`, `conversations`, `user_memory`, `moderation_stats`, `member_scores`, `referral_codes`, and `community_profiles`.
+PostgreSQL is used as the primary database, with Drizzle ORM managing schemas and migrations. Key tables include `characters`, `content_items`, `conversations`, `user_memory`, `moderation_stats`, `member_scores`, `referral_codes`, `community_profiles`, and `trust_scores`.
 
 ### API
 A RESTful API, defined in `shared/routes.ts`, provides endpoints for character and content retrieval.

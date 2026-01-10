@@ -215,6 +215,43 @@ export const qaCache = pgTable("qa_cache", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Trust System - 45-day gated trust scores with anti-gaming
+export const trustScores = pgTable("trust_scores", {
+  id: serial("id").primaryKey(),
+  telegramUserId: text("telegram_user_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  username: text("username"),
+  firstName: text("first_name"),
+  // Trust score and status
+  trustScore: integer("trust_score").default(0), // 0-100 scale
+  trustStatus: text("trust_status").default("none"), // none, vouched, earned
+  isTrusted: boolean("is_trusted").default(false),
+  trustLevel: integer("trust_level").default(0), // 0-3 levels for progressive perks
+  // 45-day eligibility gate
+  joinDate: timestamp("join_date").default(sql`CURRENT_TIMESTAMP`),
+  eligibilityDate: timestamp("eligibility_date"), // 45 days after join
+  isEligible: boolean("is_eligible").default(false),
+  // Manual trust controls (owner only)
+  vouchedBy: text("vouched_by"), // telegram user id of voucher
+  vouchedAt: timestamp("vouched_at"),
+  isFrozen: boolean("is_frozen").default(false),
+  frozenBy: text("frozen_by"),
+  frozenAt: timestamp("frozen_at"),
+  frozenReason: text("frozen_reason"),
+  // Anti-gaming metrics
+  dailyMsgCount: integer("daily_msg_count").default(0),
+  dailyMsgDate: text("daily_msg_date"), // YYYY-MM-DD
+  weeklyMsgCount: integer("weekly_msg_count").default(0),
+  weeklyResetDate: text("weekly_reset_date"),
+  uniqueRepliedTo: integer("unique_replied_to").default(0), // diversity of interactions
+  meaningfulMsgCount: integer("meaningful_msg_count").default(0), // >10 chars
+  // Trust history
+  lastTrustUpdate: timestamp("last_trust_update"),
+  trustGainedToday: integer("trust_gained_today").default(0),
+  trustGainedThisWeek: integer("trust_gained_this_week").default(0),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
 export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true });
@@ -231,6 +268,7 @@ export const insertChatModerationSettingsSchema = createInsertSchema(chatModerat
 export const insertQaCacheSchema = createInsertSchema(qaCache).omit({ id: true, createdAt: true, lastAsked: true });
 export const insertReferrerStatusSchema = createInsertSchema(referrerStatus).omit({ id: true });
 export const insertPendingVerificationSchema = createInsertSchema(pendingVerifications).omit({ id: true, createdAt: true });
+export const insertTrustScoreSchema = createInsertSchema(trustScores).omit({ id: true, createdAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -248,6 +286,7 @@ export type ChatModerationSettings = typeof chatModerationSettings.$inferSelect;
 export type QaCache = typeof qaCache.$inferSelect;
 export type ReferrerStatus = typeof referrerStatus.$inferSelect;
 export type PendingVerification = typeof pendingVerifications.$inferSelect;
+export type TrustScore = typeof trustScores.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;

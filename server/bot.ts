@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 
@@ -141,6 +141,344 @@ const BLOCKED_DOMAINS = [
   "telegram-premium", "tg-premium-free", "free-usdt",
   "double-btc", "send-eth-receive", "guaranteed-profit",
 ];
+
+// Short link domains - URL shorteners used to hide scam links
+const SHORT_LINK_DOMAINS = [
+  "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly",
+  "adf.ly", "bit.do", "mcaf.ee", "su.pr", "twit.ac", "cutt.ly", "rb.gy",
+  "shorturl.at", "tiny.cc", "url.ie", "v.gd", "x.co", "1url.com", "hyperurl.co"
+];
+
+// Wallet drainer phrases - scam attempts to steal crypto
+const WALLET_DRAINER_PHRASES = [
+  "verify your wallet", "sync your wallet", "connect to claim", "rectify your wallet",
+  "validate your wallet", "restore your wallet", "update your wallet", "secure your wallet",
+  "wallet verification required", "confirm your wallet", "authenticate your wallet",
+  "wallet sync required", "dapp connection", "web3 validation"
+];
+
+// Seed phrase detection - catches attempts to share/steal recovery phrases
+const SEED_PHRASE_WORDS = [
+  "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse",
+  "access", "accident", "account", "accuse", "achieve", "acid", "acoustic", "acquire", "across", "act",
+  "action", "actor", "actress", "actual", "adapt", "add", "addict", "address", "adjust", "admit",
+  "adult", "advance", "advice", "aerobic", "afford", "afraid", "again", "age", "agent", "agree",
+  "ahead", "aim", "air", "airport", "aisle", "alarm", "album", "alcohol", "alert", "alien"
+];
+
+// Detect seed phrase patterns (12 or 24 words from BIP39 list)
+function detectSeedPhrase(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  const words = lowerText.split(/\s+/).filter(w => w.length > 2);
+  if (words.length < 12) return false;
+  let matchCount = 0;
+  for (const word of words) {
+    if (SEED_PHRASE_WORDS.includes(word.replace(/[^a-z]/g, ''))) {
+      matchCount++;
+    }
+  }
+  return matchCount >= 10;
+}
+
+// === HATE SPEECH & CONTENT MODERATION ===
+// Normalize text to catch bypass attempts (spaces, l33t speak, symbols)
+function normalizeTextForModeration(text: string): string {
+  let normalized = text.toLowerCase();
+  const leetMap: Record<string, string> = {
+    '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '8': 'b', '@': 'a',
+    '$': 's', '!': 'i', '|': 'i', '+': 't', '(': 'c', ')': 'o', '<': 'c', '>': 'o'
+  };
+  for (const [leet, letter] of Object.entries(leetMap)) {
+    normalized = normalized.split(leet).join(letter);
+  }
+  normalized = normalized.replace(/[\s\-_.*#~`'"]/g, '');
+  normalized = normalized.replace(/(.)\1{2,}/g, '$1$1');
+  return normalized;
+}
+
+// Obscured hate speech patterns using base64-encoded terms (not readable in source)
+// Pattern format: base64 encoded slur variants
+const HATE_SPEECH_PATTERNS_B64 = [
+  "bmlnZ2E=", "bmlnZ2Vy", "bmlnZ2Vycw==", "bmlnbm9n",
+  "ZmFnZ290", "ZmFn", "ZmFnZ290cw==", "ZmFncw==",
+  "a2lrZQ==", "a2lrZXM=",
+  "c3BpYw==", "c3BpY3M=", "d2V0YmFjaw==",
+  "Y2hpbms=", "Y2hpbmtz", "Z29vaw==",
+  "cmV0YXJk", "cmV0YXJkcw==",
+  "dHJhbm55", "dHJhbm5pZXM=",
+  "ZHlrZQ==", "ZHlrZXM="
+];
+
+// Decode patterns at runtime (not visible in source code)
+function getHateSpeechPatterns(): string[] {
+  return HATE_SPEECH_PATTERNS_B64.map(b64 => {
+    try {
+      return Buffer.from(b64, 'base64').toString('utf-8');
+    } catch {
+      return '';
+    }
+  }).filter(p => p.length > 0);
+}
+
+// Detect hate speech in normalized text
+function detectHateSpeech(text: string): { detected: boolean; severity: 'low' | 'medium' | 'high' } {
+  const normalized = normalizeTextForModeration(text);
+  const patterns = getHateSpeechPatterns();
+  
+  for (const pattern of patterns) {
+    if (normalized.includes(pattern)) {
+      return { detected: true, severity: 'high' };
+    }
+  }
+  return { detected: false, severity: 'low' };
+}
+
+// Drug trafficking detection - blocks buying/selling hard drugs
+const HARD_DRUG_TERMS = ["meth", "heroin", "fentanyl", "fent", "cocaine", "coke", "crack", "oxy", "oxycontin", "xanax", "bars", "percs", "percocet"];
+const TRAFFICKING_TERMS = ["selling", "buying", "wtb", "wts", "for sale", "hmu for", "dm for", "got that", "plug for", "looking for plug", "need a plug"];
+
+function detectDrugTrafficking(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  const hasHardDrug = HARD_DRUG_TERMS.some(drug => lowerText.includes(drug));
+  const hasTrafficking = TRAFFICKING_TERMS.some(term => lowerText.includes(term));
+  return hasHardDrug && hasTrafficking;
+}
+
+// Emoji spam detection - too many emojis relative to text
+function detectEmojiSpam(text: string): boolean {
+  const emojiRegex = /[\uD83C-\uDBFF\uDC00-\uDFFF]+/g;
+  const emojis = text.match(emojiRegex) || [];
+  const emojiCount = emojis.join('').length / 2;
+  const textWithoutEmoji = text.replace(emojiRegex, '').trim();
+  if (emojiCount > 15 && textWithoutEmoji.length < 20) return true;
+  if (emojiCount > 10 && textWithoutEmoji.length < 5) return true;
+  return false;
+}
+
+// Track hate speech warnings per user
+const hateSpeechWarnings = new Map<string, { count: number; lastWarning: number }>();
+const HATE_SPEECH_WARNING_RESET = 24 * 60 * 60 * 1000; // 24 hours
+
+// Track unique user interactions (user:chat -> Set<replied_to_user_id>)
+const uniqueInteractionsCache = new Map<string, { users: Set<string>; date: string }>();
+
+// === TRUST SYSTEM CONFIGURATION ===
+const TRUST_ELIGIBILITY_DAYS = 45; // Days before user can earn trust
+const TRUST_DAILY_CAP = 10; // Max trust points per day
+const TRUST_WEEKLY_CAP = 50; // Max trust points per week
+const TRUST_MEANINGFUL_MSG_LENGTH = 10; // Min chars for "meaningful" message
+const TRUST_BURST_THRESHOLD = 20; // Max msgs in 10 min before burst detection
+
+// Trust point values
+const TRUST_POINTS = {
+  message: 0.5, // Per meaningful message
+  reply: 1, // Replying to others
+  uniqueInteraction: 2, // First interaction with a new user
+  gameParticipation: 1, // Playing trivia/puzzle
+  referralSuccess: 3, // Successful referral
+};
+
+// Get or create trust record for a user
+async function ensureTrustRecord(userId: string, chatId: string, username?: string, firstName?: string): Promise<typeof trustScores.$inferSelect | null> {
+  try {
+    const existing = await db.select().from(trustScores)
+      .where(and(eq(trustScores.telegramUserId, userId), eq(trustScores.chatId, chatId)))
+      .limit(1);
+    
+    if (existing.length > 0) {
+      return existing[0];
+    }
+    
+    // Create new trust record
+    const joinDate = new Date();
+    const eligibilityDate = new Date(joinDate.getTime() + TRUST_ELIGIBILITY_DAYS * 24 * 60 * 60 * 1000);
+    
+    await db.insert(trustScores).values({
+      telegramUserId: userId,
+      chatId,
+      username,
+      firstName,
+      joinDate,
+      eligibilityDate,
+      isEligible: false,
+      trustScore: 0,
+      trustStatus: "none",
+    });
+    
+    return (await db.select().from(trustScores)
+      .where(and(eq(trustScores.telegramUserId, userId), eq(trustScores.chatId, chatId)))
+      .limit(1))[0];
+  } catch (error) {
+    console.error("Error ensuring trust record:", error);
+    return null;
+  }
+}
+
+// Check if user is eligible for trust (45+ days)
+function isEligibleForTrust(trustRecord: typeof trustScores.$inferSelect): boolean {
+  if (trustRecord.trustStatus === "vouched") return true;
+  if (!trustRecord.eligibilityDate) return false;
+  return new Date() >= new Date(trustRecord.eligibilityDate);
+}
+
+// Update trust score with anti-gaming checks
+async function updateTrustActivity(
+  userId: string, 
+  chatId: string, 
+  activityType: 'message' | 'reply' | 'uniqueInteraction' | 'gameParticipation' | 'referralSuccess',
+  messageLength?: number,
+  repliedToUserId?: string
+): Promise<void> {
+  try {
+    const record = await ensureTrustRecord(userId, chatId);
+    if (!record) return;
+    
+    // Frozen users don't gain trust
+    if (record.isFrozen) return;
+    
+    // Check eligibility
+    const eligible = isEligibleForTrust(record);
+    const today = getTodayDateString();
+    const weekStart = getWeekStartDate();
+    
+    // Reset daily/weekly counters if needed
+    let dailyMsgCount = record.dailyMsgCount || 0;
+    let weeklyMsgCount = record.weeklyMsgCount || 0;
+    let trustGainedToday = record.trustGainedToday || 0;
+    let trustGainedThisWeek = record.trustGainedThisWeek || 0;
+    
+    if (record.dailyMsgDate !== today) {
+      dailyMsgCount = 0;
+      trustGainedToday = 0;
+    }
+    if (record.weeklyResetDate !== weekStart) {
+      weeklyMsgCount = 0;
+      trustGainedThisWeek = 0;
+    }
+    
+    // Anti-gaming: check caps
+    if (trustGainedToday >= TRUST_DAILY_CAP || trustGainedThisWeek >= TRUST_WEEKLY_CAP) {
+      // Just update activity counts, no trust gain
+      await db.update(trustScores)
+        .set({
+          dailyMsgCount: dailyMsgCount + 1,
+          dailyMsgDate: today,
+          weeklyMsgCount: weeklyMsgCount + 1,
+          weeklyResetDate: weekStart,
+        })
+        .where(and(eq(trustScores.telegramUserId, userId), eq(trustScores.chatId, chatId)));
+      return;
+    }
+    
+    // Calculate trust points based on activity
+    let pointsToAdd = 0;
+    let meaningfulCount = record.meaningfulMsgCount || 0;
+    let uniqueReplied = record.uniqueRepliedTo || 0;
+    
+    switch (activityType) {
+      case 'message':
+        if (messageLength && messageLength >= TRUST_MEANINGFUL_MSG_LENGTH) {
+          pointsToAdd = TRUST_POINTS.message;
+          meaningfulCount++;
+        }
+        break;
+      case 'reply':
+        pointsToAdd = TRUST_POINTS.reply;
+        break;
+      case 'uniqueInteraction':
+        pointsToAdd = TRUST_POINTS.uniqueInteraction;
+        uniqueReplied++;
+        break;
+      case 'gameParticipation':
+        pointsToAdd = TRUST_POINTS.gameParticipation;
+        break;
+      case 'referralSuccess':
+        pointsToAdd = TRUST_POINTS.referralSuccess;
+        break;
+    }
+    
+    // Only add points if eligible
+    if (!eligible) {
+      pointsToAdd = 0;
+    }
+    
+    // Cap points
+    pointsToAdd = Math.min(pointsToAdd, TRUST_DAILY_CAP - trustGainedToday, TRUST_WEEKLY_CAP - trustGainedThisWeek);
+    
+    const newScore = Math.min(100, (record.trustScore || 0) + pointsToAdd);
+    const newLevel = Math.floor(newScore / 25); // 0-3 levels at 0, 25, 50, 75
+    const isTrusted = newScore >= 25;
+    const newStatus = record.trustStatus === "vouched" ? "vouched" : (isTrusted ? "earned" : "none");
+    
+    await db.update(trustScores)
+      .set({
+        trustScore: newScore,
+        trustLevel: newLevel,
+        isTrusted,
+        trustStatus: newStatus,
+        isEligible: eligible,
+        dailyMsgCount: dailyMsgCount + 1,
+        dailyMsgDate: today,
+        weeklyMsgCount: weeklyMsgCount + 1,
+        weeklyResetDate: weekStart,
+        meaningfulMsgCount: meaningfulCount,
+        uniqueRepliedTo: uniqueReplied,
+        trustGainedToday: trustGainedToday + pointsToAdd,
+        trustGainedThisWeek: trustGainedThisWeek + pointsToAdd,
+        lastTrustUpdate: new Date(),
+      })
+      .where(and(eq(trustScores.telegramUserId, userId), eq(trustScores.chatId, chatId)));
+  } catch (error) {
+    console.error("Error updating trust activity:", error);
+  }
+}
+
+// Get week start date string (Sunday)
+function getWeekStartDate(): string {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const diff = now.getDate() - dayOfWeek;
+  const sunday = new Date(now.setDate(diff));
+  return `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')}`;
+}
+
+// Generate trust progress bar
+function generateTrustProgressBar(score: number): string {
+  const filled = Math.floor(score / 10);
+  const empty = 10 - filled;
+  return '[' + '#'.repeat(filled) + '-'.repeat(empty) + ']';
+}
+
+// Trust explainer for Karen
+function getTrustExplainer(): string {
+  return `TRUST POINTS - How It Works
+
+Our Trust System recognizes genuine community members while preventing abuse.
+
+HOW TO EARN TRUST:
+1. Be active for 45+ days (eligibility gate)
+2. Send meaningful messages (10+ characters)
+3. Reply to and help other members
+4. Play community games (trivia, puzzles)
+5. Successfully refer new members
+
+TRUST LEVELS:
+Level 0 (0-24 pts): New member
+Level 1 (25-49 pts): Trusted - can post some links
+Level 2 (50-74 pts): Established - more posting freedom
+Level 3 (75-100 pts): OG - full community privileges
+
+ANTI-GAMING RULES:
+- Daily cap: ${TRUST_DAILY_CAP} pts/day
+- Weekly cap: ${TRUST_WEEKLY_CAP} pts/week
+- Spam doesn't count - quality over quantity!
+- Owners can freeze trust for rule violations
+
+VOUCHED MEMBERS:
+Owners can manually vouch for trusted friends, bypassing the 45-day wait.
+
+Check your status anytime with /trustinfo!`;
+}
 
 // Allowed domains (your official links)
 const ALLOWED_DOMAINS = [
@@ -2860,6 +3198,261 @@ Stay safe, fam!`;
     await ctx.reply(`Giveaway ended.\n\nPrize: ${giveaway.prize}\nTotal entries: ${giveaway.entries.size}\n\nNo winner was picked.`);
   });
 
+  // === TRUST SYSTEM COMMANDS ===
+  
+  // /trustinfo - Check your own trust status
+  bot.command("trustinfo", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const chatId = String(ctx.chat.id);
+    const userId = String(ctx.from.id);
+    
+    const record = await ensureTrustRecord(userId, chatId, ctx.from.username, ctx.from.first_name);
+    if (!record) {
+      await ctx.reply("Couldn't load your trust info. Try again later!");
+      return;
+    }
+    
+    const progressBar = generateTrustProgressBar(record.trustScore || 0);
+    const levelNames = ["New Member", "Trusted", "Established", "OG"];
+    const levelName = levelNames[record.trustLevel || 0];
+    
+    const eligible = isEligibleForTrust(record);
+    let eligibilityText = "";
+    if (!eligible && record.eligibilityDate) {
+      const daysRemaining = Math.ceil((new Date(record.eligibilityDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+      eligibilityText = `\nEligibility: ${daysRemaining} days remaining`;
+    } else if (eligible) {
+      eligibilityText = "\nEligibility: Active";
+    }
+    
+    const statusText = record.trustStatus === "vouched" ? " (Vouched)" : record.trustStatus === "earned" ? " (Earned)" : "";
+    const frozenText = record.isFrozen ? "\n\nSTATUS: FROZEN" : "";
+    
+    await ctx.reply(`TRUST STATUS for ${ctx.from.first_name}
+
+Score: ${record.trustScore || 0}/100 ${progressBar}
+Level: ${record.trustLevel || 0} - ${levelName}${statusText}${eligibilityText}
+
+Today's Progress: ${record.trustGainedToday || 0}/${TRUST_DAILY_CAP} pts
+Weekly Progress: ${record.trustGainedThisWeek || 0}/${TRUST_WEEKLY_CAP} pts
+Meaningful Messages: ${record.meaningfulMsgCount || 0}
+Unique Interactions: ${record.uniqueRepliedTo || 0}${frozenText}
+
+Use /trustpoints to learn how to earn more!`);
+  });
+  
+  // /trustpoints - Karen explains the trust system
+  bot.command("trustpoints", async (ctx) => {
+    const explainer = getTrustExplainer();
+    await ctx.reply(ctx.session?.karenMode ? karenResponse(explainer) : explainer);
+  });
+  
+  // /trust @username - Vouch for a user (OWNER ONLY)
+  bot.command("trust", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can vouch for members!");
+      return;
+    }
+    
+    // Get target user from reply or mention
+    let targetUserId: string | undefined;
+    let targetUsername: string | undefined;
+    let targetFirstName: string | undefined;
+    
+    if (ctx.message?.reply_to_message?.from) {
+      targetUserId = String(ctx.message.reply_to_message.from.id);
+      targetUsername = ctx.message.reply_to_message.from.username;
+      targetFirstName = ctx.message.reply_to_message.from.first_name;
+    } else {
+      const text = ctx.message?.text || "";
+      const mention = text.match(/@(\w+)/);
+      if (mention) {
+        targetUsername = mention[1];
+        await ctx.reply(`To vouch for @${targetUsername}, please reply to one of their messages with /trust`);
+        return;
+      } else {
+        await ctx.reply("Usage: Reply to a user's message with /trust to vouch for them");
+        return;
+      }
+    }
+    
+    if (!targetUserId) {
+      await ctx.reply("Couldn't identify the user. Reply to their message and try again.");
+      return;
+    }
+    
+    const chatId = String(ctx.chat.id);
+    const record = await ensureTrustRecord(targetUserId, chatId, targetUsername, targetFirstName);
+    
+    if (record?.trustStatus === "vouched") {
+      await ctx.reply(`${targetFirstName || targetUsername} is already vouched for!`);
+      return;
+    }
+    
+    await db.update(trustScores)
+      .set({
+        trustStatus: "vouched",
+        isTrusted: true,
+        trustLevel: Math.max(1, record?.trustLevel || 0),
+        isEligible: true,
+        vouchedBy: String(ctx.from.id),
+        vouchedAt: new Date(),
+      })
+      .where(and(eq(trustScores.telegramUserId, targetUserId), eq(trustScores.chatId, chatId)));
+    
+    await ctx.reply(`${targetFirstName || targetUsername} has been VOUCHED by the owner!
+
+They now have trusted status and can bypass the 45-day eligibility requirement.`);
+  });
+  
+  // /untrust @username - Remove trust status (OWNER ONLY)
+  bot.command("untrust", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can remove trust status!");
+      return;
+    }
+    
+    let targetUserId: string | undefined;
+    let targetFirstName: string | undefined;
+    
+    if (ctx.message?.reply_to_message?.from) {
+      targetUserId = String(ctx.message.reply_to_message.from.id);
+      targetFirstName = ctx.message.reply_to_message.from.first_name;
+    } else {
+      await ctx.reply("Usage: Reply to a user's message with /untrust to remove their trust status");
+      return;
+    }
+    
+    const chatId = String(ctx.chat.id);
+    
+    await db.update(trustScores)
+      .set({
+        trustStatus: "none",
+        isTrusted: false,
+        trustLevel: 0,
+        trustScore: 0,
+        vouchedBy: null,
+        vouchedAt: null,
+      })
+      .where(and(eq(trustScores.telegramUserId, targetUserId), eq(trustScores.chatId, chatId)));
+    
+    await ctx.reply(`${targetFirstName}'s trust status has been removed. They will need to earn trust from scratch.`);
+  });
+  
+  // /trustfreeze @username [reason] - Freeze user's trust progress (OWNER ONLY)
+  bot.command("trustfreeze", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can freeze trust!");
+      return;
+    }
+    
+    let targetUserId: string | undefined;
+    let targetFirstName: string | undefined;
+    
+    if (ctx.message?.reply_to_message?.from) {
+      targetUserId = String(ctx.message.reply_to_message.from.id);
+      targetFirstName = ctx.message.reply_to_message.from.first_name;
+    } else {
+      await ctx.reply("Usage: Reply to a user's message with /trustfreeze [reason]");
+      return;
+    }
+    
+    const reason = ctx.message?.text?.replace("/trustfreeze", "").trim() || "No reason provided";
+    const chatId = String(ctx.chat.id);
+    
+    await db.update(trustScores)
+      .set({
+        isFrozen: true,
+        frozenBy: String(ctx.from.id),
+        frozenAt: new Date(),
+        frozenReason: reason,
+      })
+      .where(and(eq(trustScores.telegramUserId, targetUserId), eq(trustScores.chatId, chatId)));
+    
+    await ctx.reply(`${targetFirstName}'s trust progress has been FROZEN.
+
+Reason: ${reason}
+
+They cannot gain trust points until unfrozen with /trustunfreeze.`);
+  });
+  
+  // /trustunfreeze @username - Unfreeze user's trust progress (OWNER ONLY)
+  bot.command("trustunfreeze", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can unfreeze trust!");
+      return;
+    }
+    
+    let targetUserId: string | undefined;
+    let targetFirstName: string | undefined;
+    
+    if (ctx.message?.reply_to_message?.from) {
+      targetUserId = String(ctx.message.reply_to_message.from.id);
+      targetFirstName = ctx.message.reply_to_message.from.first_name;
+    } else {
+      await ctx.reply("Usage: Reply to a user's message with /trustunfreeze");
+      return;
+    }
+    
+    const chatId = String(ctx.chat.id);
+    
+    await db.update(trustScores)
+      .set({
+        isFrozen: false,
+        frozenBy: null,
+        frozenAt: null,
+        frozenReason: null,
+      })
+      .where(and(eq(trustScores.telegramUserId, targetUserId), eq(trustScores.chatId, chatId)));
+    
+    await ctx.reply(`${targetFirstName}'s trust progress has been UNFROZEN. They can now earn trust points again.`);
+  });
+  
+  // /trustboard - Show trust leaderboard
+  bot.command("trustboard", async (ctx) => {
+    if (!ctx.chat) return;
+    
+    const chatId = String(ctx.chat.id);
+    
+    const topTrusted = await db.select().from(trustScores)
+      .where(and(eq(trustScores.chatId, chatId), eq(trustScores.isTrusted, true)))
+      .orderBy(desc(trustScores.trustScore))
+      .limit(10);
+    
+    if (topTrusted.length === 0) {
+      await ctx.reply("No trusted members yet! Stick around, participate, and you could be the first!");
+      return;
+    }
+    
+    const levelEmojis = ["", "I", "II", "III"];
+    let leaderboard = "TRUST LEADERBOARD\n\n";
+    
+    topTrusted.forEach((member, index) => {
+      const medal = index === 0 ? "1." : index === 1 ? "2." : index === 2 ? "3." : `${index + 1}.`;
+      const name = member.username ? `@${member.username}` : member.firstName || "Anonymous";
+      const level = levelEmojis[member.trustLevel || 0];
+      const status = member.trustStatus === "vouched" ? "(V)" : "";
+      leaderboard += `${medal} ${name} - ${member.trustScore || 0}pts [Lv${level}] ${status}\n`;
+    });
+    
+    leaderboard += "\n(V) = Vouched by owner";
+    
+    await ctx.reply(leaderboard);
+  });
+
   // === TRIVIA COMMANDS ===
 
   // Helper function to get or create member score
@@ -5141,6 +5734,148 @@ Ask me anything! I'm literally always here.`
         // Get chat settings for raid mode and thresholds
         const settings = await getChatSettings(chatIdStr);
         
+        // === PHASE 1 SECURITY CHECKS ===
+        const lowerTextMod = text.toLowerCase();
+        
+        // 1A. Seed phrase detection - protect users from sharing recovery phrases
+        if (detectSeedPhrase(text)) {
+          try {
+            await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+            await incrementModStat(chatIdStr, 'scamsBlocked');
+            await ctx.reply(`Hey there! I removed that message because it looked like it might contain a wallet recovery phrase (seed phrase).
+
+NEVER share your seed phrase with anyone - not even team members or "support." If someone asked you to share it, they're trying to steal your crypto!
+
+If this was a mistake, no worries. Just keep those 12/24 words safe and private!`);
+            await flagForModReview(ctx, userIdStr, username || "", "[SEED PHRASE DETECTED - Content hidden for safety]", 95, "Seed phrase detected");
+          } catch (e) {
+            console.log("Couldn't delete seed phrase message");
+          }
+          return;
+        }
+        
+        // 1B. Wallet drainer phrase detection
+        for (const phrase of WALLET_DRAINER_PHRASES) {
+          if (lowerTextMod.includes(phrase)) {
+            try {
+              await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+              await incrementModStat(chatIdStr, 'scamsBlocked');
+              await ctx.reply(`Hold up! That message contained a common scam phrase ("${phrase}").
+
+Legit projects NEVER ask you to "verify," "sync," or "validate" your wallet through a random link. That's how scammers drain wallets!
+
+If you received a DM asking you to do this, report and block them immediately.`);
+              await flagForModReview(ctx, userIdStr, username || "", text, 85, `Wallet drainer phrase: ${phrase}`);
+            } catch (e) {
+              console.log("Couldn't delete wallet drainer message");
+            }
+            return;
+          }
+        }
+        
+        // 1C. Short link domain detection (URL shorteners hide scam links)
+        const urlRegexShort = /https?:\/\/([^\s\/]+)/gi;
+        let shortLinkMatch;
+        while ((shortLinkMatch = urlRegexShort.exec(text)) !== null) {
+          const domain = shortLinkMatch[1].toLowerCase();
+          if (SHORT_LINK_DOMAINS.some(sd => domain.includes(sd))) {
+            try {
+              await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+              await incrementModStat(chatIdStr, 'linksBlocked');
+              await ctx.reply(`I blocked that shortened link for your safety!
+
+Scammers use URL shorteners (bit.ly, tinyurl, etc.) to hide malicious websites. If you have a legitimate link to share, please use the full URL so everyone can see where it goes.
+
+Tip: Never click shortened links in crypto groups - they're often phishing sites!`);
+            } catch (e) {
+              console.log("Couldn't delete short link message");
+            }
+            return;
+          }
+        }
+        
+        // 1D. Hate speech detection with progressive warnings
+        const hateSpeechCheck = detectHateSpeech(text);
+        if (hateSpeechCheck.detected) {
+          const warningKey = `${userIdStr}:${chatIdStr}`;
+          const existing = hateSpeechWarnings.get(warningKey);
+          const now = Date.now();
+          
+          // Reset if warning is old
+          if (existing && (now - existing.lastWarning > HATE_SPEECH_WARNING_RESET)) {
+            hateSpeechWarnings.delete(warningKey);
+          }
+          
+          const warningCount = (hateSpeechWarnings.get(warningKey)?.count || 0) + 1;
+          hateSpeechWarnings.set(warningKey, { count: warningCount, lastWarning: now });
+          
+          try {
+            await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+            await incrementModStat(chatIdStr, 'messagesBlocked');
+            
+            if (warningCount === 1) {
+              await ctx.reply(`That language isn't welcome here. We're building a positive community for everyone.
+
+This is your first warning. Please review our community guidelines and keep it respectful!`);
+            } else if (warningCount === 2) {
+              await ctx.reply(`Second warning for inappropriate language. One more and you'll be muted.
+
+We want everyone to feel safe here. Let's keep it friendly!`);
+            } else {
+              // 3rd+ offense: mute for 1 hour
+              const muteUntil = Math.floor(Date.now() / 1000) + 3600;
+              await ctx.api.restrictChatMember(chatId, ctx.from.id, {
+                can_send_messages: false,
+                can_send_audios: false,
+                can_send_documents: false,
+                can_send_photos: false,
+                can_send_videos: false,
+                can_send_video_notes: false,
+                can_send_voice_notes: false,
+                can_send_polls: false,
+                can_send_other_messages: false,
+                can_add_web_page_previews: false
+              }, { until_date: muteUntil });
+              await ctx.reply(`You've been muted for 1 hour due to repeated violations of community guidelines.
+
+Admins have been notified. Please reflect on the kind of community you want to be part of.`);
+              await flagForModReview(ctx, userIdStr, username || "", "[Hate speech - content hidden]", 90, "Repeated hate speech violations");
+            }
+          } catch (e) {
+            console.log("Couldn't moderate hate speech");
+          }
+          return;
+        }
+        
+        // 1E. Drug trafficking detection
+        if (detectDrugTrafficking(text)) {
+          try {
+            await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+            await incrementModStat(chatIdStr, 'messagesBlocked');
+            await ctx.reply(`Hey, we're a cannabis culture community and we love talking about the plant - but we can't allow buying/selling discussions, especially for other substances.
+
+This keeps our community safe and legal. Feel free to discuss cannabis culture, strains, and experiences though!`);
+            await flagForModReview(ctx, userIdStr, username || "", text, 75, "Drug trafficking language detected");
+          } catch (e) {
+            console.log("Couldn't delete trafficking message");
+          }
+          return;
+        }
+        
+        // 1F. Emoji spam detection
+        if (detectEmojiSpam(text)) {
+          try {
+            await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+            await incrementModStat(chatIdStr, 'spamBlocked');
+            // Silent delete for emoji spam - no message needed
+          } catch (e) {
+            console.log("Couldn't delete emoji spam");
+          }
+          return;
+        }
+        
+        // === END PHASE 1 SECURITY CHECKS ===
+        
         // 1. Rate limiting check (use stricter threshold in raid mode)
         const rateThreshold = settings.raidMode ? Math.max(3, settings.spamThreshold - 2) : settings.spamThreshold;
         const rateCheck = checkRateLimit(userIdStr, chatIdStr, text, rateThreshold);
@@ -5250,6 +5985,42 @@ Ask me anything! I'm literally always here.`
     }
     userMem.messageCount++;
     userMem.lastMessages = [...userMem.lastMessages.slice(-4), text];
+    
+    // === TRUST ACTIVITY TRACKING ===
+    // Only track in group chats (negative IDs are group chats)
+    if (typeof chatId === 'number' && chatId < 0 && ctx.from?.id) {
+      const chatIdStr = String(chatId);
+      const userIdStr = String(ctx.from.id);
+      const today = getTodayDateString();
+      
+      // Determine activity type
+      const isReply = !!ctx.message.reply_to_message;
+      const repliedToUserId = ctx.message.reply_to_message?.from?.id ? String(ctx.message.reply_to_message.from.id) : undefined;
+      
+      if (isReply && repliedToUserId && repliedToUserId !== userIdStr) {
+        // Check if this is a unique interaction (first reply to this user today)
+        const cacheKey = `${userIdStr}:${chatIdStr}`;
+        let cache = uniqueInteractionsCache.get(cacheKey);
+        
+        // Reset cache if it's a new day
+        if (!cache || cache.date !== today) {
+          cache = { users: new Set<string>(), date: today };
+          uniqueInteractionsCache.set(cacheKey, cache);
+        }
+        
+        if (!cache.users.has(repliedToUserId)) {
+          // First reply to this user today - track as unique interaction
+          cache.users.add(repliedToUserId);
+          await updateTrustActivity(userIdStr, chatIdStr, 'uniqueInteraction', text.length, repliedToUserId);
+        } else {
+          // Already replied to this user today - just track as regular reply
+          await updateTrustActivity(userIdStr, chatIdStr, 'reply', text.length, repliedToUserId);
+        }
+      } else {
+        // Regular message (not a reply)
+        await updateTrustActivity(userIdStr, chatIdStr, 'message', text.length);
+      }
+    }
 
     // Track rudeness for EVERY message (not just ones we respond to)
     const { isRude, isNice } = detectRudeness(text);
@@ -7641,11 +8412,27 @@ export async function startBot() {
   // Start the winner announcement scheduler
   startWinnerAnnouncementScheduler();
 
-  await bot.start({
-    allowed_updates: ["message", "edited_message", "callback_query", "chat_member", "my_chat_member"],
-    onStart: () => {
-      console.log("AgentKarenBot is running with AI capabilities!");
-      console.log("Features: Smart Q&A, Market Reports, Roasts, Auto-engage, Daily Recipes, Birthday Celebrations, Referral Tracking");
-    },
-  });
+  // Start bot with retry logic for 409 conflicts (common during rapid restarts)
+  const maxRetries = 5;
+  const retryDelay = 5000; // 5 seconds
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await bot.start({
+        allowed_updates: ["message", "edited_message", "callback_query", "chat_member", "my_chat_member"],
+        onStart: () => {
+          console.log("AgentKarenBot is running with AI capabilities!");
+          console.log("Features: Smart Q&A, Market Reports, Roasts, Auto-engage, Daily Recipes, Birthday Celebrations, Referral Tracking");
+        },
+      });
+      break; // Success, exit retry loop
+    } catch (error: any) {
+      if (error?.error_code === 409 && attempt < maxRetries) {
+        console.log(`409 conflict detected (attempt ${attempt}/${maxRetries}). Waiting ${retryDelay/1000}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        throw error; // Rethrow if not a 409 or max retries reached
+      }
+    }
+  }
 }

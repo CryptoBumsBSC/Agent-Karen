@@ -1,0 +1,208 @@
+Core Group Protection (MVP)
+Anti-spam basics
+
+ Flood control (max msgs per X seconds per user)
+
+ Duplicate message detector (same text repeated)
+
+ Copy-paste spam detector (same message across users)
+
+ Emoji spam limiter (too many emojis / too little text)
+
+ Sticker/GIF spam limiter (optional, adjustable)
+
+Link control
+
+ New user link block (no links for first N minutes)
+
+ Short-link block (bit.ly, tinyurl, t.co, etc.)
+
+ Domain allowlist (your official sites only)
+
+ Domain blocklist (known scam domains)
+
+ Suspicious keyword + link combo detection (“airdrop” + URL, “claim” + URL)
+
+Sensitive info protection
+
+ Seed phrase / private key pattern detection (auto delete)
+
+ Phone/email combo detection (optional safety delete)
+
+ Wallet-drainer phrase detection (“verify wallet”, “sync”, “rectify”)
+
+Actions & escalation
+
+ Delete message
+
+ Warn user (DM + optional public)
+
+ Temp mute (5m / 30m / 24h)
+
+ Temp restrict links only
+
+ Ban + kick (only after repeat or obvious scam)
+
+✅ Phase 2 — Human-Friendly Onboarding (Keep Chat Alive)
+
+ Soft onboarding mode
+
+ New users read-only for 30–60s
+
+ First message allowed (no links)
+
+ Welcome message (rules + safety)
+
+ Pinned safety policy template (admins never DM first, no seed phrases)
+
+ Auto-reminder scheduler (weekly safety reminders)
+
+✅ Phase 3 — Reputation & Trust Scoring (Stops “Cunning” Bots)
+
+ Trust score per user stored in DB
+
+ Score factors:
+
+ Account age (if available)
+
+ Time in group
+
+ Message diversity (not identical spam)
+
+ Approved interactions (reactions/replies)
+
+ No prior strikes
+
+ Trust tiers
+
+ Tier 0: brand new (strict)
+
+ Tier 1: warmed up (medium)
+
+ Tier 2: trusted (light)
+
+ Tier 3: verified / mod (bypass most checks)
+
+✅ Phase 4 — Community Reporting & Mod Tools
+
+ /report command (reply-to message to report)
+
+ Reaction reporting (🚨 triggers review)
+
+ Report thresholds
+
+ 2+ reports → auto hide + notify mods
+
+ 4+ reports → auto restrict pending review
+
+ Mod commands:
+
+ /mute @user 30m reason
+
+ /ban @user reason
+
+ /unmute @user
+
+ /purge 20 (delete last N messages from a spammer)
+
+ /note add and /note list (saved replies)
+
+✅ Phase 5 — Owner-Only Control (No Abuse)
+
+ Owner-only commands:
+
+ /settings
+
+ /lockdown on|off
+
+ /allowdomain domain.com
+
+ /blockdomain scam.com
+
+ /addphrase "text"
+
+ /removephrase "text"
+
+ Role system:
+
+ Owner
+
+ Admins
+
+ Mods
+
+ Members
+
+ Permissions enforcement (hard block if not allowed)
+
+✅ Phase 6 — “Attack Mode” Emergency Lockdown
+
+ /lockdown on does:
+
+ Disable links for everyone except trusted
+
+ Slow mode (1 msg / 30s)
+
+ Restrict new joins (or set to approve-only if possible)
+
+ Auto-post warning banner
+
+ /lockdown off restores normal rules
+
+✅ Logging, Auditing & Transparency (Admin Trust)
+
+ Admin-only log channel output:
+
+ Deleted message + reason
+
+ Mute/ban + duration + reason
+
+ Links removed + domain
+
+ Metrics (weekly):
+
+ # messages deleted
+
+ # users muted/banned
+
+ top scam phrases
+
+ top blocked domains
+
+✅ Reliability & Safety (Replit Practical)
+
+ Error handling (no crashes on weird Telegram updates)
+
+ Rate-limit Telegram API calls (avoid 429s)
+
+ Anti-loop protection (bot doesn’t trigger itself)
+
+ Backups (export DB weekly)
+
+ “Dry run” mode (log only, no deletes) for testing
+
+ Unit tests for detection rules (basic but worth it)
+
+✅ UX Copy Pack (So Users Don’t Hate the Bot)
+
+ Friendly warning templates (not aggressive)
+
+ Clear reason messages (“Removed: new users can’t post links yet.”)
+
+ Appeal flow (tell them how to contact mods)
+
+ One-line rule reminders (short, non-spammy)
+
+Quick “Ship Order” (Best Build Path)
+
+Flood + link limits + delete/warn/mute
+
+Onboarding soft rules
+
+Allowlist/blocklist domains
+
+Logs + owner-only settings
+
+Reputation scoring
+
+Reporting + lockdown

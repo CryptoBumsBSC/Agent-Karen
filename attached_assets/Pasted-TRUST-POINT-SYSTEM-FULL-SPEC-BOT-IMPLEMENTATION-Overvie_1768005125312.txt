@@ -1,0 +1,278 @@
+TRUST POINT SYSTEM – FULL SPEC (BOT IMPLEMENTATION)
+Overview
+
+The Trust Point System is designed to:
+
+Reward real, consistent community participation
+
+Reduce scams without killing conversation
+
+Automatically promote safe members
+
+Prevent bots from farming trust
+
+Trust is earned slowly, monitored continuously, and revocable instantly.
+
+Earned Trusted Community Member (60-Day Rule)
+
+An Earned Trusted Community Member is a user who has demonstrated long-term, safe, and human participation in the Telegram group.
+
+Trust is calculated automatically by the bot based on behaviour. No application is required.
+
+Mandatory Eligibility Gates (ALL must be met)
+
+A user is only eligible for earned trust if every gate below is satisfied:
+
+Time in group: ≥ 60 days
+
+Message activity: ≥ 30 meaningful messages
+
+Message diversity: Unique message ratio ≥ 0.7
+
+Safety record: ≤ 1 minor strike
+
+Recent behaviour: No suspicious or removed links in the last 7 days
+
+Failing any gate = not eligible, regardless of score.
+
+Trust Scoring Model (0–100)
+
+Once gates are passed, the bot calculates a trust score:
+
++20 → Member for 60+ days
+
++20 → 30+ messages
+
++10 → 10+ replies to other users
+
++20 → Clean record (0 strikes)
+
++10 → No link removals in last 7 days
+
++20 → Manual mod/owner vouch (optional)
+
+Maximum score: 100
+
+Auto-Trust Rule
+
+If:
+
+All gates are satisfied
+
+Trust score ≥ 70
+
+The bot automatically sets:
+
+trust_status = EARNED
+trusted_enabled = true
+
+What Trusted Members Receive
+
+Trusted members receive progressive freedoms, not unlimited access:
+
+Higher daily link allowance
+
+Reduced cooldowns
+
+Participation in Trusted Link Day
+
+Continued blocking of high-risk links (wallet drains, mints, shortlinks)
+
+All activity remains logged and monitored.
+
+Weekly Trust Point Updates (User Feedback)
+Weekly Process
+
+Runs once per week (same day/time)
+
+Evaluates trust earned in the last 7 days
+
+Sends private DM only (no public spam)
+
+Who Receives Messages
+
+Users who earned trust points that week
+
+Non-trusted users by default
+
+Trusted users get a lighter confirmation message
+
+Weekly DM Example
+✅ Weekly Trust Update
+
+Trust: 62/100  [██████░░░░]
+This week: +8
+
+You earn trust by being active, human, and safe.
+Type /trustpoints to learn how trust works.
+
+Text-Based Trust Progress Bars
+Standard 10-Block Bar (recommended)
+
+Score 0–100
+
+Each block = 10 points
+
+Trust: 62/100  [██████░░░░]
+
+Milestone Bar (anti-gaming)
+Progress: [✅✅✅⬜⬜]
+Active • Safe • Consistent • Time • Verified
+
+
+(Milestones hide exact numbers from scammers.)
+
+“What Are Trust Points?” – Bot Explanation
+
+Trigger words:
+
+“What are trust points?”
+
+“How does trust work?”
+
+/trustpoints
+
+/trusthelp
+
+Bot Reply (Short Version)
+🛡️ Trust Points Explained
+
+Trust points measure safe, consistent participation.
+You earn them by being active, human, and following safety rules.
+
+They unlock limited features automatically and help keep the group safe.
+
+Anti-Gaming Logic (Critical)
+Meaningful Messages Only
+
+A message counts only if:
+
+≥ 12 characters OR ≥ 3 real words
+
+Not emoji-only
+
+Not repeated or copy-pasted
+
+Low-value messages = 0 trust points
+
+Daily & Weekly Caps
+
+Max trust gain per day: +3
+
+Max trust gain per week: +12
+
+Spam gives no advantage.
+
+Diversity & Repetition Control
+
+Track last ~50 messages
+
+If messages are too similar:
+
+No trust awarded for 48 hours
+
+Conversation Weighting
+
+Normal message: small value
+
+Reply to another user: higher value
+
+Natural Q&A patterns score higher
+
+Bots fail here.
+
+Burst Detection
+
+If user sends:
+
+10 messages in 60 seconds
+→ No trust for that day + cooldown
+
+Links Never Give Trust
+
+Links never add trust points
+
+Removed or suspicious links:
+
+Freeze trust gains for 7 days
+
+Possible trust score reduction
+
+Trust Freezes & Decay
+
+Any strike → trust gain frozen for 7 days
+
+Repeated issues → trust score reduced
+
+Continued abuse → auto revoke trusted status
+
+Weekly Trust Calculation (Replit)
+Option A: Internal Scheduler (Bot Always Running)
+
+Python
+
+from apscheduler.schedulers.background import BackgroundScheduler
+import pytz
+
+scheduler = BackgroundScheduler(timezone=pytz.timezone("Australia/Melbourne"))
+scheduler.add_job(weekly_trust_job, "cron", day_of_week="mon", hour=9)
+scheduler.start()
+
+
+Node
+
+import cron from "node-cron";
+cron.schedule("0 9 * * 1", weeklyTrustJob, {
+  timezone: "Australia/Melbourne"
+});
+
+Option B: Replit Scheduled Job (Recommended)
+
+Create weekly_job.py
+
+Schedule python weekly_job.py weekly
+
+Runs even if bot isn’t always online
+
+Owner / Admin Control (Security)
+Owner-Only Commands
+
+/trust @user reason
+
+/untrust @user reason
+
+/trustfor @user 7d reason
+
+/trustfreeze @user 7d reason
+
+/trustinfo @user
+
+All commands:
+
+Use Telegram user_id, not username
+
+Logged to private admin channel
+
+Can target users by reply
+
+Revocation Rules
+
+Trusted status is removed immediately if:
+
+Wallet-phishing behaviour detected
+
+High-risk scam links posted
+
+Owner runs /untrust
+
+Re-earning trust:
+
+7-day cooldown
+
+Must re-pass all gates
+
+Optional owner approval
+
+Core Principle
+
+Trust is earned quietly, rewarded gradually, and revoked instantly when abused.
