@@ -3334,6 +3334,178 @@ Use /trustpoints to learn how to earn more!`);
 They now have trusted status and can bypass the 45-day eligibility requirement.`);
   });
   
+  // /trustbulk @user1 @user2 ... - Vouch for multiple users at once (OWNER ONLY)
+  bot.command("trustbulk", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can bulk vouch for members!");
+      return;
+    }
+    
+    // Extract user IDs from message entities (text_mention type contains user info)
+    const entities = ctx.message?.entities || [];
+    const text = ctx.message?.text || "";
+    
+    // Extract text_mention entities which have user objects
+    interface TextMentionEntity { type: "text_mention"; offset: number; length: number; user: { id: number; username?: string; first_name: string } }
+    const mentionEntities: TextMentionEntity[] = [];
+    for (const e of entities) {
+      if (e.type === "text_mention" && "user" in e && e.user) {
+        mentionEntities.push(e as TextMentionEntity);
+      }
+    }
+    
+    // Also check for @username mentions (without user IDs)
+    const textMentions = text.match(/@(\w+)/g) || [];
+    
+    if (mentionEntities.length === 0 && textMentions.length === 0) {
+      await ctx.reply(`Usage: /trustbulk @user1 @user2 @user3 ...
+
+Vouch for multiple users at once (up to 10 at a time).
+
+TIP: For best results, select usernames from the autocomplete menu when typing @ so Telegram includes user IDs.`);
+      return;
+    }
+    
+    const totalMentions = mentionEntities.length + textMentions.length;
+    if (totalMentions > 10) {
+      await ctx.reply("Maximum 10 users can be vouched at once. Please split into multiple commands.");
+      return;
+    }
+    
+    const chatId = ctx.chat.id;
+    const chatIdStr = String(chatId);
+    const ownerId = String(ctx.from.id);
+    
+    const results: { success: string[]; alreadyVouched: string[]; notFound: string[]; created: string[]; errors: string[] } = {
+      success: [],
+      alreadyVouched: [],
+      notFound: [],
+      created: [],
+      errors: []
+    };
+    
+    await ctx.reply(`Processing ${totalMentions} users... This may take a moment.`);
+    
+    // Process text_mention entities (have user IDs - most reliable)
+    for (const entity of mentionEntities) {
+      const userId = String(entity.user.id);
+      const username = entity.user.username;
+      const firstName = entity.user.first_name;
+      const displayName = username ? `@${username}` : firstName;
+      
+      try {
+        // Create or get trust record
+        const record = await ensureTrustRecord(userId, chatIdStr, username, firstName);
+        
+        if (!record) {
+          results.errors.push(displayName);
+          continue;
+        }
+        
+        if (record.trustStatus === "vouched") {
+          results.alreadyVouched.push(displayName);
+          continue;
+        }
+        
+        // Vouch the user
+        await db.update(trustScores)
+          .set({
+            trustStatus: "vouched",
+            isTrusted: true,
+            trustLevel: Math.max(1, record.trustLevel || 0),
+            trustScore: Math.max(25, record.trustScore || 0),
+            isEligible: true,
+            vouchedBy: ownerId,
+            vouchedAt: new Date(),
+          })
+          .where(eq(trustScores.id, record.id));
+        
+        results.success.push(displayName);
+      } catch (error) {
+        console.error(`Error vouching ${displayName}:`, error);
+        results.errors.push(displayName);
+      }
+    }
+    
+    // Process @username mentions (search database - Telegram API can't resolve usernames directly)
+    const processedUsernames = new Set(mentionEntities.map(e => e.user?.username?.toLowerCase()).filter(Boolean));
+    
+    for (const mention of textMentions) {
+      const username = mention.replace('@', '').toLowerCase();
+      
+      // Skip if already processed via text_mention entity
+      if (processedUsernames.has(username)) continue;
+      
+      try {
+        // Search database for user by username (case-insensitive)
+        const existingRecords = await db.select().from(trustScores)
+          .where(and(
+            eq(trustScores.chatId, chatIdStr),
+            sql`LOWER(${trustScores.username}) = ${username}`
+          ))
+          .limit(1);
+        
+        if (existingRecords.length === 0) {
+          results.notFound.push(`@${username}`);
+          continue;
+        }
+        
+        const record = existingRecords[0];
+        
+        if (record.trustStatus === "vouched") {
+          results.alreadyVouched.push(`@${username}`);
+          continue;
+        }
+        
+        // Vouch the user
+        await db.update(trustScores)
+          .set({
+            trustStatus: "vouched",
+            isTrusted: true,
+            trustLevel: Math.max(1, record.trustLevel || 0),
+            trustScore: Math.max(25, record.trustScore || 0),
+            isEligible: true,
+            vouchedBy: ownerId,
+            vouchedAt: new Date(),
+          })
+          .where(eq(trustScores.id, record.id));
+        
+        results.success.push(`@${username}`);
+      } catch (error) {
+        console.error(`Error vouching @${username}:`, error);
+        results.errors.push(`@${username}`);
+      }
+    }
+    
+    // Build summary message
+    let summary = "BULK VOUCH RESULTS:\n\n";
+    
+    if (results.success.length > 0) {
+      summary += `VOUCHED (${results.success.length}):\n${results.success.join(', ')}\n\n`;
+    }
+    
+    if (results.alreadyVouched.length > 0) {
+      summary += `Already Vouched (${results.alreadyVouched.length}):\n${results.alreadyVouched.join(', ')}\n\n`;
+    }
+    
+    if (results.notFound.length > 0) {
+      summary += `Not Found (${results.notFound.length}):\n${results.notFound.join(', ')}\n(TIP: Select from autocomplete when typing @, or have them message first)\n\n`;
+    }
+    
+    if (results.errors.length > 0) {
+      summary += `Errors (${results.errors.length}):\n${results.errors.join(', ')}\n`;
+    }
+    
+    if (results.success.length === 0 && results.alreadyVouched.length === 0) {
+      summary += "No users were vouched. Make sure to select usernames from Telegram's autocomplete menu.";
+    }
+    
+    await ctx.reply(summary);
+  });
+  
   // /untrust @username - Remove trust status (OWNER ONLY)
   bot.command("untrust", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
