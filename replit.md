@@ -48,7 +48,7 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Trust Levels (0-3)**: Progressive perks at 0, 25, 50, 75 points.
     - **Vouched vs Earned**: Owners can manually vouch for trusted members (bypasses 45-day gate).
     - **Anti-Gaming Protection**: Daily cap (10 pts), weekly cap (50 pts), meaningful message requirements (10+ chars).
-    - **Trust Commands**: `/trustinfo`, `/trustpoints`, `/trustboard`, `/trust`, `/untrust`, `/trustfreeze`, `/trustunfreeze`, `/trustbulk`.
+    - **Trust Commands**: `/trustinfo`, `/trustpoints`, `/trustboard`, `/trust`, `/untrust`, `/trustfreeze`, `/trustunfreeze`, `/trustbulk`, `/trusthelp` (owner guide).
 - **Web Application**: Showcases character universe, safety information, and interactive content.
 
 ### Database

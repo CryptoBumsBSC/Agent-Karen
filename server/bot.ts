@@ -480,6 +480,41 @@ Owners can manually vouch for trusted friends, bypassing the 45-day wait.
 Check your status anytime with /trustinfo!`;
 }
 
+// Owner trust commands explainer
+function getOwnerTrustExplainer(): string {
+  return `TRUST SYSTEM - Owner Commands
+
+VOUCHING MEMBERS:
+/trust - Reply to a message to vouch for that user
+/trustbulk @user1 @user2 ... - Vouch multiple users at once (up to 10)
+
+MANAGING TRUST:
+/untrust - Reply to remove someone's trust status
+/trustfreeze - Reply to freeze someone's trust (stops earning)
+/trustunfreeze - Reply to unfreeze someone's trust
+
+VIEWING STATUS:
+/trustinfo - Check your own trust status
+/trustboard - View the trust leaderboard
+
+HOW /TRUSTBULK WORKS:
+1. Type /trustbulk followed by @usernames
+2. For best results, select names from Telegram's autocomplete
+3. Users who have messaged before can be found by username
+4. New users need to message first OR be selected from autocomplete
+
+VOUCHED VS EARNED:
+- Vouched: You manually trusted them (bypasses 45-day wait)
+- Earned: They built trust naturally over time
+
+WHEN TO VOUCH:
+- Long-time community members you know and trust
+- Moderators and helpers
+- Members who were active before the trust system
+
+TIP: After publishing, use /trustbulk to quickly vouch your core community members!`;
+}
+
 // Allowed domains (your official links)
 const ALLOWED_DOMAINS = [
   "dudleybud.com", "dudley420", "t.me/dudley420",
@@ -3271,6 +3306,20 @@ Use /trustpoints to learn how to earn more!`);
   bot.command("trustpoints", async (ctx) => {
     const explainer = getTrustExplainer();
     await ctx.reply(ctx.session?.karenMode ? karenResponse(explainer) : explainer);
+  });
+  
+  // /trusthelp - Owner guide for trust commands
+  bot.command("trusthelp", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Use /trustpoints to learn how the trust system works!");
+      return;
+    }
+    
+    const explainer = getOwnerTrustExplainer();
+    await ctx.reply(explainer);
   });
   
   // /trust @username - Vouch for a user (OWNER ONLY)
