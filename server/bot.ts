@@ -1,9 +1,10 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
+import * as StoryBible from "./storyBible";
 
 // === BOT TOKEN ===
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -1537,6 +1538,110 @@ function detectCannabisQuery(text: string): { isRecipe: boolean; isMedical: bool
   }
   
   return { isRecipe, isMedical, keywords: foundKeywords };
+}
+
+// Check knowledge bases for zero-cost responses (medical cannabis, Top 100 Google Q&A)
+// Only returns result for HIGH CONFIDENCE matches to avoid false positives
+function checkKnowledgeBases(text: string): string | null {
+  const lowerText = text.toLowerCase().trim();
+  
+  // Skip if message too short (likely not a real question)
+  if (lowerText.length < 15) return null;
+  
+  // Skip if doesn't look like a question
+  const questionIndicators = ["what", "how", "why", "can", "does", "is", "are", "should", "could", "will", "?"];
+  const isQuestion = questionIndicators.some(q => lowerText.includes(q));
+  if (!isQuestion) return null;
+  
+  // Check Top 100 Google Cannabis Q&A with strict matching
+  for (const qa of StoryBible.TOP_100_CANNABIS_QA) {
+    const qLower = qa.q.toLowerCase();
+    
+    // Normalize both strings for comparison
+    const normalizeText = (s: string) => s.replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+    const normalizedQuestion = normalizeText(qLower);
+    const normalizedInput = normalizeText(lowerText);
+    
+    // Check for very high overlap (80%+ of question words must match)
+    const qWords = normalizedQuestion.split(' ').filter(w => w.length > 3);
+    const textWords = normalizedInput.split(' ').filter(w => w.length > 3);
+    const overlap = qWords.filter(w => textWords.includes(w)).length;
+    
+    // Require at least 5 matching words AND 70% of question words match
+    if (overlap >= 5 && qWords.length > 0 && overlap / qWords.length >= 0.7) {
+      return `${qa.a}\n\n(Source: ${qa.source || "Cannabis Research Database"})`;
+    }
+  }
+  
+  // Check Medical Cannabis knowledge
+  const medicalKeywords = ["thc", "cbd", "cannabinoid", "terpene", "indica", "sativa", "medical marijuana", "medical cannabis", "prescription", "tga", "fda", "epidiolex", "marinol", "dronabinol", "nabilone"];
+  const hasMedicalContext = medicalKeywords.some(k => lowerText.includes(k));
+  
+  if (hasMedicalContext) {
+    // Check for specific FDA-approved drugs
+    if (lowerText.includes("epidiolex") || (lowerText.includes("fda") && lowerText.includes("cbd"))) {
+      const drug = StoryBible.FDA_APPROVED_DRUGS.find(d => d.name.toLowerCase() === "epidiolex");
+      if (drug) {
+        return `${drug.name}\n\n${drug.description}\n\nApproved for: ${drug.approvedFor.join(", ")}\n\nNote: ${drug.notes}\n\n${StoryBible.RESEARCH_DISCLAIMER}`;
+      }
+    }
+    
+    if (lowerText.includes("marinol") || lowerText.includes("dronabinol")) {
+      const drug = StoryBible.FDA_APPROVED_DRUGS.find(d => d.name.toLowerCase() === "marinol");
+      if (drug) {
+        return `${drug.name} (${drug.active})\n\n${drug.description}\n\nApproved for: ${drug.approvedFor.join(", ")}\n\n${StoryBible.RESEARCH_DISCLAIMER}`;
+      }
+    }
+    
+    // Check for TGA (Australian) questions
+    if (lowerText.includes("tga") || lowerText.includes("australia") || lowerText.includes("australian")) {
+      return `AUSTRALIAN MEDICAL CANNABIS (TGA)
+
+The TGA regulates medical cannabis through the Therapeutic Goods Administration. Patients need a prescription from an authorized prescriber.
+
+Access pathways:
+- Special Access Scheme (SAS-B) - Most common route
+- Authorised Prescriber Scheme - For repeat prescribers
+- Clinical Trials - Research access
+
+Products available: Oils, dried flower, capsules, sprays
+
+${StoryBible.RESEARCH_DISCLAIMER}`;
+    }
+    
+    // General THC/CBD info
+    if ((lowerText.includes("thc") && !lowerText.includes("vs")) || lowerText.includes("what is thc")) {
+      return `THC (Tetrahydrocannabinol)
+
+THC is the primary psychoactive compound in cannabis. Effects include:
+- Euphoria and relaxation
+- Altered perception of time
+- Increased appetite
+- Pain relief potential
+
+Medical uses being studied: Pain, nausea (chemotherapy), appetite stimulation, PTSD symptoms
+
+${StoryBible.RESEARCH_DISCLAIMER}`;
+    }
+    
+    if ((lowerText.includes("cbd") && !lowerText.includes("vs")) || lowerText.includes("what is cbd")) {
+      return `CBD (Cannabidiol)
+
+CBD is a non-psychoactive cannabinoid. Unlike THC, it won't get you "high."
+
+Potential benefits being studied:
+- Anxiety reduction
+- Anti-inflammatory properties
+- Seizure reduction (Epidiolex is FDA-approved for epilepsy)
+- Sleep support
+
+CBD products are widely available, but quality varies. Look for third-party lab testing.
+
+${StoryBible.RESEARCH_DISCLAIMER}`;
+    }
+  }
+  
+  return null;
 }
 
 // Detect referral-related questions and provide instant responses (no AI needed)
@@ -4410,6 +4515,320 @@ Check the leaderboard with /refboard`;
     await ctx.reply(text);
   });
 
+  // === STORY GENERATOR ===
+  
+  // /story - Generate a random Dudleyverse story
+  bot.command("story", async (ctx) => {
+    if (!ctx.from) return;
+    
+    const username = ctx.from.username || ctx.from.first_name || "friend";
+    const story = StoryBible.generateRandomStory(username);
+    
+    await ctx.reply(`Alright ${username}, gather 'round for today's tale...\n\n${story}\n\nClassic Dudleyverse chaos, sweetie.`);
+  });
+
+  // === BANLIST COMMAND (Owner Only) ===
+  
+  // /banlist - View all banned/kicked users
+  bot.command("banlist", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can view the ban list!");
+      return;
+    }
+    
+    const chatId = String(ctx.chat.id);
+    
+    // Get all ban events for this chat
+    const events = await db.select().from(banEvents)
+      .where(eq(banEvents.chatId, chatId))
+      .orderBy(desc(banEvents.createdAt))
+      .limit(50);
+    
+    if (events.length === 0) {
+      await ctx.reply("No bans or kicks recorded for this chat yet!");
+      return;
+    }
+    
+    let text = "BAN/KICK HISTORY (Last 50)\n\n";
+    
+    for (const event of events) {
+      const name = event.username ? `@${event.username}` : event.firstName || "Unknown";
+      const date = event.createdAt ? new Date(event.createdAt).toLocaleDateString() : "Unknown date";
+      const actor = event.actorUsername ? `@${event.actorUsername}` : "System";
+      text += `${event.actionType?.toUpperCase()}: ${name}\n`;
+      text += `  By: ${actor} | ${date}\n`;
+      if (event.reason) text += `  Reason: ${event.reason}\n`;
+      text += "\n";
+    }
+    
+    await ctx.reply(text);
+  });
+
+  // === TRUST MANAGEMENT (Owner + @TreeFitty Only) ===
+  
+  // /trustset @user level1|level2|full - Set trust level
+  bot.command("trustset", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    // Check if user can manage trust (owner or @TreeFitty)
+    const username = ctx.from.username || "";
+    const canManage = await isOwner(ctx) || StoryBible.canManageTrust(username);
+    
+    if (!canManage) {
+      await ctx.reply("Only the owner and designated admins can manage trust levels!");
+      return;
+    }
+    
+    // Parse command: /trustset @username level
+    const text = ctx.message?.text || "";
+    const parts = text.replace("/trustset", "").trim().split(/\s+/);
+    
+    let targetUserId: string | undefined;
+    let targetUsername: string | undefined;
+    let targetFirstName: string | undefined;
+    let level = parts[parts.length - 1]?.toLowerCase();
+    
+    // Get target from reply or mention
+    if (ctx.message?.reply_to_message?.from) {
+      targetUserId = String(ctx.message.reply_to_message.from.id);
+      targetUsername = ctx.message.reply_to_message.from.username;
+      targetFirstName = ctx.message.reply_to_message.from.first_name;
+    } else {
+      await ctx.reply("Usage: Reply to a user's message with /trustset level1|level2|full");
+      return;
+    }
+    
+    if (!["level1", "level2", "full"].includes(level)) {
+      await ctx.reply("Invalid level! Use: level1, level2, or full\n\nExample: /trustset level2");
+      return;
+    }
+    
+    const chatId = String(ctx.chat.id);
+    const scoreMap: Record<string, number> = { level1: 25, level2: 50, full: 75 };
+    const levelMap: Record<string, number> = { level1: 1, level2: 2, full: 3 };
+    
+    const newScore = scoreMap[level];
+    const newLevel = levelMap[level];
+    
+    // Update or create trust record
+    const existing = await db.select().from(trustScores)
+      .where(and(
+        eq(trustScores.telegramUserId, targetUserId),
+        eq(trustScores.chatId, chatId)
+      ))
+      .limit(1);
+    
+    if (existing.length > 0) {
+      await db.update(trustScores)
+        .set({
+          trustScore: newScore,
+          trustLevel: newLevel,
+          trustStatus: "vouched",
+          isTrusted: true,
+          isEligible: true,
+          vouchedBy: String(ctx.from.id),
+          vouchedAt: new Date(),
+          lastTrustUpdate: new Date()
+        })
+        .where(and(
+          eq(trustScores.telegramUserId, targetUserId),
+          eq(trustScores.chatId, chatId)
+        ));
+    } else {
+      await db.insert(trustScores).values({
+        telegramUserId: targetUserId,
+        chatId,
+        username: targetUsername,
+        firstName: targetFirstName,
+        trustScore: newScore,
+        trustLevel: newLevel,
+        trustStatus: "vouched",
+        isTrusted: true,
+        isEligible: true,
+        vouchedBy: String(ctx.from.id),
+        vouchedAt: new Date()
+      });
+    }
+    
+    const name = targetUsername ? `@${targetUsername}` : targetFirstName || "User";
+    await ctx.reply(`${name} has been set to trust ${level} (${newScore} pts)!\n\nNote: They still must follow all community rules. Rule violations will still affect their trust.`);
+  });
+
+  // /trustremove @user level1|level2|all - Remove trust
+  bot.command("trustremove", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    
+    const username = ctx.from.username || "";
+    const canManage = await isOwner(ctx) || StoryBible.canManageTrust(username);
+    
+    if (!canManage) {
+      await ctx.reply("Only the owner and designated admins can manage trust levels!");
+      return;
+    }
+    
+    const text = ctx.message?.text || "";
+    const parts = text.replace("/trustremove", "").trim().split(/\s+/);
+    
+    let targetUserId: string | undefined;
+    let targetUsername: string | undefined;
+    let targetFirstName: string | undefined;
+    let level = parts[parts.length - 1]?.toLowerCase();
+    
+    if (ctx.message?.reply_to_message?.from) {
+      targetUserId = String(ctx.message.reply_to_message.from.id);
+      targetUsername = ctx.message.reply_to_message.from.username;
+      targetFirstName = ctx.message.reply_to_message.from.first_name;
+    } else {
+      await ctx.reply("Usage: Reply to a user's message with /trustremove level1|level2|all");
+      return;
+    }
+    
+    if (!["level1", "level2", "all"].includes(level)) {
+      await ctx.reply("Invalid level! Use: level1, level2, or all\n\nExample: /trustremove all");
+      return;
+    }
+    
+    const chatId = String(ctx.chat.id);
+    
+    const existing = await db.select().from(trustScores)
+      .where(and(
+        eq(trustScores.telegramUserId, targetUserId),
+        eq(trustScores.chatId, chatId)
+      ))
+      .limit(1);
+    
+    if (existing.length === 0) {
+      await ctx.reply("This user has no trust record to modify!");
+      return;
+    }
+    
+    const current = existing[0];
+    let newScore = current.trustScore || 0;
+    
+    if (level === "all") {
+      newScore = 0;
+    } else if (level === "level1") {
+      newScore = Math.max(0, newScore - 25);
+    } else if (level === "level2") {
+      newScore = Math.max(0, newScore - 50);
+    }
+    
+    const newLevel = newScore >= 75 ? 3 : newScore >= 50 ? 2 : newScore >= 25 ? 1 : 0;
+    const newStatus = newScore > 0 ? "earned" : "none";
+    
+    await db.update(trustScores)
+      .set({
+        trustScore: newScore,
+        trustLevel: newLevel,
+        trustStatus: newStatus,
+        isTrusted: newScore >= 25,
+        vouchedBy: null,
+        vouchedAt: null,
+        lastTrustUpdate: new Date()
+      })
+      .where(and(
+        eq(trustScores.telegramUserId, targetUserId),
+        eq(trustScores.chatId, chatId)
+      ));
+    
+    const name = targetUsername ? `@${targetUsername}` : targetFirstName || "User";
+    await ctx.reply(`${name}'s trust has been reduced. New score: ${newScore} pts (Level ${newLevel})`);
+  });
+
+  // === RARE STRAIN AVATAR SYSTEM (Namast-Hay Legendary - Max 7 Ever) ===
+  
+  // /budify - Owner-only command to create legendary Namast-Hay strain avatar
+  bot.command("budify", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    // Owner-only check
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the owner can bestow legendary Namast-Hay strain avatars!");
+      return;
+    }
+    
+    // Get target user from reply
+    const targetUser = ctx.message?.reply_to_message?.from;
+    if (!targetUser) {
+      await ctx.reply("Reply to a user's message to grant them a Namast-Hay legendary avatar!");
+      return;
+    }
+    
+    const chatId = String(ctx.chat.id);
+    const targetUserId = String(targetUser.id);
+    const targetUsername = targetUser.username;
+    const targetFirstName = targetUser.first_name;
+    
+    // Check global strain limit
+    const limits = await db.select().from(rareStrainLimits)
+      .where(eq(rareStrainLimits.strainName, "namast_hay"))
+      .limit(1);
+    
+    let usedCount = 0;
+    const maxSupply = 7;
+    
+    if (limits.length > 0) {
+      usedCount = limits[0].usedCount || 0;
+    } else {
+      // Initialize the strain limit record (first run) with usedCount=0
+      await db.insert(rareStrainLimits).values({
+        strainName: "namast_hay",
+        maxSupply: maxSupply,
+        usedCount: 0,
+        remainingCount: maxSupply
+      });
+      usedCount = 0;
+    }
+    
+    if (usedCount >= maxSupply) {
+      await ctx.reply(`LEGENDARY LIMIT REACHED\n\nAll ${maxSupply} Namast-Hay legendary strain avatars have been bestowed. No more can ever be created!\n\nThese are the rarest avatars in the Dudleyverse.`);
+      return;
+    }
+    
+    // Check if user already has a rare strain
+    const existing = await db.select().from(rareStrainRecipients)
+      .where(and(
+        eq(rareStrainRecipients.recipientUserId, targetUserId),
+        eq(rareStrainRecipients.strainName, "namast_hay")
+      ))
+      .limit(1);
+    
+    if (existing.length > 0) {
+      await ctx.reply(`This user already has a Namast-Hay legendary avatar!`);
+      return;
+    }
+    
+    // Create the rare strain record
+    await db.insert(rareStrainRecipients).values({
+      recipientUserId: targetUserId,
+      recipientUsername: targetUsername,
+      strainName: "namast_hay",
+      awardedBy: String(ctx.from.id)
+    });
+    
+    // Update the global count
+    const newUsedCount = usedCount + 1;
+    const newRemainingCount = maxSupply - newUsedCount;
+    await db.update(rareStrainLimits)
+      .set({ 
+        usedCount: newUsedCount,
+        remainingCount: newRemainingCount,
+        lastUsedAt: new Date()
+      })
+      .where(eq(rareStrainLimits.strainName, "namast_hay"));
+    
+    const remaining = newRemainingCount;
+    const name = targetUsername ? `@${targetUsername}` : targetFirstName || "User";
+    
+    await ctx.reply(`LEGENDARY AVATAR BESTOWED\n\n${name} has been granted a NAMAST-HAY legendary strain avatar!\n\nThis is one of only ${maxSupply} that can ever exist.\nRemaining: ${remaining}\n\nWear it with pride in the Dudleyverse!`);
+  });
+
   // === ADMIN MODERATION COMMANDS ===
 
   // /ban - Ban a user (admin only)
@@ -4437,6 +4856,20 @@ Check the leaderboard with /refboard`;
     
     try {
       await ctx.api.banChatMember(ctx.chat.id, targetUser.id);
+      
+      // Log ban event to database
+      await db.insert(banEvents).values({
+        chatId: String(ctx.chat.id),
+        telegramUserId: String(targetUser.id),
+        username: targetUser.username,
+        firstName: targetUser.first_name,
+        actionType: "ban",
+        reason: "Admin command",
+        actorId: String(ctx.from.id),
+        actorUsername: ctx.from.username,
+        executionSource: "admin"
+      });
+      
       await ctx.reply(`Banned ${targetUser.first_name}. They can no longer join this group.`);
     } catch (error) {
       await ctx.reply("Couldn't ban that user. Make sure I have admin permissions!");
@@ -4469,6 +4902,20 @@ Check the leaderboard with /refboard`;
       // Ban then immediately unban = kick
       await ctx.api.banChatMember(ctx.chat.id, targetUser.id);
       await ctx.api.unbanChatMember(ctx.chat.id, targetUser.id);
+      
+      // Log kick event to database
+      await db.insert(banEvents).values({
+        chatId: String(ctx.chat.id),
+        telegramUserId: String(targetUser.id),
+        username: targetUser.username,
+        firstName: targetUser.first_name,
+        actionType: "kick",
+        reason: "Admin command",
+        actorId: String(ctx.from.id),
+        actorUsername: ctx.from.username,
+        executionSource: "admin"
+      });
+      
       await ctx.reply(`Kicked ${targetUser.first_name}. They can rejoin if they have the link.`);
     } catch (error) {
       await ctx.reply("Couldn't kick that user. Make sure I have admin permissions!");
@@ -6301,6 +6748,20 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
       return;
     }
     
+    // Story generator trigger - generate random Dudleyverse story
+    if (lowerText === "story" || lowerText.includes("tell me a story") || lowerText.includes("dudley story") || lowerText.includes("dudleyverse")) {
+      const story = StoryBible.generateRandomStory(username || firstName);
+      await ctx.reply(`Alright ${firstName}, gather 'round for today's tale...\n\n${story}\n\nClassic Dudleyverse chaos, sweetie.`, { reply_parameters: { message_id: ctx.message.message_id } });
+      return;
+    }
+    
+    // Persona-aware sass for mapped usernames (story characters)
+    const characterSass = StoryBible.getSassForCharacter(username || "");
+    if (characterSass && Math.random() < 0.15) { // 15% chance to sass story characters
+      await ctx.reply(characterSass, { reply_parameters: { message_id: ctx.message.message_id } });
+      // Don't return - let the message continue processing for other handlers
+    }
+    
     // Detect one-liners and jokes from users - respond with sassy comeback (30% chance for short messages)
     const isOneLiner = text.length < 100 && text.length > 5 && !text.includes("?");
     const jokeIndicators = ["lol", "lmao", "haha", "rofl", "dead", "bruh", "ayo", "no way", "fr fr", "facts", "cap", "bet"];
@@ -6536,16 +6997,28 @@ Pause: Press Escape
           const recipe = getRandomRecipe();
           response = formatRecipePost(recipe) + RECIPE_DISCLAIMER;
         } else {
-          const fullContext = rudenessContext 
-            ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
-            : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
-          response = await getAIResponse(questionText, fullContext);
+          // Check knowledge bases FIRST (zero API cost)
+          const knowledgeResult = checkKnowledgeBases(questionText);
+          if (knowledgeResult) {
+            response = knowledgeResult;
+          } else {
+            const fullContext = rudenessContext 
+              ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
+              : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
+            response = await getAIResponse(questionText, fullContext);
+          }
         }
       } else {
-        const fullContext = rudenessContext 
-          ? `${rudenessContext}\n\n${responseContext}. Address them as ${displayName}.`
-          : `${responseContext}. Address them as ${displayName}. Keep response brief and friendly.`;
-        response = await getAIResponse(text, fullContext);
+        // Check knowledge bases FIRST (zero API cost)
+        const knowledgeResult = checkKnowledgeBases(text);
+        if (knowledgeResult) {
+          response = knowledgeResult;
+        } else {
+          const fullContext = rudenessContext 
+            ? `${rudenessContext}\n\n${responseContext}. Address them as ${displayName}.`
+            : `${responseContext}. Address them as ${displayName}. Keep response brief and friendly.`;
+          response = await getAIResponse(text, fullContext);
+        }
       }
       
       await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });

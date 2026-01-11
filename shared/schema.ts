@@ -215,6 +215,43 @@ export const qaCache = pgTable("qa_cache", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Ban Events - tracks all bans, kicks, and removals for owner review
+export const banEvents = pgTable("ban_events", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  telegramUserId: text("telegram_user_id").notNull(),
+  username: text("username"),
+  firstName: text("first_name"),
+  actionType: text("action_type").notNull(), // ban, kick, auto_remove, mute
+  reason: text("reason"),
+  actorId: text("actor_id"), // who performed the action (bot or admin user id)
+  actorUsername: text("actor_username"),
+  executionSource: text("execution_source").default("bot"), // bot, admin, auto_moderation
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Rare Strain Limits - tracks limited edition strain avatar counts
+export const rareStrainLimits = pgTable("rare_strain_limits", {
+  id: serial("id").primaryKey(),
+  strainName: text("strain_name").notNull().unique(),
+  maxSupply: integer("max_supply").notNull(),
+  usedCount: integer("used_count").default(0),
+  remainingCount: integer("remaining_count").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
+// Rare Strain Recipients - tracks who received rare strain avatars
+export const rareStrainRecipients = pgTable("rare_strain_recipients", {
+  id: serial("id").primaryKey(),
+  strainName: text("strain_name").notNull(),
+  recipientUserId: text("recipient_user_id").notNull(),
+  recipientUsername: text("recipient_username"),
+  awardedBy: text("awarded_by").notNull(), // owner user id
+  awardedAt: timestamp("awarded_at").default(sql`CURRENT_TIMESTAMP`),
+  imageUrl: text("image_url"),
+});
+
 // Trust System - 45-day gated trust scores with anti-gaming
 export const trustScores = pgTable("trust_scores", {
   id: serial("id").primaryKey(),
@@ -269,6 +306,9 @@ export const insertQaCacheSchema = createInsertSchema(qaCache).omit({ id: true, 
 export const insertReferrerStatusSchema = createInsertSchema(referrerStatus).omit({ id: true });
 export const insertPendingVerificationSchema = createInsertSchema(pendingVerifications).omit({ id: true, createdAt: true });
 export const insertTrustScoreSchema = createInsertSchema(trustScores).omit({ id: true, createdAt: true });
+export const insertBanEventSchema = createInsertSchema(banEvents).omit({ id: true, createdAt: true });
+export const insertRareStrainLimitSchema = createInsertSchema(rareStrainLimits).omit({ id: true, createdAt: true });
+export const insertRareStrainRecipientSchema = createInsertSchema(rareStrainRecipients).omit({ id: true, awardedAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -287,6 +327,9 @@ export type QaCache = typeof qaCache.$inferSelect;
 export type ReferrerStatus = typeof referrerStatus.$inferSelect;
 export type PendingVerification = typeof pendingVerifications.$inferSelect;
 export type TrustScore = typeof trustScores.$inferSelect;
+export type BanEvent = typeof banEvents.$inferSelect;
+export type RareStrainLimit = typeof rareStrainLimits.$inferSelect;
+export type RareStrainRecipient = typeof rareStrainRecipients.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;

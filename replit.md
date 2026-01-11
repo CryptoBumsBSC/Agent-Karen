@@ -24,6 +24,13 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Referral Program**: Tracks user referrals with points and leaderboards, including security measures for new user verification.
     - **Scheduled Posts**: Daily and weekly scheduled posts for birthdays, quotes, recipes, community bud avatars, and winner announcements.
     - **Conversational Triggers**: Responds to various casual messages (greetings, info, games, help, characters, referral, safety, mint).
+    - **Story Generator**: Template-based random story generation from Dudleyverse content (zero API cost). Triggered by "story", "tell me a story", "dudley story", or "dudleyverse" keywords.
+    - **Medical Cannabis Q&A**: Integrated knowledge of THC/CBD, FDA-approved drugs, AU TGA + US FDA access systems, forms, safety warnings with research disclaimer.
+    - **Top 100 Google Cannabis Q&A**: Pre-cached answers to common cannabis questions with source attribution.
+    - **Persona-Aware Sass**: Recognizes story character usernames (@aussieBoomer=Dudley, @TreeFitty=WeedWacker-Ryan, @Cheyne_Hay=Pinko, @DrTrichome=Blinky) with 15% sass trigger rate.
+    - **Ban Tracking**: `/banlist` command for owners to view ban/kick history logged to database.
+    - **Owner Trust Management**: `/trustset` and `/trustremove` commands for manual trust management (owner + @TreeFitty only).
+    - **Rare Strain Avatars**: Namast-Hay legendary strain system (max 7 ever, 6 remaining) with `/budify` owner-only command.
 - **Moderation System**:
     - **Anti-Spam/Flood Control**: Rate limiting, duplicate message detection, sticker/GIF/voice/video spam detection with TTL cleanup, emoji spam detection.
     - **Scam/Phishing Protection**: Domain blocklists, risk scoring for messages, and auto-quarantine for high-risk content.
@@ -52,7 +59,7 @@ The backend operates on Node.js with Express for health checks and API routes. T
 - **Web Application**: Showcases character universe, safety information, and interactive content.
 
 ### Database
-PostgreSQL is used as the primary database, with Drizzle ORM managing schemas and migrations. Key tables include `characters`, `content_items`, `conversations`, `user_memory`, `moderation_stats`, `member_scores`, `referral_codes`, `community_profiles`, and `trust_scores`.
+PostgreSQL is used as the primary database, with Drizzle ORM managing schemas and migrations. Key tables include `characters`, `content_items`, `conversations`, `user_memory`, `moderation_stats`, `member_scores`, `referral_codes`, `community_profiles`, `trust_scores`, `banEvents` (ban/kick history), `rareStrainLimits` (global strain caps), and `rareStrainRecipients` (legendary avatar recipients).
 
 ### API
 A RESTful API, defined in `shared/routes.ts`, provides endpoints for character and content retrieval.
