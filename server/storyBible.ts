@@ -424,6 +424,61 @@ export const PROACTIVE_TRIGGERS = {
   ]
 };
 
+// === USER PROJECT QUESTIONS (72-hour cooldown) ===
+export const USER_PROJECT_QUESTIONS: Record<string, {
+  username: string;
+  projectName: string;
+  questions: string[];
+}> = {
+  "TreeFitty": {
+    username: "TreeFitty",
+    projectName: "Code350",
+    questions: [
+      "Hey @TreeFitty! How's Code350 coming along? Any updates for the fam?",
+      "Yo @TreeFitty, what's new with Code350? The community wants to know!",
+      "@TreeFitty! Give us a Code350 update, sweetie! What are you cooking up?",
+      "Speaking of projects... @TreeFitty, how's Code350 doing these days?"
+    ]
+  },
+  "Raging_Crypto": {
+    username: "Raging_Crypto",
+    projectName: "Shiba Wings",
+    questions: [
+      "Hey @Raging_Crypto! How's Shiba Wings doing? Any exciting news?",
+      "@Raging_Crypto, what's the latest with Shiba Wings? Spill the tea!",
+      "Yo @Raging_Crypto! Shiba Wings update when? The fam wants to know!",
+      "@Raging_Crypto, how's your Shiba Wings project coming along?"
+    ]
+  },
+  "AshleyWardy": {
+    username: "AshleyWardy",
+    projectName: "Free Speech / Fomo AI / Veta Chain",
+    questions: [
+      "Hey @AshleyWardy! What do you think about free speech these days? Also, how's Fomo AI going?",
+      "@AshleyWardy, any updates on Veta Chain or V Social? The community is curious!",
+      "Yo @AshleyWardy! How's Fomo AI coming along? And what's new with V Social?",
+      "@AshleyWardy, give us the scoop! How are your projects doing - Fomo AI, Veta Chain?"
+    ]
+  },
+  "Cheyne_Hay": {
+    username: "Cheyne_Hay",
+    projectName: "Bot Updates",
+    questions: [
+      "Hey @Cheyne_Hay! What's new? Got any ideas for the bot? I'm all ears!",
+      "@Cheyne_Hay, anything you want to add to my chat features? I'm always learning!",
+      "Yo @Cheyne_Hay! What should I remember next? Give me something good!",
+      "@Cheyne_Hay, boss! Any new features you want me to learn? Updates for the bot?"
+    ]
+  }
+};
+
+export function getProjectQuestion(username: string): string | null {
+  const cleanUsername = username.replace('@', '');
+  const userProject = USER_PROJECT_QUESTIONS[cleanUsername];
+  if (!userProject) return null;
+  return getRandomItem(userProject.questions);
+}
+
 // === SEED STORM GAME ANNOUNCEMENTS ===
 export const SEED_STORM_INFO = {
   name: "Seed Storm",

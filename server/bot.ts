@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 import * as StoryBible from "./storyBible";
@@ -1287,6 +1287,43 @@ function getKarenRudenessContext(status: RudenessStatus, isCurrentlyRude: boolea
   return "";
 }
 
+// === USER PROJECT QUESTION FUNCTIONS (72-hour cooldown) ===
+const PROJECT_QUESTION_USERS = ["TreeFitty", "Raging_Crypto", "AshleyWardy", "Cheyne_Hay"];
+
+async function canAskProjectQuestion(username: string): Promise<boolean> {
+  try {
+    const cleanUsername = username.replace('@', '');
+    if (!PROJECT_QUESTION_USERS.includes(cleanUsername)) return false;
+    
+    const existing = await db.select().from(userProjectQuestions).where(eq(userProjectQuestions.username, cleanUsername)).limit(1);
+    
+    if (existing.length === 0) return true; // Never asked before
+    
+    const lastAsked = existing[0].lastAskedAt;
+    if (!lastAsked) return true;
+    
+    const hoursSinceAsked = (Date.now() - new Date(lastAsked).getTime()) / (1000 * 60 * 60);
+    return hoursSinceAsked >= 72; // 72 hours = 3 days
+  } catch (error) {
+    console.error("Error checking project question cooldown:", error);
+    return false;
+  }
+}
+
+async function recordProjectQuestion(username: string): Promise<void> {
+  try {
+    const cleanUsername = username.replace('@', '');
+    await db.insert(userProjectQuestions)
+      .values({ username: cleanUsername })
+      .onConflictDoUpdate({
+        target: userProjectQuestions.username,
+        set: { lastAskedAt: sql`CURRENT_TIMESTAMP` }
+      });
+  } catch (error) {
+    console.error("Error recording project question:", error);
+  }
+}
+
 // === AI FUNCTIONS ===
 async function getAIResponse(prompt: string, context: string): Promise<string> {
   try {
@@ -1569,7 +1606,7 @@ function checkKnowledgeBases(text: string): string | null {
     
     // Require at least 5 matching words AND 70% of question words match
     if (overlap >= 5 && qWords.length > 0 && overlap / qWords.length >= 0.7) {
-      return `${qa.a}\n\n(Source: ${qa.source || "Cannabis Research Database"})`;
+      return `${qa.a}\n\n(Source: Cannabis Research Database)`;
     }
   }
   
@@ -1582,14 +1619,14 @@ function checkKnowledgeBases(text: string): string | null {
     if (lowerText.includes("epidiolex") || (lowerText.includes("fda") && lowerText.includes("cbd"))) {
       const drug = StoryBible.FDA_APPROVED_DRUGS.find(d => d.name.toLowerCase() === "epidiolex");
       if (drug) {
-        return `${drug.name}\n\n${drug.description}\n\nApproved for: ${drug.approvedFor.join(", ")}\n\nNote: ${drug.notes}\n\n${StoryBible.RESEARCH_DISCLAIMER}`;
+        return `${drug.name} (${drug.compound})\n\nApproved for: ${drug.uses}\n\n${StoryBible.RESEARCH_DISCLAIMER}`;
       }
     }
     
     if (lowerText.includes("marinol") || lowerText.includes("dronabinol")) {
-      const drug = StoryBible.FDA_APPROVED_DRUGS.find(d => d.name.toLowerCase() === "marinol");
+      const drug = StoryBible.FDA_APPROVED_DRUGS.find(d => d.name.toLowerCase().includes("marinol"));
       if (drug) {
-        return `${drug.name} (${drug.active})\n\n${drug.description}\n\nApproved for: ${drug.approvedFor.join(", ")}\n\n${StoryBible.RESEARCH_DISCLAIMER}`;
+        return `${drug.name} (${drug.compound})\n\nApproved for: ${drug.uses}\n\n${StoryBible.RESEARCH_DISCLAIMER}`;
       }
     }
     
@@ -6773,6 +6810,19 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
     if (characterSass && Math.random() < 0.15) { // 15% chance to sass story characters
       await ctx.reply(characterSass, { reply_parameters: { message_id: ctx.message.message_id } });
       // Don't return - let the message continue processing for other handlers
+    }
+    
+    // User project questions - ask about their projects (72-hour cooldown, 20% random trigger)
+    if (username && Math.random() < 0.20) {
+      const canAsk = await canAskProjectQuestion(username);
+      if (canAsk) {
+        const projectQuestion = StoryBible.getProjectQuestion(username);
+        if (projectQuestion) {
+          await recordProjectQuestion(username);
+          await ctx.reply(projectQuestion, { reply_parameters: { message_id: ctx.message.message_id } });
+          // Don't return - let the message continue processing
+        }
+      }
     }
     
     // Detect one-liners and jokes from users - respond with sassy comeback (10% chance - reduced from 30% to save API costs)

@@ -289,6 +289,13 @@ export const trustScores = pgTable("trust_scores", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// User project question cooldowns (72 hours between asks)
+export const userProjectQuestions = pgTable("user_project_questions", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  lastAskedAt: timestamp("last_asked_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
 export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true });
@@ -309,6 +316,7 @@ export const insertTrustScoreSchema = createInsertSchema(trustScores).omit({ id:
 export const insertBanEventSchema = createInsertSchema(banEvents).omit({ id: true, createdAt: true });
 export const insertRareStrainLimitSchema = createInsertSchema(rareStrainLimits).omit({ id: true, createdAt: true });
 export const insertRareStrainRecipientSchema = createInsertSchema(rareStrainRecipients).omit({ id: true, awardedAt: true });
+export const insertUserProjectQuestionSchema = createInsertSchema(userProjectQuestions).omit({ id: true, lastAskedAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -330,6 +338,7 @@ export type TrustScore = typeof trustScores.$inferSelect;
 export type BanEvent = typeof banEvents.$inferSelect;
 export type RareStrainLimit = typeof rareStrainLimits.$inferSelect;
 export type RareStrainRecipient = typeof rareStrainRecipients.$inferSelect;
+export type UserProjectQuestion = typeof userProjectQuestions.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
