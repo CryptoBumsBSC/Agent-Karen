@@ -1288,7 +1288,7 @@ function getKarenRudenessContext(status: RudenessStatus, isCurrentlyRude: boolea
 }
 
 // === USER PROJECT QUESTION FUNCTIONS (72-hour cooldown) ===
-const PROJECT_QUESTION_USERS = ["TreeFitty", "Raging_Crypto", "AshleyWardy", "Cheyne_Hay"];
+const PROJECT_QUESTION_USERS = ["TreeFitty", "Raging_Crypto", "AshleyWardy", "Cheyne_Hay", "DrTrichome"];
 
 async function canAskProjectQuestion(username: string): Promise<boolean> {
   try {

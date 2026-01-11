@@ -469,6 +469,16 @@ export const USER_PROJECT_QUESTIONS: Record<string, {
       "Yo @Cheyne_Hay! What should I remember next? Give me something good!",
       "@Cheyne_Hay, boss! Any new features you want me to learn? Updates for the bot?"
     ]
+  },
+  "DrTrichome": {
+    username: "DrTrichome",
+    projectName: "Blinky",
+    questions: [
+      "Hey @DrTrichome! How's our favorite alien hydro wizard doing? Any Blinky updates?",
+      "@DrTrichome, what's Blinky been up to lately? Keeping those grows cosmic?",
+      "Yo @DrTrichome! Any news from the Blinky corner of the Dudleyverse?",
+      "@DrTrichome, the community wants to know - how's Blinky's hydro research going?"
+    ]
   }
 };
 
