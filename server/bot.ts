@@ -6775,12 +6775,12 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
       // Don't return - let the message continue processing for other handlers
     }
     
-    // Detect one-liners and jokes from users - respond with sassy comeback (30% chance for short messages)
+    // Detect one-liners and jokes from users - respond with sassy comeback (10% chance - reduced from 30% to save API costs)
     const isOneLiner = text.length < 100 && text.length > 5 && !text.includes("?");
     const jokeIndicators = ["lol", "lmao", "haha", "rofl", "dead", "bruh", "ayo", "no way", "fr fr", "facts", "cap", "bet"];
     const hasJokeVibe = jokeIndicators.some(indicator => lowerText.includes(indicator));
     
-    if ((isOneLiner || hasJokeVibe) && Math.random() < 0.3) {
+    if ((isOneLiner || hasJokeVibe) && Math.random() < 0.1) {
       try {
         const rudenessContext = getKarenRudenessContext(rudenessStatus, isRude);
         const displayName = username ? `@${username}` : firstName;
@@ -6977,8 +6977,8 @@ Pause: Press Escape
       shouldRespond = true;
       responseContext = "Engaging with community discussion";
     }
-    // Random engagement to keep chat lively (10% chance)
-    else if (Math.random() < 0.1) {
+    // Random engagement to keep chat lively (5% chance - reduced to save API costs)
+    else if (Math.random() < 0.05) {
       shouldRespond = true;
       responseContext = "Random community engagement";
     }
