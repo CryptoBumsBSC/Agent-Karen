@@ -4527,6 +4527,12 @@ Check the leaderboard with /refboard`;
     await ctx.reply(`Alright ${username}, gather 'round for today's tale...\n\n${story}\n\nClassic Dudleyverse chaos, sweetie.`);
   });
 
+  // /seedstorm - Get Seed Storm game info and upcoming features
+  bot.command("seedstorm", async (ctx) => {
+    const info = StoryBible.getSeedStormFullInfo();
+    await ctx.reply(info);
+  });
+
   // === BANLIST COMMAND (Owner Only) ===
   
   // /banlist - View all banned/kicked users
@@ -6752,6 +6758,13 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
     if (lowerText === "story" || lowerText.includes("tell me a story") || lowerText.includes("dudley story") || lowerText.includes("dudleyverse")) {
       const story = StoryBible.generateRandomStory(username || firstName);
       await ctx.reply(`Alright ${firstName}, gather 'round for today's tale...\n\n${story}\n\nClassic Dudleyverse chaos, sweetie.`, { reply_parameters: { message_id: ctx.message.message_id } });
+      return;
+    }
+    
+    // Seed Storm game trigger - share promo when mentioned
+    if (lowerText.includes("seed storm") || lowerText.includes("seedstorm") || (lowerText.includes("game") && (lowerText.includes("ad") || lowerText.includes("play")))) {
+      const promo = StoryBible.getSeedStormPromo();
+      await ctx.reply(promo, { reply_parameters: { message_id: ctx.message.message_id } });
       return;
     }
     

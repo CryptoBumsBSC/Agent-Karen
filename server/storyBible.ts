@@ -424,6 +424,30 @@ export const PROACTIVE_TRIGGERS = {
   ]
 };
 
+// === SEED STORM GAME ANNOUNCEMENTS ===
+export const SEED_STORM_INFO = {
+  name: "Seed Storm",
+  status: "LIVE - Our 1st Game!",
+  description: "The Dudleyverse's first official game is HERE and playable NOW!",
+  adSpace: {
+    available: true,
+    message: "AD SPACE NOW AVAILABLE! Want your brand in Seed Storm? We're accepting advertisers. DM @aussieBoomer for details!"
+  },
+  upcomingFeatures: [
+    "PAY TO PLAY feature coming soon - real prizes for winners!",
+    "Referral program integration - earn while you play!",
+    "Lucky random player prizes - anyone can win!",
+    "Prize pool for top performers!"
+  ],
+  promoMessages: [
+    "Have you played Seed Storm yet? Our FIRST game is live and ad space is now available! Real money features coming soon!",
+    "Seed Storm update: Ad space is OPEN for business! Plus, pay-to-play with real prizes is in development!",
+    "Big things coming to Seed Storm! Referral rewards, winner prizes, and lucky random player giveaways on the way!",
+    "Seed Storm is just the beginning! Ad revenue starting to flow, and pay-to-play features dropping soon!",
+    "Play Seed Storm NOW! Coming soon: pay-to-play mode with prizes for winners AND random lucky players!"
+  ]
+};
+
 // === TRUST DENIAL MESSAGES (FRIENDLY) ===
 export const TRUST_DENIAL_MESSAGES = [
   "Hey sweetie, that feature's locked until you level up a bit! Stick around, chat with the crew, and you'll badge up in no time. Type /trustinfo to see where you're at!",
@@ -499,4 +523,21 @@ export function getWordBankForCategory(category: keyof typeof WORD_BANKS): strin
 
 export function getAllWordBankWords(): string[] {
   return Object.values(WORD_BANKS).flat();
+}
+
+export function getSeedStormPromo(): string {
+  return getRandomItem(SEED_STORM_INFO.promoMessages);
+}
+
+export function getSeedStormFullInfo(): string {
+  return `SEED STORM - ${SEED_STORM_INFO.status}
+
+${SEED_STORM_INFO.description}
+
+${SEED_STORM_INFO.adSpace.message}
+
+COMING SOON:
+${SEED_STORM_INFO.upcomingFeatures.map(f => `• ${f}`).join('\n')}
+
+Get ready for the next evolution of Dudleyverse gaming!`;
 }
