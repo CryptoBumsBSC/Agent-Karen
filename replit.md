@@ -30,7 +30,7 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Persona-Aware Sass**: Recognizes story character usernames (@aussieBoomer=Dudley, @TreeFitty=WeedWacker-Ryan, @Cheyne_Hay=Pinko, @DrTrichome=Blinky) with 15% sass trigger rate.
     - **Ban Tracking**: `/banlist` command for owners to view ban/kick history logged to database.
     - **Owner Trust Management**: `/trustset` and `/trustremove` commands for manual trust management (owner + @TreeFitty only).
-    - **Rare Strain Avatars**: Namast-Hay legendary strain system (max 7 ever, 6 remaining) with `/budify` owner-only command.
+    - **Rare Strain Avatars**: Namast-Hay legendary strain system (max 7 ever) with `/legendary` owner-only command.
 - **Moderation System**:
     - **Anti-Spam/Flood Control**: Rate limiting, duplicate message detection, sticker/GIF/voice/video spam detection with TTL cleanup, emoji spam detection.
     - **Scam/Phishing Protection**: Domain blocklists, risk scoring for messages, and auto-quarantine for high-risk content.

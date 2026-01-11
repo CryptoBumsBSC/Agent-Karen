@@ -4742,8 +4742,8 @@ Check the leaderboard with /refboard`;
 
   // === RARE STRAIN AVATAR SYSTEM (Namast-Hay Legendary - Max 7 Ever) ===
   
-  // /budify - Owner-only command to create legendary Namast-Hay strain avatar
-  bot.command("budify", async (ctx) => {
+  // /legendary - Owner-only command to create legendary Namast-Hay strain avatar
+  bot.command("legendary", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
     
     // Owner-only check
