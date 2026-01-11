@@ -42,6 +42,8 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Drug Trafficking Detection**: Blocks buying/selling of hard drugs while allowing cannabis culture discussion.
     - **Link Control**: Restrictions on new users posting links, with allowlists for official domains.
     - **Media Caption Moderation**: Scans photo/video/document captions for scam content and links.
+    - **Message Edit Tracking**: Monitors when new users (< 24 hours OR < 5 messages) edit their messages. Catches attempts to sneak scam/spam/links by editing innocent messages.
+    - **Violation Logging**: All security violations logged to database with @username, type, content, and action taken. `/violations` owner-only command to view logs.
     - **Forwarded Message Restrictions**: New users (< 24 hours) cannot forward messages.
     - **Contact Sharing Restrictions**: New users (< 48 hours) cannot share contacts (prevents support impersonation).
     - **Dangerous File Blocking**: Blocks executables (.exe, .bat, .scr, .apk, etc.) with admin alerts.
@@ -60,7 +62,7 @@ The backend operates on Node.js with Express for health checks and API routes. T
 - **Web Application**: Showcases character universe, safety information, and interactive content.
 
 ### Database
-PostgreSQL is used as the primary database, with Drizzle ORM managing schemas and migrations. Key tables include `characters`, `content_items`, `conversations`, `user_memory`, `moderation_stats`, `member_scores`, `referral_codes`, `community_profiles`, `trust_scores`, `banEvents` (ban/kick history), `rareStrainLimits` (global strain caps), and `rareStrainRecipients` (legendary avatar recipients).
+PostgreSQL is used as the primary database, with Drizzle ORM managing schemas and migrations. Key tables include `characters`, `content_items`, `conversations`, `user_memory`, `moderation_stats`, `member_scores`, `referral_codes`, `community_profiles`, `trust_scores`, `banEvents` (ban/kick history), `rareStrainLimits` (global strain caps), `rareStrainRecipients` (legendary avatar recipients), `newUserMessages` (message tracking for edit detection), and `violationLogs` (security violation audit trail).
 
 ### API
 A RESTful API, defined in `shared/routes.ts`, provides endpoints for character and content retrieval.

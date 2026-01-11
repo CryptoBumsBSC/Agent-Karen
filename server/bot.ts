@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 import * as StoryBible from "./storyBible";
@@ -1323,6 +1323,185 @@ async function recordProjectQuestion(username: string): Promise<void> {
     console.error("Error recording project question:", error);
   }
 }
+
+// === NEW USER MESSAGE TRACKING & EDIT DETECTION ===
+// In-memory cache for fast raid detection (join timestamps)
+const recentJoins: Map<string, number[]> = new Map(); // chatId -> array of join timestamps
+const RAID_THRESHOLD = 10; // 10+ joins in 1 minute triggers raid mode
+const RAID_WINDOW_MS = 60000; // 1 minute
+
+// Track new user message for edit detection
+async function trackNewUserMessage(
+  messageId: string,
+  chatId: string,
+  userId: string,
+  username: string | undefined,
+  content: string | undefined,
+  hasMedia: boolean,
+  hasLinks: boolean
+): Promise<void> {
+  try {
+    await db.insert(newUserMessages).values({
+      messageId,
+      chatId,
+      userId,
+      username: username || null,
+      originalContent: content || null,
+      hasMedia,
+      hasLinks
+    });
+  } catch (error) {
+    console.error("Error tracking new user message:", error);
+  }
+}
+
+// Get tracked message for edit comparison
+async function getTrackedMessage(messageId: string, chatId: string) {
+  try {
+    const result = await db.select()
+      .from(newUserMessages)
+      .where(and(
+        eq(newUserMessages.messageId, messageId),
+        eq(newUserMessages.chatId, chatId)
+      ))
+      .limit(1);
+    return result[0] || null;
+  } catch (error) {
+    console.error("Error getting tracked message:", error);
+    return null;
+  }
+}
+
+// Log a security violation
+async function logViolation(
+  chatId: string,
+  userId: string,
+  username: string | undefined,
+  violationType: string,
+  originalContent: string | undefined,
+  violatingContent: string | undefined,
+  actionTaken: string
+): Promise<void> {
+  try {
+    await db.insert(violationLogs).values({
+      chatId,
+      userId,
+      username: username || null,
+      violationType,
+      originalContent: originalContent || null,
+      violatingContent: violatingContent || null,
+      actionTaken
+    });
+    console.log(`Violation logged: ${violationType} by @${username || userId}`);
+  } catch (error) {
+    console.error("Error logging violation:", error);
+  }
+}
+
+// Check if user is a new user (joined < 24 hours ago)
+async function isNewUser(chatId: string, userId: string): Promise<boolean> {
+  try {
+    // Check trust scores for join date
+    const trust = await db.select()
+      .from(trustScores)
+      .where(and(
+        eq(trustScores.chatId, chatId),
+        eq(trustScores.telegramUserId, userId)
+      ))
+      .limit(1);
+    
+    // Check memberScores for message count
+    const member = await db.select()
+      .from(memberScores)
+      .where(and(
+        eq(memberScores.chatId, chatId),
+        eq(memberScores.telegramUserId, userId)
+      ))
+      .limit(1);
+    
+    const msgCount = member.length > 0 ? (member[0].messageCount || 0) : 0;
+    
+    // Check trust scores for join date
+    if (trust.length > 0 && trust[0].joinDate) {
+      const hoursSinceJoin = (Date.now() - new Date(trust[0].joinDate).getTime()) / (1000 * 60 * 60);
+      // User is "new" if joined < 24 hours OR has < 5 messages
+      return hoursSinceJoin < 24 || msgCount < 5;
+    }
+    
+    // No trust record = treat as new if message count is low
+    if (member.length === 0) return true; // Unknown = treat as new
+    return msgCount < 5;
+  } catch {
+    return true;
+  }
+}
+
+// Detect raid by tracking join rate
+function detectRaid(chatId: string): boolean {
+  const now = Date.now();
+  const joins = recentJoins.get(chatId) || [];
+  
+  // Clean old joins outside window
+  const recentJoinsFiltered = joins.filter(t => now - t < RAID_WINDOW_MS);
+  recentJoins.set(chatId, recentJoinsFiltered);
+  
+  return recentJoinsFiltered.length >= RAID_THRESHOLD;
+}
+
+// Record a join for raid detection
+function recordJoin(chatId: string): void {
+  const joins = recentJoins.get(chatId) || [];
+  joins.push(Date.now());
+  recentJoins.set(chatId, joins);
+}
+
+// Check for suspicious username patterns
+function hasSuspiciousUsername(username: string | undefined): boolean {
+  if (!username) return false;
+  const lower = username.toLowerCase();
+  
+  const suspiciousPatterns = [
+    "admin", "support", "help", "official", "moderator", "mod_",
+    "binance", "coinbase", "metamask", "trustwallet", "opensea",
+    "airdrop", "giveaway", "free_", "crypto_", "nft_support"
+  ];
+  
+  return suspiciousPatterns.some(p => lower.includes(p));
+}
+
+// Check for contract address in text
+function hasContractAddress(text: string): boolean {
+  // Ethereum-style addresses: 0x followed by 40 hex chars
+  return /0x[a-fA-F0-9]{40}/i.test(text);
+}
+
+// Check for URLs in text
+function hasUrls(text: string): boolean {
+  const urlPatterns = [
+    /https?:\/\/[^\s]+/i,
+    /www\.[^\s]+/i,
+    /t\.me\/[^\s]+/i,
+    /discord\.gg\/[^\s]+/i,
+    /bit\.ly\/[^\s]+/i,
+    /tinyurl\.com\/[^\s]+/i
+  ];
+  return urlPatterns.some(p => p.test(text));
+}
+
+// Cleanup old tracked messages (older than 24 hours)
+async function cleanupOldTrackedMessages(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await db.delete(newUserMessages).where(
+      sql`${newUserMessages.createdAt} < ${cutoff}`
+    );
+  } catch (error) {
+    console.error("Error cleaning up old tracked messages:", error);
+  }
+}
+
+// Run cleanup every hour
+setInterval(cleanupOldTrackedMessages, 60 * 60 * 1000);
 
 // === AI FUNCTIONS ===
 async function getAIResponse(prompt: string, context: string): Promise<string> {
@@ -4610,6 +4789,48 @@ Check the leaderboard with /refboard`;
     await ctx.reply(text);
   });
 
+  // === VIOLATIONS COMMAND (Owner Only) ===
+  
+  // /violations - View all security violations logged
+  bot.command("violations", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const ownerCheck = await isOwner(ctx);
+    if (!ownerCheck) {
+      await ctx.reply("Only the group owner can view violations!");
+      return;
+    }
+    
+    const chatId = String(ctx.chat.id);
+    
+    // Get all violations for this chat
+    const violations = await db.select().from(violationLogs)
+      .where(eq(violationLogs.chatId, chatId))
+      .orderBy(desc(violationLogs.createdAt))
+      .limit(50);
+    
+    if (violations.length === 0) {
+      await ctx.reply("No violations recorded for this chat yet! That's a good thing.");
+      return;
+    }
+    
+    let text = "SECURITY VIOLATIONS (Last 50)\n\n";
+    
+    for (const v of violations) {
+      const name = v.username ? `@${v.username}` : `User ${v.userId}`;
+      const date = v.createdAt ? new Date(v.createdAt).toLocaleDateString() : "Unknown";
+      text += `${v.violationType?.toUpperCase()}: ${name}\n`;
+      text += `  Action: ${v.actionTaken || "logged"} | ${date}\n`;
+      if (v.violatingContent) {
+        const preview = v.violatingContent.substring(0, 50) + (v.violatingContent.length > 50 ? "..." : "");
+        text += `  Content: ${preview}\n`;
+      }
+      text += "\n";
+    }
+    
+    await ctx.reply(text);
+  });
+
   // === TRUST MANAGEMENT (Owner + @TreeFitty Only) ===
   
   // /trustset @user level1|level2|full - Set trust level
@@ -5801,6 +6022,157 @@ Check the leaderboard with /refboard`;
 
   // === END MODERATION COMMANDS ===
 
+  // === MESSAGE EDIT TRACKING (New User Security) ===
+  // Scammers sometimes post innocent messages then edit them to add scams/spam/links
+  
+  // Handle edited text messages
+  bot.on("edited_message:text", async (ctx) => {
+    if (!ctx.editedMessage || !ctx.editedMessage.from || !ctx.editedMessage.chat) return;
+    
+    const chatId = ctx.editedMessage.chat.id;
+    const chatIdStr = String(chatId);
+    const userId = ctx.editedMessage.from.id;
+    const userIdStr = String(userId);
+    const messageId = String(ctx.editedMessage.message_id);
+    const newText = ctx.editedMessage.text || "";
+    const username = ctx.editedMessage.from.username || "";
+    
+    // Only track group chats
+    if (chatId > 0) return;
+    
+    // Skip admin messages
+    try {
+      const member = await ctx.api.getChatMember(chatId, userId);
+      if (member.status === "administrator" || member.status === "creator") return;
+    } catch { /* continue with check */ }
+    
+    // Check if user is new (< 24 hours or < 5 messages)
+    const userIsNew = await isNewUser(chatIdStr, userIdStr);
+    if (!userIsNew) return;
+    
+    // Retrieve original content from database (if tracked)
+    const originalRecord = await getTrackedMessage(messageId, chatIdStr);
+    const originalContent = originalRecord?.originalContent || undefined;
+    
+    // New user edited a message - apply full scam/spam/link checks
+    const lowerText = newText.toLowerCase();
+    
+    // Check for scam/phishing content in edited message
+    const { isScam, flags, riskScore } = detectScam(newText, username);
+    
+    // Check for links (new users can't post links)
+    const hasLink = /https?:\/\/|t\.me\/|@\w+/i.test(newText);
+    
+    // Check for seed phrase patterns
+    const hasSeedPhrase = detectSeedPhrase(newText);
+    
+    // Check for wallet drainer phrases
+    const drainerPhrases = ["verify wallet", "sync wallet", "connect wallet urgently", "wallet validation", "claim airdrop"];
+    const hasWalletDrainer = drainerPhrases.some(phrase => lowerText.includes(phrase));
+    
+    // Check for contract addresses
+    const hasContractAddress = /0x[a-fA-F0-9]{40}/i.test(newText);
+    
+    let shouldDelete = false;
+    let violationType = "";
+    let actionTaken = "";
+    
+    if (isScam && riskScore >= 70) {
+      shouldDelete = true;
+      violationType = "edit_scam";
+      actionTaken = "deleted";
+    } else if (hasLink) {
+      shouldDelete = true;
+      violationType = "edit_link";
+      actionTaken = "deleted";
+    } else if (hasSeedPhrase) {
+      shouldDelete = true;
+      violationType = "edit_seedphrase";
+      actionTaken = "deleted";
+    } else if (hasWalletDrainer) {
+      shouldDelete = true;
+      violationType = "edit_drainer";
+      actionTaken = "deleted";
+    } else if (hasContractAddress) {
+      shouldDelete = true;
+      violationType = "edit_contract";
+      actionTaken = "deleted";
+    }
+    
+    if (shouldDelete) {
+      try {
+        await ctx.api.deleteMessage(chatId, ctx.editedMessage.message_id);
+        // Log with both original and edited content
+        await logViolation(chatIdStr, userIdStr, username, violationType, originalContent, newText, actionTaken);
+        await incrementModStat(chatIdStr, 'scamsBlocked');
+        
+        await ctx.api.sendMessage(chatId, 
+          `Caught that edit, sweetie! New members can't sneak scam content in by editing old messages.\n\n` +
+          `@${username || ctx.editedMessage.from.first_name || "User"}, your edited message was removed. ` +
+          `Nice try, but Karen's watching.`
+        );
+        
+        console.log(`Blocked suspicious edit from new user ${username || userId}: ${violationType}`);
+      } catch (e) {
+        console.log("Couldn't delete suspicious edit:", e);
+      }
+    }
+  });
+
+  // Handle edited captions on photos/documents (new users only)
+  bot.on("edited_message:caption", async (ctx) => {
+    if (!ctx.editedMessage || !ctx.editedMessage.from || !ctx.editedMessage.chat) return;
+    
+    const chatId = ctx.editedMessage.chat.id;
+    const chatIdStr = String(chatId);
+    const userId = ctx.editedMessage.from.id;
+    const userIdStr = String(userId);
+    const caption = ctx.editedMessage.caption || "";
+    const username = ctx.editedMessage.from.username || "";
+    
+    // Only track group chats
+    if (chatId > 0) return;
+    
+    // Skip admin messages
+    try {
+      const member = await ctx.api.getChatMember(chatId, userId);
+      if (member.status === "administrator" || member.status === "creator") return;
+    } catch { /* continue with check */ }
+    
+    // Check if user is new
+    const userIsNew = await isNewUser(chatIdStr, userIdStr);
+    if (!userIsNew) return;
+    
+    // Check caption for malicious content
+    const lowerCaption = caption.toLowerCase();
+    const { isScam, riskScore } = detectScam(caption, username);
+    const hasLink = /https?:\/\/|t\.me\/|@\w+/i.test(caption);
+    const hasWalletDrainer = ["verify wallet", "sync wallet", "connect wallet urgently"].some(p => lowerCaption.includes(p));
+    const hasContractAddress = /0x[a-fA-F0-9]{40}/i.test(caption);
+    
+    let shouldDelete = false;
+    let violationType = "";
+    
+    if ((isScam && riskScore >= 70) || hasLink || hasWalletDrainer || hasContractAddress) {
+      shouldDelete = true;
+      violationType = "edit_caption";
+    }
+    
+    if (shouldDelete) {
+      try {
+        await ctx.api.deleteMessage(chatId, ctx.editedMessage.message_id);
+        await logViolation(chatIdStr, userIdStr, username, violationType, undefined, caption, "deleted");
+        await incrementModStat(chatIdStr, 'scamsBlocked');
+        await ctx.api.sendMessage(chatId, 
+          `Caught that caption edit! New members can't sneak scam content in by editing captions.\n` +
+          `@${username || ctx.editedMessage.from.first_name || "User"}, nice try but Karen's watching.`
+        );
+      } catch (e) {
+        console.log("Couldn't delete suspicious caption edit:", e);
+      }
+    }
+  });
+
   // === NEW MEMBER HANDLER ===
   bot.on("message:new_chat_members", async (ctx) => {
     for (const member of ctx.message.new_chat_members) {
@@ -6408,6 +6780,25 @@ Ask me anything! I'm literally always here.`
       // Update leaderboard for all users
       if (ctx.from?.id) {
         updateLeaderboard(chatId, ctx.from.id, ctx.from.username || "", ctx.from.first_name || "Anonymous");
+      }
+      
+      // Track new user messages for edit detection (scammers edit innocent messages to add scams)
+      if (ctx.from?.id && !ctx.from.is_bot) {
+        const chatIdStr = String(chatId);
+        const userIdStr = String(ctx.from.id);
+        const userIsNew = await isNewUser(chatIdStr, userIdStr);
+        if (userIsNew) {
+          const hasLinks = /https?:\/\/|t\.me\/|@\w+/i.test(text);
+          await trackNewUserMessage(
+            String(ctx.message.message_id),
+            chatIdStr,
+            userIdStr,
+            ctx.from.username,
+            text,
+            false, // hasMedia
+            hasLinks
+          );
+        }
       }
       
       // SPAM DETECTION - Auto-mute spammers with escalating punishment
@@ -9198,9 +9589,16 @@ export async function startBot() {
   // Start the winner announcement scheduler
   startWinnerAnnouncementScheduler();
 
+  // Clear any pending webhook to prevent conflicts
+  try {
+    await bot.api.deleteWebhook({ drop_pending_updates: true });
+  } catch (e) {
+    console.log("Could not clear webhook:", e);
+  }
+
   // Start bot with retry logic for 409 conflicts (common during rapid restarts)
-  const maxRetries = 5;
-  const retryDelay = 5000; // 5 seconds
+  const maxRetries = 10;
+  const retryDelay = 8000; // 8 seconds
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {

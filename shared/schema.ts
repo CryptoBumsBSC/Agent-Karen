@@ -296,6 +296,32 @@ export const userProjectQuestions = pgTable("user_project_questions", {
   lastAskedAt: timestamp("last_asked_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// New user message tracking (for edit detection)
+export const newUserMessages = pgTable("new_user_messages", {
+  id: serial("id").primaryKey(),
+  messageId: text("message_id").notNull(),
+  chatId: text("chat_id").notNull(),
+  userId: text("user_id").notNull(),
+  username: text("username"),
+  originalContent: text("original_content"),
+  hasMedia: boolean("has_media").default(false),
+  hasLinks: boolean("has_links").default(false),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Violation logs for all security events
+export const violationLogs = pgTable("violation_logs", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  userId: text("user_id").notNull(),
+  username: text("username"),
+  violationType: text("violation_type").notNull(), // edit_scam, edit_link, edit_media, raid_join, burst_post, etc
+  originalContent: text("original_content"),
+  violatingContent: text("violating_content"),
+  actionTaken: text("action_taken"), // deleted, warned, muted, kicked, banned
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
 export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true });
@@ -317,6 +343,8 @@ export const insertBanEventSchema = createInsertSchema(banEvents).omit({ id: tru
 export const insertRareStrainLimitSchema = createInsertSchema(rareStrainLimits).omit({ id: true, createdAt: true });
 export const insertRareStrainRecipientSchema = createInsertSchema(rareStrainRecipients).omit({ id: true, awardedAt: true });
 export const insertUserProjectQuestionSchema = createInsertSchema(userProjectQuestions).omit({ id: true, lastAskedAt: true });
+export const insertNewUserMessageSchema = createInsertSchema(newUserMessages).omit({ id: true, createdAt: true });
+export const insertViolationLogSchema = createInsertSchema(violationLogs).omit({ id: true, createdAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -339,6 +367,8 @@ export type BanEvent = typeof banEvents.$inferSelect;
 export type RareStrainLimit = typeof rareStrainLimits.$inferSelect;
 export type RareStrainRecipient = typeof rareStrainRecipients.$inferSelect;
 export type UserProjectQuestion = typeof userProjectQuestions.$inferSelect;
+export type NewUserMessage = typeof newUserMessages.$inferSelect;
+export type ViolationLog = typeof violationLogs.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
