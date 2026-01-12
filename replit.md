@@ -28,10 +28,13 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Medical Cannabis Q&A**: Integrated knowledge of THC/CBD, FDA-approved drugs, AU TGA + US FDA access systems, forms, safety warnings with research disclaimer.
     - **Top 100 Google Cannabis Q&A**: Pre-cached answers to common cannabis questions with source attribution.
     - **Persona-Aware Sass**: Recognizes story character usernames (@aussieBoomer=Dudley, @TreeFitty=WeedWacker-Ryan, @Cheyne_Hay=Pinko, @DrTrichome=Blinky) with 15% sass trigger rate.
+    - **Bud Boss Recognition**: Special sassy acknowledgment for @aussieBoomer (the owner/Dudley) when he messages. Karen recognizes the boss with playful sass but acknowledges he's in charge.
     - **Ban Tracking**: `/banlist` command for owners to view ban/kick history logged to database.
     - **Owner Trust Management**: `/trustset` and `/trustremove` commands for manual trust management (owner + @TreeFitty only).
     - **Rare Strain Avatars**: Namast-Hay legendary strain system (max 7 ever) with `/legendary` owner-only command.
-    - **Seed Storm Game Promotion**: `/seedstorm` command for game info. Keyword triggers for "seed storm" mentions. Promo includes: ad space availability, upcoming pay-to-play, referral rewards, winner prizes, lucky random player giveaways.
+    - **Seed Storm Game LIVE**: Game playable at t.me/SeedStormBot/SeedStorm. Telegram Stars integration for boosts and prizes. `/seedstorm` command for full info. Keyword triggers for "seed storm" mentions. Excited promo messages with live link.
+    - **NFT Status**: Coming soon (not launched yet). Bot responds with teaser messages when asked about minting.
+    - **User Interaction Memory**: Tracks last 7 user requests, detects interests from repeated topics, and provides returning user context with natural references ("Last time you asked about...").
 - **Moderation System**:
     - **Anti-Spam/Flood Control**: Rate limiting, duplicate message detection, sticker/GIF/voice/video spam detection with TTL cleanup, emoji spam detection.
     - **Scam/Phishing Protection**: Domain blocklists, risk scoring for messages, and auto-quarantine for high-risk content.

@@ -51,6 +51,11 @@ export const userMemory = pgTable("user_memory", {
   rudeStrikes: integer("rude_strikes").default(0),
   lastRudeDate: text("last_rude_date"),
   wasNiceAfterRude: boolean("was_nice_after_rude").default(false),
+  // Last 7 interactions tracking
+  lastInteractions: text("last_interactions"), // JSON array of last 7 requests
+  interests: text("interests"), // Topics mentioned more than once
+  scamStrikes: integer("scam_strikes").default(0), // Scam warning counter
+  language: text("language"), // Detected user language
 });
 
 // Community profiles for remembering member details

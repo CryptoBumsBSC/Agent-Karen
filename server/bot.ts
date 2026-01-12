@@ -1287,6 +1287,177 @@ function getKarenRudenessContext(status: RudenessStatus, isCurrentlyRude: boolea
   return "";
 }
 
+// === USER INTERACTION TRACKING (Last 7 requests) ===
+interface UserInteraction {
+  query: string;
+  topic: string;
+  timestamp: number;
+}
+
+async function trackUserInteraction(telegramUserId: string, query: string): Promise<void> {
+  try {
+    // Detect the topic from the query
+    const topic = detectQueryTopic(query);
+    
+    const newInteraction: UserInteraction = {
+      query: query.substring(0, 200), // Limit query length
+      topic,
+      timestamp: Date.now()
+    };
+    
+    // Use atomic upsert to avoid race conditions with concurrent writes
+    // Read current data first
+    const existing = await db.select().from(userMemory).where(eq(userMemory.telegramUserId, telegramUserId)).limit(1);
+    
+    let interactions: UserInteraction[] = [];
+    let currentMessageCount = 0;
+    
+    if (existing.length > 0) {
+      currentMessageCount = existing[0].messageCount || 0;
+      if (existing[0].lastInteractions) {
+        try {
+          interactions = JSON.parse(existing[0].lastInteractions);
+        } catch { /* default to empty */ }
+      }
+    }
+    
+    // Add new interaction and keep only last 7
+    interactions.push(newInteraction);
+    if (interactions.length > 7) {
+      interactions = interactions.slice(-7);
+    }
+    
+    // Track interests - topics mentioned more than once (excluding 'general')
+    const topicCounts: Record<string, number> = {};
+    for (const interaction of interactions) {
+      if (interaction.topic && interaction.topic !== 'general') {
+        topicCounts[interaction.topic] = (topicCounts[interaction.topic] || 0) + 1;
+      }
+    }
+    
+    // Topics mentioned 2+ times become interests
+    const interests = Object.entries(topicCounts)
+      .filter(([_, count]) => count >= 2)
+      .map(([interestTopic, _]) => interestTopic);
+    
+    if (existing.length > 0) {
+      // Update existing record with atomic SQL increment for messageCount
+      // Note: Interaction history is best-effort and may have minor races under high concurrency
+      // This is acceptable since it's a non-critical feature for returning user context
+      await db.update(userMemory)
+        .set({
+          lastInteractions: JSON.stringify(interactions),
+          interests: JSON.stringify(interests),
+          messageCount: sql`COALESCE(${userMemory.messageCount}, 0) + 1`,
+          lastSeen: sql`CURRENT_TIMESTAMP`
+        })
+        .where(eq(userMemory.telegramUserId, telegramUserId));
+    } else {
+      // Insert new record - use onConflictDoUpdate for atomic upsert
+      await db.insert(userMemory)
+        .values({
+          telegramUserId,
+          lastInteractions: JSON.stringify(interactions),
+          interests: JSON.stringify(interests),
+          messageCount: 1
+        })
+        .onConflictDoUpdate({
+          target: userMemory.telegramUserId,
+          set: {
+            lastInteractions: JSON.stringify(interactions),
+            interests: JSON.stringify(interests),
+            messageCount: sql`COALESCE(${userMemory.messageCount}, 0) + 1`,
+            lastSeen: sql`CURRENT_TIMESTAMP`
+          }
+        });
+    }
+  } catch (error) {
+    console.error("Error tracking user interaction:", error);
+  }
+}
+
+function detectQueryTopic(query: string): string {
+  const lowerQuery = query.toLowerCase();
+  
+  // Cannabis topics
+  if (lowerQuery.includes("strain") || lowerQuery.includes("sativa") || lowerQuery.includes("indica")) return "strains";
+  if (lowerQuery.includes("thc") || lowerQuery.includes("cbd") || lowerQuery.includes("cannabinoid")) return "cannabinoids";
+  if (lowerQuery.includes("edible") || lowerQuery.includes("recipe") || lowerQuery.includes("cook")) return "edibles";
+  if (lowerQuery.includes("grow") || lowerQuery.includes("plant") || lowerQuery.includes("harvest")) return "growing";
+  if (lowerQuery.includes("medical") || lowerQuery.includes("health") || lowerQuery.includes("pain")) return "medical";
+  if (lowerQuery.includes("terpene") || lowerQuery.includes("flavor") || lowerQuery.includes("aroma")) return "terpenes";
+  
+  // Project topics
+  if (lowerQuery.includes("nft") || lowerQuery.includes("mint") || lowerQuery.includes("collection")) return "nft";
+  if (lowerQuery.includes("game") || lowerQuery.includes("seed storm") || lowerQuery.includes("play")) return "games";
+  if (lowerQuery.includes("trivia") || lowerQuery.includes("puzzle") || lowerQuery.includes("quiz")) return "games";
+  if (lowerQuery.includes("dudley") || lowerQuery.includes("character") || lowerQuery.includes("story")) return "lore";
+  if (lowerQuery.includes("referral") || lowerQuery.includes("invite") || lowerQuery.includes("friend")) return "referrals";
+  if (lowerQuery.includes("trust") || lowerQuery.includes("level") || lowerQuery.includes("points")) return "trust";
+  
+  // General topics
+  if (lowerQuery.includes("joke") || lowerQuery.includes("funny") || lowerQuery.includes("laugh")) return "humor";
+  if (lowerQuery.includes("roast") || lowerQuery.includes("burn") || lowerQuery.includes("diss")) return "roasts";
+  
+  return "general";
+}
+
+async function getReturningUserContext(telegramUserId: string): Promise<string | null> {
+  try {
+    const existing = await db.select().from(userMemory).where(eq(userMemory.telegramUserId, telegramUserId)).limit(1);
+    
+    if (existing.length === 0 || !existing[0].lastInteractions) return null;
+    
+    let interactions: UserInteraction[] = [];
+    let interests: string[] = [];
+    
+    try {
+      interactions = JSON.parse(existing[0].lastInteractions);
+    } catch { return null; }
+    
+    if (existing[0].interests) {
+      try {
+        interests = JSON.parse(existing[0].interests);
+      } catch { /* no interests */ }
+    }
+    
+    // Only reference if user has at least 3 previous interactions
+    if (interactions.length < 3) return null;
+    
+    // 30% chance to reference previous context
+    if (Math.random() > 0.3) return null;
+    
+    // Get their interests or last topic
+    if (interests.length > 0) {
+      const interest = interests[Math.floor(Math.random() * interests.length)];
+      const contextPhrases = [
+        `I see you're back! Still curious about ${interest}?`,
+        `Good to see you again! You've been asking about ${interest} a lot lately.`,
+        `Hey, returning ${interest} enthusiast!`,
+        `Back for more? I remember you like chatting about ${interest}.`
+      ];
+      return contextPhrases[Math.floor(Math.random() * contextPhrases.length)];
+    }
+    
+    // Reference last question (if not too old)
+    const lastInteraction = interactions[interactions.length - 1];
+    const hoursSince = (Date.now() - lastInteraction.timestamp) / (1000 * 60 * 60);
+    
+    if (hoursSince < 24 && lastInteraction.topic !== "general") {
+      const recentPhrases = [
+        `Welcome back! Last time you were asking about ${lastInteraction.topic}.`,
+        `Hey again! Still thinking about ${lastInteraction.topic}?`,
+      ];
+      return recentPhrases[Math.floor(Math.random() * recentPhrases.length)];
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("Error getting returning user context:", error);
+    return null;
+  }
+}
+
 // === USER PROJECT QUESTION FUNCTIONS (72-hour cooldown) ===
 const PROJECT_QUESTION_USERS = ["TreeFitty", "Raging_Crypto", "AshleyWardy", "Cheyne_Hay", "DrTrichome"];
 
@@ -2218,23 +2389,46 @@ If something seems sketchy, ask in the group! We're here to help keep everyone s
   if (isMint) {
     return {
       triggered: true,
-      response: `DUDLEY BUD NFT INFO
+      response: `DUDLEY BUD NFT - COMING SOON!
 
-COLLECTIONS:
+The Dudley420 Collection is being prepared! Here's what's planned:
+
+COMING SOON:
 - Limited Whitelist NFTs (priority access for OGs)
 - Dudley420 Collection: 1,000 NFTs @ 0.01 BASE
+- Blockchain: Base (Ethereum L2 - low gas fees!)
 
-BLOCKCHAIN: Base (Ethereum L2 - low gas fees!)
-
-WHAT YOU GET:
+WHAT YOU'LL GET:
 - Unique digital art from our character universe
 - Part of the community
 - Access to games, events & more
 
+STATUS: Not launched yet - we're cooking something special! Watch for official announcements.
+
 REMINDER: These are collectibles for FUN, not investments. Only mint what you can afford!
 
-Check dudleybud.com for the latest mint info.`,
+Follow us for mint updates: dudleybud.com`,
       category: "mint"
+    };
+  }
+  
+  // === AUSSIE BOOMER / BUD BOSS QUESTIONS ===
+  const bossPhrases = ["aussie boomer", "aussieboomer", "@aussieboomer", "bud boss", "who is the owner", "who owns", "who runs this", "who's the boss", "whos the boss"];
+  const isBossQuestion = bossPhrases.some(p => lowerText.includes(p)) || 
+    (lowerText.includes("who") && (lowerText.includes("owner") || lowerText.includes("dudley") || lowerText.includes("boss")));
+  
+  if (isBossQuestion) {
+    const responses = [
+      "@aussieBoomer? That's the Bud Boss King himself! Founder of Dudley Bud, creator of chaos, and unfortunately... my boss.",
+      "You're asking about @aussieBoomer? Sweetie, that's THE Dudley himself. The big cheese. The head honcho. The reason I have a job.",
+      "@aussieBoomer is the Weed King, the Bud Boss, the mastermind behind this whole Dudleyverse operation. Don't tell him I said 'mastermind' though - it'll go to his head.",
+      "That would be the owner! @aussieBoomer runs this show. He's Dudley-Bud in the flesh. And yes, the chaos is intentional.",
+      "@aussieBoomer? The legend? The myth? The guy who signs my paychecks? Yeah, that's the Bud Boss King right there!",
+    ];
+    return {
+      triggered: true,
+      response: responses[Math.floor(Math.random() * responses.length)],
+      category: "boss"
     };
   }
   
@@ -6058,7 +6252,7 @@ Check the leaderboard with /refboard`;
     const lowerText = newText.toLowerCase();
     
     // Check for scam/phishing content in edited message
-    const { isScam, flags, riskScore } = detectScam(newText, username);
+    const { isScam, flags } = detectScam(newText, username);
     
     // Check for links (new users can't post links)
     const hasLink = /https?:\/\/|t\.me\/|@\w+/i.test(newText);
@@ -6077,7 +6271,7 @@ Check the leaderboard with /refboard`;
     let violationType = "";
     let actionTaken = "";
     
-    if (isScam && riskScore >= 70) {
+    if (isScam && flags.length >= 2) {
       shouldDelete = true;
       violationType = "edit_scam";
       actionTaken = "deleted";
@@ -6145,7 +6339,7 @@ Check the leaderboard with /refboard`;
     
     // Check caption for malicious content
     const lowerCaption = caption.toLowerCase();
-    const { isScam, riskScore } = detectScam(caption, username);
+    const { isScam, flags } = detectScam(caption, username);
     const hasLink = /https?:\/\/|t\.me\/|@\w+/i.test(caption);
     const hasWalletDrainer = ["verify wallet", "sync wallet", "connect wallet urgently"].some(p => lowerCaption.includes(p));
     const hasContractAddress = /0x[a-fA-F0-9]{40}/i.test(caption);
@@ -6153,7 +6347,7 @@ Check the leaderboard with /refboard`;
     let shouldDelete = false;
     let violationType = "";
     
-    if ((isScam && riskScore >= 70) || hasLink || hasWalletDrainer || hasContractAddress) {
+    if ((isScam && flags.length >= 2) || hasLink || hasWalletDrainer || hasContractAddress) {
       shouldDelete = true;
       violationType = "edit_caption";
     }
@@ -7196,6 +7390,13 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
       return;
     }
     
+    // Special recognition for @aussieBoomer - the Bud Boss King (15% chance to sass)
+    if (StoryBible.isBudBoss(username) && Math.random() < 0.15) {
+      const bossResponse = StoryBible.getBudBossResponse('message');
+      await ctx.reply(bossResponse, { reply_parameters: { message_id: ctx.message.message_id } });
+      // Don't return - let the message continue processing
+    }
+    
     // Persona-aware sass for mapped usernames (story characters)
     const characterSass = StoryBible.getSassForCharacter(username || "");
     if (characterSass && Math.random() < 0.15) { // 15% chance to sass story characters
@@ -7427,6 +7628,15 @@ Pause: Press Escape
     if (shouldRespond) {
       let response: string;
       const displayName = username ? `@${username}` : firstName;
+      const trackingUserId = ctx.from?.id?.toString() || "";
+      
+      // Track user interaction for returning user context (async, don't await)
+      if (trackingUserId) {
+        trackUserInteraction(trackingUserId, text).catch(e => console.log("Track interaction error:", e));
+      }
+      
+      // Check for returning user context (30% chance to greet warmly)
+      const returningContext = trackingUserId ? await getReturningUserContext(trackingUserId) : null;
       
       // Use the rudeness status already computed earlier for this message
       const rudenessContext = getKarenRudenessContext(rudenessStatus, isRude);
@@ -7454,12 +7664,15 @@ Pause: Press Escape
           // Check knowledge bases FIRST (zero API cost)
           const knowledgeResult = checkKnowledgeBases(questionText);
           if (knowledgeResult) {
-            response = knowledgeResult;
+            // Add returning user context if available
+            response = returningContext ? `${returningContext}\n\n${knowledgeResult}` : knowledgeResult;
           } else {
             const fullContext = rudenessContext 
               ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
               : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
             response = await getAIResponse(questionText, fullContext);
+            // Add returning user context if available
+            if (returningContext) response = `${returningContext}\n\n${response}`;
           }
         }
       } else {

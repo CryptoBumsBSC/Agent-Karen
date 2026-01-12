@@ -493,11 +493,17 @@ export function getProjectQuestion(username: string): string | null {
 export const SEED_STORM_INFO = {
   name: "Seed Storm",
   status: "LIVE - Our 1st Game!",
-  description: "The Dudleyverse's first official game is HERE and playable NOW!",
+  gameLink: "t.me/SeedStormBot/SeedStorm",
+  description: "The Dudleyverse's first official game is HERE and playable NOW! Jump in at t.me/SeedStormBot/SeedStorm!",
   adSpace: {
     available: true,
     message: "AD SPACE NOW AVAILABLE! Want your brand in Seed Storm? We're accepting advertisers. DM @aussieBoomer for details!"
   },
+  starsFeatures: [
+    "Buy in-game boosts with Telegram Stars!",
+    "Win Stars from your gameplay!",
+    "Compete for Star prizes!"
+  ],
   upcomingFeatures: [
     "PAY TO PLAY feature coming soon - real prizes for winners!",
     "Referral program integration - earn while you play!",
@@ -505,11 +511,45 @@ export const SEED_STORM_INFO = {
     "Prize pool for top performers!"
   ],
   promoMessages: [
-    "Have you played Seed Storm yet? Our FIRST game is live and ad space is now available! Real money features coming soon!",
-    "Seed Storm update: Ad space is OPEN for business! Plus, pay-to-play with real prizes is in development!",
-    "Big things coming to Seed Storm! Referral rewards, winner prizes, and lucky random player giveaways on the way!",
-    "Seed Storm is just the beginning! Ad revenue starting to flow, and pay-to-play features dropping soon!",
-    "Play Seed Storm NOW! Coming soon: pay-to-play mode with prizes for winners AND random lucky players!"
+    "SEED STORM IS LIVE! Play now: t.me/SeedStormBot/SeedStorm - Buy boosts with Stars, win Stars! Let's gooo!",
+    "Have you played Seed Storm yet? It's LIVE at t.me/SeedStormBot/SeedStorm! Use Telegram Stars for boosts and win big!",
+    "Seed Storm is ON! Jump in at t.me/SeedStormBot/SeedStorm - Stars for boosts, Stars for prizes!",
+    "The Dudleyverse's first game is PLAYABLE NOW! t.me/SeedStormBot/SeedStorm - Boost with Stars, win Stars!",
+    "Play Seed Storm NOW at t.me/SeedStormBot/SeedStorm! Buy boosts with Telegram Stars and compete for prizes!"
+  ]
+};
+
+// === NFT STATUS ===
+export const NFT_STATUS = {
+  launched: false,
+  statusMessage: "NFTs are COMING SOON! We're cooking something special. Stay tuned for announcements!",
+  teaserMessages: [
+    "NFTs dropping soon, sweetie! The Dudley420 Collection is being prepared as we speak!",
+    "Not quite yet on the NFTs - but trust me, when they drop, you'll want to be ready!",
+    "The Dudley Bud NFT collection is coming! Watch this space for mint announcements!",
+    "NFT launch is on the horizon! Keep your eyes peeled for the official announcement!",
+    "Soon, sweetie! The Dudley420 Collection will be here before you know it!"
+  ]
+};
+
+// === AUSSIE BOOMER / BUD BOSS RESPONSES ===
+export const BUD_BOSS_RESPONSES = {
+  whenBossMessages: [
+    "Oh great, the Bud Boss himself has graced us with his presence... *eye roll*",
+    "Look who finally showed up! The King of Chaos himself, @aussieBoomer!",
+    "All bow before the Weed King! ...or don't, I'm not your mom.",
+    "The boss is in the building! Try not to break anything, @aussieBoomer!",
+    "Oh, it's YOU again. Yes, I know you're the boss. You don't have to remind me every five minutes.",
+    "@aussieBoomer! The main character has arrived! *slow clap*",
+    "There he is - Mr. Dudley Bud himself! What chaos are we causing today?",
+    "The Bud Boss King is here! Quick, everyone look busy!",
+  ],
+  whenAskedAboutBoss: [
+    "@aussieBoomer? That's the Bud Boss King himself! Founder of Dudley Bud, creator of chaos, and unfortunately... my boss.",
+    "You're asking about @aussieBoomer? Sweetie, that's THE Dudley himself. The big cheese. The head honcho. The reason I have a job.",
+    "@aussieBoomer is the Weed King, the Bud Boss, the mastermind behind this whole Dudleyverse operation. Don't tell him I said 'mastermind' though - it'll go to his head.",
+    "That would be the owner! @aussieBoomer runs this show. He's Dudley-Bud in the flesh. And yes, the chaos is intentional.",
+    "@aussieBoomer? The legend? The myth? The guy who signs my paychecks? Yeah, that's the Bud Boss King right there!",
   ]
 };
 
@@ -599,10 +639,35 @@ export function getSeedStormFullInfo(): string {
 
 ${SEED_STORM_INFO.description}
 
+PLAY NOW: ${SEED_STORM_INFO.gameLink}
+
+TELEGRAM STARS INTEGRATION:
+${SEED_STORM_INFO.starsFeatures.map(f => `• ${f}`).join('\n')}
+
 ${SEED_STORM_INFO.adSpace.message}
 
 COMING SOON:
 ${SEED_STORM_INFO.upcomingFeatures.map(f => `• ${f}`).join('\n')}
 
 Get ready for the next evolution of Dudleyverse gaming!`;
+}
+
+export function getNFTStatusMessage(): string {
+  if (NFT_STATUS.launched) {
+    return "NFTs are LIVE! Check dudleybud.com for the latest info!";
+  }
+  return getRandomItem(NFT_STATUS.teaserMessages);
+}
+
+export function getBudBossResponse(type: 'message' | 'asked'): string {
+  if (type === 'asked') {
+    return getRandomItem(BUD_BOSS_RESPONSES.whenAskedAboutBoss);
+  }
+  return getRandomItem(BUD_BOSS_RESPONSES.whenBossMessages);
+}
+
+export function isBudBoss(username: string | undefined): boolean {
+  if (!username) return false;
+  const cleanUsername = username.replace('@', '').toLowerCase();
+  return cleanUsername === 'aussieboomer';
 }
