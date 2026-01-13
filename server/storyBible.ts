@@ -493,8 +493,8 @@ export function getProjectQuestion(username: string): string | null {
 export const SEED_STORM_INFO = {
   name: "Seed Storm",
   status: "LIVE - Our 1st Game!",
-  gameLink: "t.me/SeedStormBot/SeedStorm",
-  description: "The Dudleyverse's first official game is HERE and playable NOW! Jump in at t.me/SeedStormBot/SeedStorm!",
+  gameLink: "t.me/SeedStormBot?start=_tgr_81GHhWphYWVl",
+  description: "The Dudleyverse's first official game is HERE and playable NOW! Jump in at t.me/SeedStormBot?start=_tgr_81GHhWphYWVl!",
   adSpace: {
     available: true,
     message: "AD SPACE NOW AVAILABLE! Want your brand in Seed Storm? We're accepting advertisers. DM @aussieBoomer for details!"
@@ -511,11 +511,11 @@ export const SEED_STORM_INFO = {
     "Prize pool for top performers!"
   ],
   promoMessages: [
-    "SEED STORM IS LIVE! Play now: t.me/SeedStormBot/SeedStorm - Buy boosts with Stars, win Stars! Let's gooo!",
-    "Have you played Seed Storm yet? It's LIVE at t.me/SeedStormBot/SeedStorm! Use Telegram Stars for boosts and win big!",
-    "Seed Storm is ON! Jump in at t.me/SeedStormBot/SeedStorm - Stars for boosts, Stars for prizes!",
-    "The Dudleyverse's first game is PLAYABLE NOW! t.me/SeedStormBot/SeedStorm - Boost with Stars, win Stars!",
-    "Play Seed Storm NOW at t.me/SeedStormBot/SeedStorm! Buy boosts with Telegram Stars and compete for prizes!"
+    "SEED STORM IS LIVE! Play now: t.me/SeedStormBot?start=_tgr_81GHhWphYWVl - Buy boosts with Stars, win Stars! Let's gooo!",
+    "Have you played Seed Storm yet? It's LIVE at t.me/SeedStormBot?start=_tgr_81GHhWphYWVl! Use Telegram Stars for boosts and win big!",
+    "Seed Storm is ON! Jump in at t.me/SeedStormBot?start=_tgr_81GHhWphYWVl - Stars for boosts, Stars for prizes!",
+    "The Dudleyverse's first game is PLAYABLE NOW! t.me/SeedStormBot?start=_tgr_81GHhWphYWVl - Boost with Stars, win Stars!",
+    "Play Seed Storm NOW at t.me/SeedStormBot?start=_tgr_81GHhWphYWVl! Buy boosts with Telegram Stars and compete for prizes!"
   ]
 };
 

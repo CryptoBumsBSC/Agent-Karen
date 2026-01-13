@@ -4533,7 +4533,7 @@ They cannot gain trust points until unfrozen with /trustunfreeze.`);
     if (!ctx.chat) return;
     
     // Seed Storm game URL
-    const gameUrl = "https://t.me/SeedStormBot/SeedStorm";
+    const gameUrl = "https://t.me/SeedStormBot?start=_tgr_81GHhWphYWVl";
     
     await ctx.reply(
       "SEED STORM\n\n" +
@@ -7535,7 +7535,7 @@ Touch controls on mobile, keyboard on desktop.
 
 Survive and shoot down enemy buds - get the highest score!
 
-Play here: https://t.me/SeedStormBot/SeedStorm
+Play here: https://t.me/SeedStormBot?start=_tgr_81GHhWphYWVl
 
 Controls:
 Desktop: Arrow keys or WASD to move, Space to shoot
