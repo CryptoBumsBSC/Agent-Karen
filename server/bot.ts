@@ -7881,47 +7881,24 @@ Pause: Press Escape
     let responseContext = "";
     let useKarenAttitude = false;
     
-    // KAREN MODE: Always respond with attitude when "karen" is mentioned
+    // KAREN MODE: Only respond when directly mentioned by name
     if (lowerText.includes("karen")) {
       shouldRespond = true;
       useKarenAttitude = true;
       responseContext = "Someone mentioned Karen - respond with full Karen attitude!";
     }
-    // Always respond when mentioned directly
+    // Respond when mentioned directly with @
     else if (lowerText.includes("@agentkarenbot")) {
       shouldRespond = true;
       responseContext = "User mentioned the bot directly";
-    }
-    // Always respond to questions about Dudley Bud
-    else if (lowerText.includes("dudley") || lowerText.includes("bud") || lowerText.includes("nft")) {
-      shouldRespond = true;
-      responseContext = "User asking about Dudley Bud project";
-    }
-    // Respond to direct questions
-    else if (text.includes("?")) {
-      shouldRespond = true;
-      responseContext = "User asked a question in the group";
-    }
-    // Respond to greetings
-    else if (/^(hi|hello|hey|yo|sup|gm|good morning|good evening|what's up|whats up)/i.test(lowerText)) {
-      shouldRespond = true;
-      responseContext = "User greeted the chat";
     }
     // Respond to replies to the bot's messages
     else if (ctx.message.reply_to_message?.from?.is_bot) {
       shouldRespond = true;
       responseContext = "User replied to bot's message";
     }
-    // Engage with longer messages (community participation)
-    else if (text.length > 50 && Math.random() < 0.3) {
-      shouldRespond = true;
-      responseContext = "Engaging with community discussion";
-    }
-    // Random engagement to keep chat lively (5% chance - reduced to save API costs)
-    else if (Math.random() < 0.05) {
-      shouldRespond = true;
-      responseContext = "Random community engagement";
-    }
+    // NOTE: Removed casual triggers (greetings, questions, random engagement)
+    // Karen now only responds when directly called - but still watches for scams/spam
     
     if (shouldRespond) {
       let response: string;
