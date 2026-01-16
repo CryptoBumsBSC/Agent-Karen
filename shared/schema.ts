@@ -327,6 +327,43 @@ export const violationLogs = pgTable("violation_logs", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// === BOT LEARNING SYSTEM ===
+
+// Bot interactions - stores all conversations for learning
+export const botInteractions = pgTable("bot_interactions", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull(),
+  userId: text("user_id").notNull(),
+  username: text("username"),
+  userMessage: text("user_message").notNull(),
+  botResponse: text("bot_response").notNull(),
+  responseType: text("response_type"), // ai, cached, learned, joke, roast, etc
+  feedbackScore: integer("feedback_score").default(0), // -1 bad, 0 neutral, 1 good
+  patternHash: text("pattern_hash"), // For matching similar questions
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// User feedback - thumbs up/down on responses
+export const userFeedback = pgTable("user_feedback", {
+  id: serial("id").primaryKey(),
+  interactionId: integer("interaction_id").notNull(),
+  userId: text("user_id").notNull(),
+  feedbackType: text("feedback_type").notNull(), // thumbs_up, thumbs_down
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Learned patterns - successful response patterns
+export const learnedPatterns = pgTable("learned_patterns", {
+  id: serial("id").primaryKey(),
+  patternHash: text("pattern_hash").notNull(),
+  patternKeywords: text("pattern_keywords").notNull(), // JSON array of keywords
+  bestResponse: text("best_response").notNull(),
+  successCount: integer("success_count").default(1),
+  useCount: integer("use_count").default(0),
+  lastUsed: timestamp("last_used"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
 export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true });
@@ -350,6 +387,9 @@ export const insertRareStrainRecipientSchema = createInsertSchema(rareStrainReci
 export const insertUserProjectQuestionSchema = createInsertSchema(userProjectQuestions).omit({ id: true, lastAskedAt: true });
 export const insertNewUserMessageSchema = createInsertSchema(newUserMessages).omit({ id: true, createdAt: true });
 export const insertViolationLogSchema = createInsertSchema(violationLogs).omit({ id: true, createdAt: true });
+export const insertBotInteractionSchema = createInsertSchema(botInteractions).omit({ id: true, createdAt: true });
+export const insertUserFeedbackSchema = createInsertSchema(userFeedback).omit({ id: true, createdAt: true });
+export const insertLearnedPatternSchema = createInsertSchema(learnedPatterns).omit({ id: true, createdAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 export type Character = typeof characters.$inferSelect;
@@ -374,6 +414,9 @@ export type RareStrainRecipient = typeof rareStrainRecipients.$inferSelect;
 export type UserProjectQuestion = typeof userProjectQuestions.$inferSelect;
 export type NewUserMessage = typeof newUserMessages.$inferSelect;
 export type ViolationLog = typeof violationLogs.$inferSelect;
+export type BotInteraction = typeof botInteractions.$inferSelect;
+export type UserFeedback = typeof userFeedback.$inferSelect;
+export type LearnedPattern = typeof learnedPatterns.$inferSelect;
 
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type InsertContentItem = z.infer<typeof insertContentItemSchema>;
