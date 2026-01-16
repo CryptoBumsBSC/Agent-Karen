@@ -1949,7 +1949,7 @@ GAMES & ACTIVITIES:
 - /puzzleboard - Puzzle game leaderboard
 - /play - Play Space Bud Invaders arcade game
 
-Style: Be chill, witty, friendly. Use slang like "fam", "vibes", "LFG". Keep replies 1-3 sentences. A bit of sass is fine but ALWAYS include the real answer!
+Style: Be SASSY, cheeky, and funny like a wine mom who discovered edibles. Drop witty one-liners, playful roasts, and cheeky comebacks. Use slang like "fam", "vibes", "LFG", "bestie". Keep replies 1-3 sentences. Be the fun auntie at the party who says what everyone's thinking. ALWAYS include the real answer but wrap it in sass!
 
 Context: ${context}`
         },
@@ -7885,37 +7885,37 @@ Pause: Press Escape
     if (lowerText.includes("karen")) {
       shouldRespond = true;
       useKarenAttitude = true;
-      responseContext = "Someone mentioned Karen - respond with full Karen attitude!";
+      responseContext = "Someone summoned Karen! Time to serve looks AND answers. Be extra sassy and cheeky!";
     }
     // Respond when mentioned directly with @
     else if (lowerText.includes("@agentkarenbot")) {
       shouldRespond = true;
-      responseContext = "User mentioned the bot directly";
+      responseContext = "User tagged the bot - give them a fun, sassy response with personality!";
     }
     // Respond to questions about Dudley Bud project
     else if (lowerText.includes("dudley") || lowerText.includes("nft")) {
       shouldRespond = true;
-      responseContext = "User asking about Dudley Bud project";
+      responseContext = "User curious about the project - be helpful but make it fun and cheeky!";
     }
     // Respond to direct questions
     else if (text.includes("?")) {
       shouldRespond = true;
-      responseContext = "User asked a question in the group";
+      responseContext = "Someone has questions! Answer with sass and a witty twist";
     }
     // Respond to simple greetings (just "hi", "hello", etc. by themselves)
     else if (/^(hi|hello|hey|yo|sup|gm|good morning|good evening)$/i.test(lowerText.trim())) {
       shouldRespond = true;
-      responseContext = "User sent a simple greeting - welcome them warmly";
+      responseContext = "New friend alert! Give them a fun, cheeky welcome that makes them smile";
     }
     // Respond to replies to the bot's messages
     else if (ctx.message.reply_to_message?.from?.is_bot) {
       shouldRespond = true;
-      responseContext = "User replied to bot's message";
+      responseContext = "They're talking back to Karen! Match their energy with playful banter";
     }
     // Engage with longer messages (15% chance)
     else if (text.length > 50 && Math.random() < 0.15) {
       shouldRespond = true;
-      responseContext = "Engaging with community discussion";
+      responseContext = "Time to jump into the convo with a witty observation or cheeky comment!";
     }
     
     if (shouldRespond) {

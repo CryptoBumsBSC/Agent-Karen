@@ -790,7 +790,7 @@ export function getRandomOneLiner(): string {
   return getRandomItem(STONER_ONE_LINERS);
 }
 
-// Should Karen drop a random joke? (10% chance)
+// Should Karen drop a random joke? (20% chance - she's feeling extra funny)
 export function shouldDropJoke(): boolean {
-  return Math.random() < 0.10;
+  return Math.random() < 0.20;
 }
