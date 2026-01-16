@@ -35,6 +35,13 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Seed Storm Game LIVE**: Game playable at t.me/SeedStormBot/SeedStorm. Telegram Stars integration for boosts and prizes. `/seedstorm` command for full info. Keyword triggers for "seed storm" mentions. Excited promo messages with live link.
     - **NFT Status**: Coming soon (not launched yet). Bot responds with teaser messages when asked about minting.
     - **User Interaction Memory**: Tracks last 7 user requests, detects interests from repeated topics, and provides returning user context with natural references ("Last time you asked about...").
+    - **Bot Learning System**: Karen learns from community feedback to improve responses over time. Features include:
+        - Pattern recognition using keyword extraction and 60% similarity matching
+        - Thumbs up/down feedback buttons on AI responses
+        - Learned responses require 2+ positive feedback before being used
+        - `/stats` command showing total interactions, learned patterns, and approval rate
+        - Saves API costs by reusing proven good responses
+    - **Joke Collections**: 73+ jokes across 4 categories (cannabis love puns, Halloween jokes, knock knock jokes, stoner one-liners). Random joke dropping (10% chance) adds personality to responses.
 - **Moderation System**:
     - **Anti-Spam/Flood Control**: Rate limiting, duplicate message detection, sticker/GIF/voice/video spam detection with TTL cleanup, emoji spam detection.
     - **Scam/Phishing Protection**: Domain blocklists, risk scoring for messages, and auto-quarantine for high-risk content.

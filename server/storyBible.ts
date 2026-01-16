@@ -553,6 +553,103 @@ export const BUD_BOSS_RESPONSES = {
   ]
 };
 
+// === CANNABIS LOVE PUNS ===
+export const CANNABIS_LOVE_PUNS = [
+  "You're the blunt to my lighter.",
+  "We go together like weed and rolling papers.",
+  "My love for you is un-joint-ed.",
+  "You light up my life — literally.",
+  "Our love is like marijuana… always growing.",
+  "Together, we're the perfect strain.",
+  "You're my high note in life.",
+  "We're joint at the heart.",
+  "You keep me grounded like indica.",
+  "You're my bud for life.",
+  "Our relationship is always lit.",
+  "You roll with me, I roll with you.",
+  "You're the munchies to my smoke session.",
+  "We're baked to perfection together.",
+  "You're the spark to my flame.",
+  "Our love is never out of season — it's evergreen.",
+  "Together, we're higher than cloud nine.",
+  "You're my partner in kush.",
+  "Our vibe? Blunt but honest.",
+  "You're my perfect high."
+];
+
+// === HALLOWEEN CANNABIS JOKES ===
+export const HALLOWEEN_CANNABIS_JOKES = [
+  "Why don't stoners fear ghosts? They already see things.",
+  "A stoner's favorite Halloween candy? Hash browns.",
+  "Why did the pumpkin get high? It wanted to be lit.",
+  "Stoners don't need costumes — red eyes are scary enough.",
+  "My weed strain is scarier than Dracula… couchlock forever.",
+  "What's a stoner witch's spell? 'Hocus Smokus.'",
+  "Why was the joint at the party? To keep it lit.",
+  "Zombies don't eat stoners — they're too baked.",
+  "A stoner vampire only sucks bong hits.",
+  "Trick or toke?",
+  "The scariest thing to a stoner? Running out of papers.",
+  "Ghosts don't haunt stoners — they just vibe.",
+  "What's Frankenstein's favorite strain? Sour Diesel.",
+  "Why did the skeleton love weed? It tickled his funny bone.",
+  "A haunted bong? That's next-level scary.",
+  "Werewolves don't howl — they cough.",
+  "A stoner's Halloween playlist? High-terror hits.",
+  "The monster mash-up strain: Kushstein.",
+  "Witches ride brooms, stoners ride smoke clouds.",
+  "Fear isn't real when you're this high."
+];
+
+// === KNOCK KNOCK WEED JOKES ===
+export const KNOCK_KNOCK_JOKES = [
+  "Knock knock. Who's there? Mary. Mary who? Mary Juana!",
+  "Knock knock. Who's there? High. High who? High there, buddy!",
+  "Knock knock. Who's there? Blunt. Blunt who? Blunt you wish you had some?",
+  "Knock knock. Who's there? Herb. Herb who? Herb your enthusiasm!",
+  "Knock knock. Who's there? Doobie. Doobie who? Doobie or not doobie.",
+  "Knock knock. Who's there? Kush. Kush who? Kush you were high right now?",
+  "Knock knock. Who's there? Joint. Joint who? Joint the party, man!",
+  "Knock knock. Who's there? Bong. Bong who? Bong voyage!",
+  "Knock knock. Who's there? Stash. Stash who? Stash the snacks, I'm hungry.",
+  "Knock knock. Who's there? Reefer. Reefer who? Reefer madness!",
+  "Knock knock. Who's there? Bud. Bud who? Bud you already know!",
+  "Knock knock. Who's there? Toke. Toke who? Toke it easy, bro.",
+  "Knock knock. Who's there? Grass. Grass who? Grass up, it's party time!",
+  "Knock knock. Who's there? Lit. Lit who? Lit's get high together!",
+  "Knock knock. Who's there? Hash. Hash who? Hash brown delivery!",
+  "Knock knock. Who's there? Munch. Munch who? Munch later, smoke now.",
+  "Knock knock. Who's there? Blaze. Blaze who? Blaze it 420!",
+  "Knock knock. Who's there? Leaf. Leaf who? Leaf me some weed!",
+  "Knock knock. Who's there? Green. Green who? Green out already?",
+  "Knock knock. Who's there? Trip. Trip who? Trip out, man."
+];
+
+// === STONER ONE-LINERS ===
+export const STONER_ONE_LINERS = [
+  "My bud is my best bud.",
+  "I roll better than a bakery.",
+  "Smoke breaks are life upgrades.",
+  "Weed math: 1 joint = infinite laughs.",
+  "My grinder is my therapist.",
+  "Weed: the plant that keeps on giving.",
+  "I inhale wisdom, exhale stress.",
+  "Joints don't judge.",
+  "Buds before duds.",
+  "Weed heals, laughter seals.",
+  "High thoughts are deep thoughts.",
+  "My stash box is my treasure chest.",
+  "Don't stress, just press — the hash way."
+];
+
+// === ALL KAREN JOKES (combined for random selection) ===
+export const ALL_KAREN_JOKES = [
+  ...CANNABIS_LOVE_PUNS,
+  ...HALLOWEEN_CANNABIS_JOKES,
+  ...KNOCK_KNOCK_JOKES,
+  ...STONER_ONE_LINERS
+];
+
 // === TRUST DENIAL MESSAGES (FRIENDLY) ===
 export const TRUST_DENIAL_MESSAGES = [
   "Hey sweetie, that feature's locked until you level up a bit! Stick around, chat with the crew, and you'll badge up in no time. Type /trustinfo to see where you're at!",
@@ -670,4 +767,30 @@ export function isBudBoss(username: string | undefined): boolean {
   if (!username) return false;
   const cleanUsername = username.replace('@', '').toLowerCase();
   return cleanUsername === 'aussieboomer';
+}
+
+// === JOKE HELPER FUNCTIONS ===
+export function getRandomJoke(): string {
+  return getRandomItem(ALL_KAREN_JOKES);
+}
+
+export function getRandomLovePun(): string {
+  return getRandomItem(CANNABIS_LOVE_PUNS);
+}
+
+export function getRandomHalloweenJoke(): string {
+  return getRandomItem(HALLOWEEN_CANNABIS_JOKES);
+}
+
+export function getRandomKnockKnock(): string {
+  return getRandomItem(KNOCK_KNOCK_JOKES);
+}
+
+export function getRandomOneLiner(): string {
+  return getRandomItem(STONER_ONE_LINERS);
+}
+
+// Should Karen drop a random joke? (10% chance)
+export function shouldDropJoke(): boolean {
+  return Math.random() < 0.10;
 }

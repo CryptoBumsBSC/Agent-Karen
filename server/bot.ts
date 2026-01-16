@@ -1373,7 +1373,7 @@ class BotMemory {
           .where(eq(botInteractions.id, interactionId))
           .limit(1);
         
-        if (interaction[0] && interaction[0].patternHash && interaction[0].feedbackScore >= 2) {
+        if (interaction[0] && interaction[0].patternHash && (interaction[0].feedbackScore || 0) >= 2) {
           // This response has enough positive feedback - save as learned pattern
           const keywords = this.extractKeywords(interaction[0].userMessage);
           
@@ -1424,7 +1424,7 @@ class BotMemory {
         .where(eq(learnedPatterns.patternHash, patternHash))
         .limit(1);
       
-      if (exactMatch.length > 0 && exactMatch[0].successCount >= 2) {
+      if (exactMatch.length > 0 && (exactMatch[0].successCount || 0) >= 2) {
         // Update use count
         await db.update(learnedPatterns)
           .set({ 
@@ -4008,6 +4008,40 @@ Stay safe, fam!`;
     
     giveaway.active = false;
     await ctx.reply(`Giveaway ended.\n\nPrize: ${giveaway.prize}\nTotal entries: ${giveaway.entries.size}\n\nNo winner was picked.`);
+  });
+
+  // === BOT LEARNING STATS COMMAND ===
+  bot.command("stats", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const stats = await BotMemory.getStats();
+    
+    const learningProgress = stats.learnedPatterns > 0 
+      ? Math.min(100, Math.round((stats.learnedPatterns / 50) * 100))
+      : 0;
+    
+    const progressBar = "█".repeat(Math.floor(learningProgress / 10)) + 
+                       "░".repeat(10 - Math.floor(learningProgress / 10));
+    
+    const approvalRate = stats.positiveRatings + stats.negativeRatings > 0
+      ? Math.round((stats.positiveRatings / (stats.positiveRatings + stats.negativeRatings)) * 100)
+      : 0;
+    
+    await ctx.reply(`*Karen's Learning Stats*
+
+*Memory Status:*
+- Total Interactions: ${stats.totalInteractions.toLocaleString()}
+- Learned Patterns: ${stats.learnedPatterns}
+- Learning Progress: [${progressBar}] ${learningProgress}%
+
+*Feedback Received:*
+- Positive Ratings: ${stats.positiveRatings}
+- Negative Ratings: ${stats.negativeRatings}
+- Approval Rate: ${approvalRate}%
+
+_Karen gets smarter with every conversation! Rate my responses with the +1/-1 buttons to help me learn faster!_`, 
+      { parse_mode: "Markdown" }
+    );
   });
 
   // === TRUST SYSTEM COMMANDS ===
@@ -6812,6 +6846,33 @@ Ask me anything! I'm literally always here.`
     }
   });
 
+  // === FEEDBACK BUTTON CALLBACK HANDLERS ===
+  bot.callbackQuery(/^feedback:(up|down):(\d+)$/, async (ctx) => {
+    const match = ctx.callbackQuery.data.match(/^feedback:(up|down):(\d+)$/);
+    if (!match) return;
+    
+    const feedbackType = match[1]; // 'up' or 'down'
+    const interactionId = parseInt(match[2]);
+    const userId = ctx.from.id.toString();
+    
+    const isPositive = feedbackType === 'up';
+    const success = await BotMemory.learnFromFeedback(interactionId, userId, isPositive);
+    
+    if (success) {
+      const message = isPositive 
+        ? "Thanks! I'll remember that worked well!" 
+        : "Got it! I'll try to do better next time!";
+      await ctx.answerCallbackQuery({ text: message });
+      
+      // Remove the feedback buttons after feedback is given
+      try {
+        await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+      } catch { /* buttons already removed or message too old */ }
+    } else {
+      await ctx.answerCallbackQuery({ text: "Oops, couldn't save that feedback!" });
+    }
+  });
+
   // === MEDIA CAPTION MODERATION (photos, videos, documents) ===
   bot.on(["message:photo", "message:video", "message:document", "message:animation"], async (ctx, next) => {
     const caption = ctx.message.caption;
@@ -7866,6 +7927,7 @@ Pause: Press Escape
       let response: string;
       const displayName = username ? `@${username}` : firstName;
       const trackingUserId = ctx.from?.id?.toString() || "";
+      const chatIdStr = chatId ? String(chatId) : "";
       
       // Track user interaction for returning user context (async, don't await)
       if (trackingUserId) {
@@ -7904,12 +7966,19 @@ Pause: Press Escape
             // Add returning user context if available
             response = returningContext ? `${returningContext}\n\n${knowledgeResult}` : knowledgeResult;
           } else {
-            const fullContext = rudenessContext 
-              ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
-              : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
-            response = await getAIResponse(questionText, fullContext);
-            // Add returning user context if available
-            if (returningContext) response = `${returningContext}\n\n${response}`;
+            // Try learned response first (saves API costs)
+            const learnedResponse = await BotMemory.getLearnedResponse(questionText);
+            if (learnedResponse) {
+              response = learnedResponse;
+              if (returningContext) response = `${returningContext}\n\n${response}`;
+            } else {
+              const fullContext = rudenessContext 
+                ? `${rudenessContext}\n\nAnswer the user's question or respond to their message helpfully about Dudley Bud. Add Karen sass. Address them as ${displayName}.`
+                : `Answer the user's question or respond to their message helpfully about Dudley Bud. Add a bit of Karen sass but focus on being helpful. Address them as ${displayName}.`;
+              response = await getAIResponse(questionText, fullContext);
+              // Add returning user context if available
+              if (returningContext) response = `${returningContext}\n\n${response}`;
+            }
           }
         }
       } else {
@@ -7921,11 +7990,47 @@ Pause: Press Escape
           const fullContext = rudenessContext 
             ? `${rudenessContext}\n\n${responseContext}. Address them as ${displayName}.`
             : `${responseContext}. Address them as ${displayName}. Keep response brief and friendly.`;
-          response = await getAIResponse(text, fullContext);
+          
+          // Try learned response first (saves API costs)
+          const learnedResponse = await BotMemory.getLearnedResponse(text);
+          if (learnedResponse) {
+            response = learnedResponse;
+          } else {
+            response = await getAIResponse(text, fullContext);
+          }
         }
       }
       
-      await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
+      // Maybe add a random joke (10% chance)
+      if (StoryBible.shouldDropJoke() && response.length < 500) {
+        const joke = StoryBible.getRandomJoke();
+        response = `${response}\n\n${joke}`;
+      }
+      
+      // Save interaction for learning
+      const interactionId = await BotMemory.saveInteraction(
+        chatIdStr,
+        trackingUserId,
+        username,
+        text,
+        response,
+        'ai'
+      );
+      
+      // Send response with feedback buttons (if interaction saved)
+      if (interactionId) {
+        await ctx.reply(response, { 
+          reply_parameters: { message_id: ctx.message.message_id },
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "+1", callback_data: `feedback:up:${interactionId}` },
+              { text: "-1", callback_data: `feedback:down:${interactionId}` }
+            ]]
+          }
+        });
+      } else {
+        await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
+      }
     }
 
     await next();
