@@ -1287,6 +1287,243 @@ function getKarenRudenessContext(status: RudenessStatus, isCurrentlyRude: boolea
   return "";
 }
 
+// === BOT LEARNING MEMORY SYSTEM ===
+import { botInteractions, userFeedback, learnedPatterns } from "@shared/schema";
+
+class BotMemory {
+  // Generate a pattern hash from keywords in the message
+  private static generatePatternHash(message: string): string {
+    const stopWords = new Set(['a', 'an', 'the', 'is', 'are', 'was', 'were', 'what', 'when', 'where', 'who', 'why', 'how', 'can', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their', 'this', 'that', 'these', 'those', 'and', 'or', 'but', 'so', 'if', 'then', 'than', 'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'about', 'from', 'as', 'into', 'like', 'just', 'also', 'very', 'really', 'too', 'much', 'more', 'some', 'any', 'all', 'no', 'not', 'only']);
+    
+    const words = message.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !stopWords.has(w))
+      .sort();
+    
+    return words.join('_');
+  }
+
+  // Extract keywords from message for pattern matching
+  private static extractKeywords(message: string): string[] {
+    const stopWords = new Set(['a', 'an', 'the', 'is', 'are', 'was', 'were', 'what', 'when', 'where', 'who', 'why', 'how', 'can', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their', 'this', 'that', 'these', 'those', 'and', 'or', 'but', 'so', 'if', 'then', 'than', 'to', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'about', 'from', 'as', 'into', 'like', 'just', 'also', 'very', 'really', 'too', 'much', 'more', 'some', 'any', 'all', 'no', 'not', 'only']);
+    
+    return message.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !stopWords.has(w));
+  }
+
+  // Save every interaction for learning
+  static async saveInteraction(
+    chatId: string,
+    userId: string,
+    username: string | undefined,
+    userMessage: string,
+    botResponse: string,
+    responseType: string = 'ai'
+  ): Promise<number | null> {
+    try {
+      const patternHash = this.generatePatternHash(userMessage);
+      
+      const result = await db.insert(botInteractions).values({
+        chatId,
+        userId,
+        username: username || null,
+        userMessage: userMessage.substring(0, 2000),
+        botResponse: botResponse.substring(0, 4000),
+        responseType,
+        patternHash,
+        feedbackScore: 0
+      }).returning({ id: botInteractions.id });
+      
+      return result[0]?.id || null;
+    } catch (error) {
+      console.error("Error saving interaction:", error);
+      return null;
+    }
+  }
+
+  // Learn from user feedback (thumbs up/down)
+  static async learnFromFeedback(
+    interactionId: number,
+    userId: string,
+    isPositive: boolean
+  ): Promise<boolean> {
+    try {
+      const feedbackType = isPositive ? 'thumbs_up' : 'thumbs_down';
+      const feedbackValue = isPositive ? 1 : -1;
+      
+      // Save the feedback
+      await db.insert(userFeedback).values({
+        interactionId,
+        userId,
+        feedbackType
+      });
+      
+      // Update the interaction's feedback score
+      await db.update(botInteractions)
+        .set({ feedbackScore: sql`${botInteractions.feedbackScore} + ${feedbackValue}` })
+        .where(eq(botInteractions.id, interactionId));
+      
+      // If positive feedback, check if we should save as learned pattern
+      if (isPositive) {
+        const interaction = await db.select()
+          .from(botInteractions)
+          .where(eq(botInteractions.id, interactionId))
+          .limit(1);
+        
+        if (interaction[0] && interaction[0].patternHash && interaction[0].feedbackScore >= 2) {
+          // This response has enough positive feedback - save as learned pattern
+          const keywords = this.extractKeywords(interaction[0].userMessage);
+          
+          const existing = await db.select()
+            .from(learnedPatterns)
+            .where(eq(learnedPatterns.patternHash, interaction[0].patternHash))
+            .limit(1);
+          
+          if (existing.length > 0) {
+            // Update existing pattern
+            await db.update(learnedPatterns)
+              .set({ 
+                successCount: sql`${learnedPatterns.successCount} + 1`,
+                bestResponse: interaction[0].botResponse
+              })
+              .where(eq(learnedPatterns.patternHash, interaction[0].patternHash));
+          } else {
+            // Create new learned pattern
+            await db.insert(learnedPatterns).values({
+              patternHash: interaction[0].patternHash,
+              patternKeywords: JSON.stringify(keywords),
+              bestResponse: interaction[0].botResponse,
+              successCount: 1,
+              useCount: 0
+            });
+          }
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error("Error learning from feedback:", error);
+      return false;
+    }
+  }
+
+  // Get a learned response for similar question
+  static async getLearnedResponse(userMessage: string): Promise<string | null> {
+    try {
+      const patternHash = this.generatePatternHash(userMessage);
+      const keywords = this.extractKeywords(userMessage);
+      
+      if (keywords.length === 0) return null;
+      
+      // First try exact pattern match
+      const exactMatch = await db.select()
+        .from(learnedPatterns)
+        .where(eq(learnedPatterns.patternHash, patternHash))
+        .limit(1);
+      
+      if (exactMatch.length > 0 && exactMatch[0].successCount >= 2) {
+        // Update use count
+        await db.update(learnedPatterns)
+          .set({ 
+            useCount: sql`${learnedPatterns.useCount} + 1`,
+            lastUsed: sql`CURRENT_TIMESTAMP`
+          })
+          .where(eq(learnedPatterns.id, exactMatch[0].id));
+        
+        return exactMatch[0].bestResponse;
+      }
+      
+      // Try keyword similarity match - get patterns with high success
+      const allPatterns = await db.select()
+        .from(learnedPatterns)
+        .where(sql`${learnedPatterns.successCount} >= 3`)
+        .limit(50);
+      
+      for (const pattern of allPatterns) {
+        try {
+          const patternKeywords: string[] = JSON.parse(pattern.patternKeywords);
+          const matchingKeywords = keywords.filter(k => patternKeywords.includes(k));
+          const matchRatio = matchingKeywords.length / Math.max(keywords.length, patternKeywords.length);
+          
+          if (matchRatio >= 0.6) { // 60% keyword overlap
+            // Update use count
+            await db.update(learnedPatterns)
+              .set({ 
+                useCount: sql`${learnedPatterns.useCount} + 1`,
+                lastUsed: sql`CURRENT_TIMESTAMP`
+              })
+              .where(eq(learnedPatterns.id, pattern.id));
+            
+            return pattern.bestResponse;
+          }
+        } catch { /* skip invalid pattern */ }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error("Error getting learned response:", error);
+      return null;
+    }
+  }
+
+  // Get user's recent conversation history
+  static async getUserHistory(userId: string, limit: number = 10): Promise<Array<{userMessage: string, botResponse: string, createdAt: Date | null}>> {
+    try {
+      const history = await db.select({
+        userMessage: botInteractions.userMessage,
+        botResponse: botInteractions.botResponse,
+        createdAt: botInteractions.createdAt
+      })
+        .from(botInteractions)
+        .where(eq(botInteractions.userId, userId))
+        .orderBy(sql`${botInteractions.createdAt} DESC`)
+        .limit(limit);
+      
+      return history;
+    } catch (error) {
+      console.error("Error getting user history:", error);
+      return [];
+    }
+  }
+
+  // Get learning stats
+  static async getStats(): Promise<{
+    totalInteractions: number;
+    learnedPatterns: number;
+    positiveRatings: number;
+    negativeRatings: number;
+  }> {
+    try {
+      const interactionCount = await db.select({ count: sql<number>`count(*)` })
+        .from(botInteractions);
+      
+      const patternCount = await db.select({ count: sql<number>`count(*)` })
+        .from(learnedPatterns);
+      
+      const positiveCount = await db.select({ count: sql<number>`count(*)` })
+        .from(userFeedback)
+        .where(eq(userFeedback.feedbackType, 'thumbs_up'));
+      
+      const negativeCount = await db.select({ count: sql<number>`count(*)` })
+        .from(userFeedback)
+        .where(eq(userFeedback.feedbackType, 'thumbs_down'));
+      
+      return {
+        totalInteractions: Number(interactionCount[0]?.count || 0),
+        learnedPatterns: Number(patternCount[0]?.count || 0),
+        positiveRatings: Number(positiveCount[0]?.count || 0),
+        negativeRatings: Number(negativeCount[0]?.count || 0)
+      };
+    } catch (error) {
+      console.error("Error getting stats:", error);
+      return { totalInteractions: 0, learnedPatterns: 0, positiveRatings: 0, negativeRatings: 0 };
+    }
+  }
+}
+
 // === USER INTERACTION TRACKING (Last 7 requests) ===
 interface UserInteraction {
   query: string;
