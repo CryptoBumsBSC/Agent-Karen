@@ -7892,13 +7892,18 @@ Pause: Press Escape
       shouldRespond = true;
       responseContext = "User mentioned the bot directly";
     }
+    // Respond to simple greetings (just "hi", "hello", etc. by themselves)
+    else if (/^(hi|hello|hey|yo|sup|gm|good morning|good evening)$/i.test(lowerText.trim())) {
+      shouldRespond = true;
+      responseContext = "User sent a simple greeting - welcome them warmly";
+    }
     // Respond to replies to the bot's messages
     else if (ctx.message.reply_to_message?.from?.is_bot) {
       shouldRespond = true;
       responseContext = "User replied to bot's message";
     }
-    // NOTE: Removed casual triggers (greetings, questions, random engagement)
-    // Karen now only responds when directly called - but still watches for scams/spam
+    // NOTE: Karen only responds to direct mentions and simple greetings
+    // Still watches for scams/spam but won't jump into general conversations
     
     if (shouldRespond) {
       let response: string;
