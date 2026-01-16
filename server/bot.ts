@@ -7881,7 +7881,7 @@ Pause: Press Escape
     let responseContext = "";
     let useKarenAttitude = false;
     
-    // KAREN MODE: Only respond when directly mentioned by name
+    // KAREN MODE: Respond when directly mentioned by name
     if (lowerText.includes("karen")) {
       shouldRespond = true;
       useKarenAttitude = true;
@@ -7891,6 +7891,16 @@ Pause: Press Escape
     else if (lowerText.includes("@agentkarenbot")) {
       shouldRespond = true;
       responseContext = "User mentioned the bot directly";
+    }
+    // Respond to questions about Dudley Bud project
+    else if (lowerText.includes("dudley") || lowerText.includes("nft")) {
+      shouldRespond = true;
+      responseContext = "User asking about Dudley Bud project";
+    }
+    // Respond to direct questions
+    else if (text.includes("?")) {
+      shouldRespond = true;
+      responseContext = "User asked a question in the group";
     }
     // Respond to simple greetings (just "hi", "hello", etc. by themselves)
     else if (/^(hi|hello|hey|yo|sup|gm|good morning|good evening)$/i.test(lowerText.trim())) {
@@ -7902,8 +7912,11 @@ Pause: Press Escape
       shouldRespond = true;
       responseContext = "User replied to bot's message";
     }
-    // NOTE: Karen only responds to direct mentions and simple greetings
-    // Still watches for scams/spam but won't jump into general conversations
+    // Engage with longer messages (15% chance)
+    else if (text.length > 50 && Math.random() < 0.15) {
+      shouldRespond = true;
+      responseContext = "Engaging with community discussion";
+    }
     
     if (shouldRespond) {
       let response: string;
