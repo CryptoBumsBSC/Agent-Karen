@@ -50,6 +50,14 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Short Link Blocking**: Blocks URL shorteners (bit.ly, tinyurl, t.co, goo.gl, etc.) used to hide scam links.
     - **Hate Speech Filter**: Base64-obscured slur patterns with text normalization (catches l33t speak, spaces, symbols). Progressive warning system (warn → warn → mute).
     - **Drug Trafficking Detection**: Blocks buying/selling of hard drugs while allowing cannabis culture discussion.
+    - **Hard Drug Detection System**: Comprehensive detection of hard drugs (cocaine, meth, heroin, fentanyl, PCP, MDMA, GHB, ketamine) with:
+        - Standalone terms (always flagged): cocaine, methamphetamine, heroin, fentanyl, oxycontin, etc.
+        - Context-dependent terms (only flagged with suspicious context): coke, molly, meth, etc.
+        - Multi-word phrases: "crystal meth", "crack cocaine", "angel dust", etc.
+        - Drug emoji detection with suspicious context
+        - Progressive warning system (warn → warn → 1hr mute)
+        - **Exemptions**: Admins, owners, and fully trusted members (trust level 3 or vouched) bypass detection
+        - Name/username check on new member joins (Note: Telegram API doesn't expose user bio in join events - only name/username can be checked)
     - **Link Control**: Restrictions on new users posting links, with allowlists for official domains.
     - **Media Caption Moderation**: Scans photo/video/document captions for scam content and links.
     - **Message Edit Tracking**: Monitors when new users (< 24 hours OR < 5 messages) edit their messages. Catches attempts to sneak scam/spam/links by editing innocent messages.

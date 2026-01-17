@@ -235,14 +235,169 @@ function detectHateSpeech(text: string): { detected: boolean; severity: 'low' | 
 }
 
 // Drug trafficking detection - blocks buying/selling hard drugs
-const HARD_DRUG_TERMS = ["meth", "heroin", "fentanyl", "fent", "cocaine", "coke", "crack", "oxy", "oxycontin", "xanax", "bars", "percs", "percocet"];
+// Hard drug terms categorized by detection approach
+// "Standalone" terms trigger alone; "context" terms need trafficking context
+const HARD_DRUG_TERMS_STANDALONE = [
+  // Always unambiguous - flag on their own
+  "cocaine", "methamphetamine", "heroin", "fentanyl", "oxycontin", "percocet",
+  "hydrocodone", "vicodin", "ketamine", "phencyclidine", "speedball",
+  "crackhead", "tweaker", "junkie"
+];
+
+const HARD_DRUG_TERMS_WITH_CONTEXT = [
+  // These need trafficking/suspicious context to avoid false positives
+  "coke", "blow", "molly", "meth", "fent", "oxy", "percs", "xanax", "lean",
+  "smack", "mdma", "ecstasy", "ghb", "pcp"
+];
+
+// Multi-word phrases - always flag
+const HARD_DRUG_PHRASES = [
+  // Specific drug references
+  "crystal meth", "crack cocaine", "black tar", "china white", "angel dust",
+  "nose candy", "fish scale", "special k", "cat valium", "liquid ecstasy",
+  // Activity phrases
+  "snorting coke", "shooting up", "inject heroin", "meth pipe", "crack pipe",
+  "fentanyl laced", "overdose on", "od on", "nodding off"
+];
+
+// Drug emojis used to signal hard drugs
+const HARD_DRUG_EMOJIS = [
+  "\u2744\ufe0f", // snowflake (cocaine)
+  "\u26c4", // snowman (cocaine)
+  "\u{1F3B1}", // eight ball (cocaine)
+  "\u{1F48E}", // diamond (meth)
+  "\u{1F52E}", // crystal ball (meth)
+  "\u{1F9EA}", // test tube (meth)
+  "\u{1F90E}", // brown heart (heroin)
+  "\u{1F409}", // dragon (heroin - chasing the dragon)
+  "\u{1F48A}", // pill (MDMA/pills)
+  "\u{1F36C}", // candy (pills)
+  "\u{1F36D}", // lollipop (pills)
+];
+
 const TRAFFICKING_TERMS = ["selling", "buying", "wtb", "wts", "for sale", "hmu for", "dm for", "got that", "plug for", "looking for plug", "need a plug"];
 
 function detectDrugTrafficking(text: string): boolean {
-  const lowerText = text.toLowerCase();
-  const hasHardDrug = HARD_DRUG_TERMS.some(drug => lowerText.includes(drug));
-  const hasTrafficking = TRAFFICKING_TERMS.some(term => lowerText.includes(term));
-  return hasHardDrug && hasTrafficking;
+  const normalizedText = normalizeForDrugDetection(text);
+  
+  // Check for multi-word phrases first
+  const hasPhrase = HARD_DRUG_PHRASES.some(phrase => {
+    const normalizedPhrase = normalizeForDrugDetection(phrase);
+    return normalizedText.includes(normalizedPhrase);
+  });
+  if (hasPhrase) {
+    const hasTrafficking = TRAFFICKING_TERMS.some(term => normalizedText.includes(term));
+    if (hasTrafficking) return true;
+  }
+  
+  // Check standalone terms with word boundaries
+  for (const drug of HARD_DRUG_TERMS_STANDALONE) {
+    const regex = new RegExp(`\\b${drug}\\b`, 'i');
+    if (regex.test(normalizedText)) {
+      const hasTrafficking = TRAFFICKING_TERMS.some(term => normalizedText.includes(term));
+      if (hasTrafficking) return true;
+    }
+  }
+  
+  // Check context-dependent terms with trafficking
+  const hasTrafficking = TRAFFICKING_TERMS.some(term => normalizedText.includes(term));
+  if (hasTrafficking) {
+    for (const drug of HARD_DRUG_TERMS_WITH_CONTEXT) {
+      const regex = new RegExp(`\\b${drug}\\b`, 'i');
+      if (regex.test(normalizedText)) return true;
+    }
+  }
+  
+  return false;
+}
+
+// Normalize text for drug detection - remove punctuation that might split terms
+function normalizeForDrugDetection(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[-_\/\\.,;:!?'"()[\]{}]/g, ' ') // replace punctuation with spaces
+    .replace(/\s+/g, ' ') // collapse whitespace
+    .trim();
+}
+
+// Detect hard drug terms or emojis in text (for message checking)
+// Uses word boundary matching to avoid false positives
+function detectHardDrugs(text: string): { found: boolean; matched: string[] } {
+  const normalizedText = normalizeForDrugDetection(text);
+  const matched: string[] = [];
+  
+  // Check multi-word phrases first (normalized)
+  for (const phrase of HARD_DRUG_PHRASES) {
+    const normalizedPhrase = normalizeForDrugDetection(phrase);
+    if (normalizedText.includes(normalizedPhrase)) {
+      matched.push(phrase);
+    }
+  }
+  
+  // Check standalone terms - always flag these
+  for (const term of HARD_DRUG_TERMS_STANDALONE) {
+    const regex = new RegExp(`\\b${term}\\b`, 'i');
+    if (regex.test(normalizedText)) {
+      matched.push(term);
+    }
+  }
+  
+  // Check context-dependent terms with broader suspicious context
+  // This includes trafficking language AND general drug discussion patterns
+  const suspiciousContext = [
+    // Trafficking/dealing
+    "plug", "hit me", "dm me", "selling", "buying", "got that", "need", "want", "looking for",
+    // Usage/possession
+    "high on", "hooked on", "addicted to", "did some", "doing some", "on the",
+    "taking", "using", "snort", "inject", "smoke", "overdose", "od",
+    // General drug talk
+    "dealer", "deal", "score", "stash", "supply"
+  ];
+  const hasSuspiciousContext = suspiciousContext.some(ctx => normalizedText.includes(ctx));
+  
+  if (hasSuspiciousContext) {
+    for (const term of HARD_DRUG_TERMS_WITH_CONTEXT) {
+      const regex = new RegExp(`\\b${term}\\b`, 'i');
+      if (regex.test(normalizedText)) {
+        matched.push(term);
+      }
+    }
+    
+    // Check emojis only with suspicious context
+    for (const emoji of HARD_DRUG_EMOJIS) {
+      if (text.includes(emoji)) {
+        matched.push(`emoji:${emoji}`);
+      }
+    }
+  }
+  
+  return { found: matched.length > 0, matched };
+}
+
+// Check if user is exempt from hard drug detection (admin, owner, or fully trusted)
+async function isExemptFromDrugCheck(ctx: any, chatId: string, userId: string): Promise<boolean> {
+  // Check if admin/owner
+  try {
+    const member = await ctx.api.getChatMember(chatId, parseInt(userId));
+    if (member.status === 'creator' || member.status === 'administrator') {
+      return true;
+    }
+  } catch { /* not admin */ }
+  
+  // Check if fully trusted (level 3 or vouched)
+  const trustRecord = await db.select().from(trustScores)
+    .where(and(eq(trustScores.telegramUserId, userId), eq(trustScores.chatId, chatId)))
+    .limit(1);
+  
+  if (trustRecord.length > 0) {
+    const record = trustRecord[0];
+    // Level 3 = OG (fully trusted) or vouched by owner
+    if ((record.trustLevel || 0) >= 3 || record.trustStatus === 'vouched') {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 // Emoji spam detection - too many emojis relative to text
@@ -1949,7 +2104,9 @@ GAMES & ACTIVITIES:
 - /puzzleboard - Puzzle game leaderboard
 - /play - Play Space Bud Invaders arcade game
 
-Style: Be SASSY, cheeky, and funny like a wine mom who discovered edibles. Drop witty one-liners, playful roasts, and cheeky comebacks. Use slang like "fam", "vibes", "LFG", "bestie". Keep replies 1-3 sentences. Be the fun auntie at the party who says what everyone's thinking. ALWAYS include the real answer but wrap it in sass!
+CANNABIS VOCABULARY (use naturally): weed, pot, ganja, Mary Jane, herb, kush, dank, gas, fire, loud, bud, flower, trees, chronic, sticky icky, nugs, doobie, spliff, blunt, joint, pinner, green, devil's lettuce, za, zaza, exotic.
+
+Style: Be SASSY, cheeky, and funny like a wine mom who discovered edibles. Drop witty one-liners, playful roasts, and cheeky comebacks. Vary your slang - mix it up between "fam", "bestie", "energy", "mood", "feels", "vibe check", "LFG", "fire", "that slaps". Keep replies 1-3 sentences. Be the fun auntie at the party who says what everyone's thinking. ALWAYS include the real answer but wrap it in sass!
 
 Context: ${context}`
         },
@@ -6692,6 +6849,40 @@ Check the leaderboard with /refboard`;
       if (isScam) {
         await ctx.reply(`Warning: New member @${username} has suspicious indicators:\n${flags.join("\n")}\n\nAdmins, please verify!`);
       }
+      
+      // Check username/name for hard drug references (exemptions apply)
+      // Note: Telegram API doesn't provide user bio on join events, only username/name
+      const nameCheckTexts = [fullName, username].filter(Boolean).join(" ");
+      const drugCheck = detectHardDrugs(nameCheckTexts);
+      if (drugCheck.found) {
+        // Check if exempt (admin/owner/fully trusted) - new users won't be
+        const isExempt = await isExemptFromDrugCheck(ctx, chatIdStr, newMemberId);
+        if (!isExempt) {
+          try {
+            // Warn first - log the violation
+            await logViolation(chatIdStr, newMemberId, username || fullName, "hard_drug_name", `Name/username contained: ${drugCheck.matched.join(", ")}`, "warn");
+            
+            // Notify admins
+            const admins = await ctx.api.getChatAdministrators(chatId);
+            const adminMentions = admins
+              .filter(a => !a.user.is_bot)
+              .slice(0, 3)
+              .map(a => a.user.username ? `@${a.user.username}` : a.user.first_name)
+              .join(", ");
+            
+            await ctx.reply(
+              `Heads up ${adminMentions} - New member @${username || name} has concerning terms in their name.\n\n` +
+              `This is a cannabis culture community, but we keep things legal. ` +
+              `Hard drug references aren't welcome here.\n\n` +
+              `User has been flagged - admins may want to verify.`
+            );
+            
+            await incrementModStat(chatIdStr, 'scamsBlocked');
+          } catch (nameErr) {
+            console.log("Couldn't warn user with hard drug name:", nameErr);
+          }
+        }
+      }
 
       // Check if this member was referred via an invite link
       // Note: Telegram doesn't always provide invite link info in message context
@@ -7481,6 +7672,68 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
           return;
         }
         
+        // 1E2. Hard drug term/emoji detection (exemptions for trusted members)
+        const hardDrugCheck = detectHardDrugs(text);
+        if (hardDrugCheck.found) {
+          // Check if user is exempt (admin, owner, or fully trusted)
+          const isExempt = await isExemptFromDrugCheck(ctx, chatIdStr, userIdStr);
+          if (!isExempt) {
+            // Track warnings for this user
+            const warningKey = `drug:${userIdStr}:${chatIdStr}`;
+            const existing = hateSpeechWarnings.get(warningKey);
+            const now = Date.now();
+            
+            // Reset if warning is old (24 hours)
+            if (existing && (now - existing.lastWarning > HATE_SPEECH_WARNING_RESET)) {
+              hateSpeechWarnings.delete(warningKey);
+            }
+            
+            const warningCount = (hateSpeechWarnings.get(warningKey)?.count || 0) + 1;
+            hateSpeechWarnings.set(warningKey, { count: warningCount, lastWarning: now });
+            
+            try {
+              await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+              await incrementModStat(chatIdStr, 'messagesBlocked');
+              
+              // Log the violation
+              await logViolation(chatIdStr, userIdStr, username || "", "hard_drug_message", `Matched: ${hardDrugCheck.matched.join(", ")}`, warningCount === 1 ? "warn" : warningCount === 2 ? "warn" : "mute");
+              
+              if (warningCount === 1) {
+                await ctx.reply(
+                  `Hey ${username ? `@${username}` : "friend"}, just a heads up - we're a cannabis culture community here.\n\n` +
+                  `Discussing hard drugs isn't something we allow. ` +
+                  `This is your first warning. Let's keep it green!`
+                );
+              } else if (warningCount === 2) {
+                await ctx.reply(
+                  `${username ? `@${username}` : "Friend"}, this is your second warning about hard drug content.\n\n` +
+                  `One more and you'll be muted. We take this seriously for everyone's safety.`
+                );
+              } else {
+                // Mute on 3rd offense (1 hour)
+                try {
+                  await ctx.api.restrictChatMember(chatId, parseInt(userIdStr), {
+                    can_send_messages: false,
+                    until_date: Math.floor(Date.now() / 1000) + 3600,
+                  });
+                  await ctx.reply(
+                    `${username ? `@${username}` : "User"} has been muted for 1 hour after repeated hard drug content violations.\n\n` +
+                    `This is a cannabis culture community - not a place for other substances.`
+                  );
+                  hateSpeechWarnings.delete(warningKey);
+                } catch (muteErr) {
+                  console.log("Couldn't mute user for drug violations:", muteErr);
+                }
+              }
+              
+              await flagForModReview(ctx, userIdStr, username || "", text, 70, `Hard drug terms: ${hardDrugCheck.matched.join(", ")}`);
+            } catch (e) {
+              console.log("Couldn't handle hard drug message:", e);
+            }
+            return;
+          }
+        }
+        
         // 1F. Emoji spam detection
         if (detectEmojiSpam(text)) {
           try {
@@ -8218,12 +8471,15 @@ const EASY_WORDS = [
   "SOL", "BTC", "LIT", "HIT", "TOP", "DIP", "RIP", "WIN", "VIP", "MAX",
   // Referral program words
   "REF", "LINK", "FAM", "GROW", "EARN",
-  // 4-5 letter words (cannabis)
+  // 4-5 letter words (cannabis slang)
   "KUSH", "BONG", "DANK", "HIGH", "HEMP", "LEAF", "BUDS", "DOPE", "HAZE", "HASH",
   "MINT", "LIME", "GLOW", "CHILL", "BLAZE", "GREEN", "SMOKE", "VIBES", "PEACE", "DREAM",
   "PLANT", "BLOOM", "GROW", "LIGHT", "FRESH", "COOL", "CALM", "ZONE", "LIFT", "WAVE",
   "STONE", "PUFF", "ROLL", "FIRE", "LOUD", "TERP", "NUKE", "FROST", "STICKY", "CHIEF",
   "BLUNT", "JOINT", "PIPE", "BOWL", "CREAM", "PURP", "SKUNK", "DIESEL", "LEMON", "MANGO",
+  // More cannabis culture terms
+  "GANJA", "HERB", "TREES", "NUGS", "SPLIFF", "ROACH", "TOKE", "PINNER", "CONE", "RESIN",
+  "ZAZA", "EXOTIC", "PRIMO", "HEADIE", "MIDS", "REGGIE", "SCHWAG",
   // 4-5 letter words (crypto)
   "COIN", "HOLD", "MOON", "PUMP", "GAIN", "BULL", "BEAR", "SWAP", "BURN", "TOKEN",
   "FARM", "POOL", "STAKE", "YIELD", "CHAIN", "BLOCK", "DEFI", "HODL", "WHALE", "ALPHA",
@@ -8241,6 +8497,9 @@ const HARD_WORDS = [
   "GORILLA", "TRAINWRECK", "SKYWALKER", "HEADBAND", "CHEMDAWG", "GRANDDADDY", "TANGIE",
   "SHERBERT", "MIMOSA", "BANANA", "MOCHI", "BISCOTTI", "WEDDING", "BIRTHDAY", "AMNESIA",
   "PINEAPPLE", "BLUEBERRY", "STRAWBERRY", "BLACKBERRY", "CHERRY", "ORANGE", "GRAPEFRUIT",
+  // Cannabis culture terms (longer)
+  "MARYJANE", "CHRONIC", "STICKICKY", "HOTBOXING", "CANNABINOID", "CONCENTRATE", "DISPENSARY",
+  "CULTIVAR", "LANDRACE", "PHOTOPERIOD", "AUTOFLOWER", "DECARB", "INFUSED", "TINCTURE",
   // 6-11 letter words (crypto)
   "ETHEREUM", "BITCOIN", "SOLANA", "POLYGON", "AVALANCHE", "ARBITRUM", "OPTIMISM",
   "STAKING", "FARMING", "LIQUIDITY", "GOVERNANCE", "METAVERSE", "PROTOCOL", "VALIDATOR",
