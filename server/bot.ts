@@ -286,7 +286,9 @@ const DEALER_PHRASES = [
   "fast delivery", "quick delivery", "express delivery", "overnight delivery",
   "shipping now", "ships fast", "discreet shipping", "stealth shipping",
   "just sold", "sold out", "back in stock", "restocked", "fresh stock",
-  "hit my dm", "slide in dm", "text for info", "message for prices"
+  "hit my dm", "slide in dm", "text for info", "message for prices",
+  "pm for menu", "pm for prices", "pm for deals", "pm for info",
+  "hit my pm", "slide in pm", "send pm", "pm me for"
 ];
 
 // Dealer emojis - these combined with dealer context = instant ban
@@ -341,7 +343,7 @@ function detectDealerSignals(text: string): { detected: boolean; matched: string
   
   // Single dealer emoji + suspicious text = ban
   if (emojiCount >= 1) {
-    const suspiciousTerms = ["dm", "hmu", "hit me", "message me", "active", "ready", "available", "menu", "delivery", "shipping", "orders"];
+    const suspiciousTerms = ["dm", "pm", "hmu", "hit me", "message me", "text me", "active", "ready", "available", "menu", "delivery", "shipping", "orders", "slide in", "send me"];
     const hasSuspiciousText = suspiciousTerms.some(term => lowerText.includes(term));
     if (hasSuspiciousText) {
       matched.push(`emoji+context: ${foundEmojis.join(' ')}`);
