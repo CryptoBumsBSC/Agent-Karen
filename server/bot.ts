@@ -282,7 +282,11 @@ const DEALER_PHRASES = [
   "fully active", "active now", "ready to serve", "menu available", "check menu",
   "fast drop", "dropgang", "drop gang", "next day delivery", "fast shipping",
   "same day delivery", "no feds", "no fed", "vouched by many", "highly vouched",
-  "taking orders", "dm for menu", "dm for prices", "hmu for deals"
+  "taking orders", "dm for menu", "dm for prices", "hmu for deals",
+  "fast delivery", "quick delivery", "express delivery", "overnight delivery",
+  "shipping now", "ships fast", "discreet shipping", "stealth shipping",
+  "just sold", "sold out", "back in stock", "restocked", "fresh stock",
+  "hit my dm", "slide in dm", "text for info", "message for prices"
 ];
 
 // Dealer emojis - these combined with dealer context = instant ban
