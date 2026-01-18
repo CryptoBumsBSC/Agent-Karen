@@ -7633,11 +7633,16 @@ Ask me anything! I'm literally always here.`
             }, { until_date: muteUntil });
             
             const firstName = ctx.from.first_name || "User";
-            await ctx.reply(`SPAM DETECTED!\n\n${firstName} has been muted for ${formatDuration(muteSeconds)}.\n\nThis is offense #${offenseCount}.`);
+            const uname = ctx.from.username;
+            await ctx.reply(
+              `${uname ? `@${uname}` : firstName} has been MUTED for ${formatDuration(muteSeconds)}.\n\n` +
+              `REASON: Spam detected (flooding/duplicate messages).\n\n` +
+              `This is offense #${offenseCount}. You can read but not post.`
+            );
             
             // Notify admins after 2nd offense
             if (notifyAdmin) {
-              await ctx.reply(`ATTENTION ADMINS: ${firstName} has ${offenseCount} spam offenses. This user may need a permanent ban.`);
+              await ctx.reply(`Admins: ${uname ? `@${uname}` : firstName} has ${offenseCount} spam offenses and may need a permanent ban.`);
             }
           } catch (error) {
             console.log("Couldn't auto-moderate spam - check bot permissions");
@@ -7745,13 +7750,17 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
             await incrementModStat(chatIdStr, 'messagesBlocked');
             
             if (warningCount === 1) {
-              await ctx.reply(`That language isn't welcome here. We're building a positive community for everyone.
-
-This is your first warning. Please review our community guidelines and keep it respectful!`);
+              await ctx.reply(
+                `${username ? `@${username}` : "Hey"}, your message was removed.\n\n` +
+                `REASON: Inappropriate language detected.\n\n` +
+                `This is WARNING #1. We're building a positive community - keep it respectful!`
+              );
             } else if (warningCount === 2) {
-              await ctx.reply(`Second warning for inappropriate language. One more and you'll be muted.
-
-We want everyone to feel safe here. Let's keep it friendly!`);
+              await ctx.reply(
+                `${username ? `@${username}` : "Hey"}, your message was removed.\n\n` +
+                `REASON: Inappropriate language (second offense).\n\n` +
+                `This is WARNING #2. One more = 1 hour mute. Keep it friendly!`
+              );
             } else {
               // 3rd+ offense: mute for 1 hour
               const muteUntil = Math.floor(Date.now() / 1000) + 3600;
@@ -7767,9 +7776,11 @@ We want everyone to feel safe here. Let's keep it friendly!`);
                 can_send_other_messages: false,
                 can_add_web_page_previews: false
               }, { until_date: muteUntil });
-              await ctx.reply(`You've been muted for 1 hour due to repeated violations of community guidelines.
-
-Admins have been notified. Please reflect on the kind of community you want to be part of.`);
+              await ctx.reply(
+                `${username ? `@${username}` : "User"} has been MUTED for 1 hour.\n\n` +
+                `REASON: Third offense - inappropriate language.\n\n` +
+                `You can read messages but cannot post. Admins have been notified.`
+              );
               await flagForModReview(ctx, userIdStr, username || "", "[Hate speech - content hidden]", 90, "Repeated hate speech violations");
             }
           } catch (e) {
@@ -7783,9 +7794,12 @@ Admins have been notified. Please reflect on the kind of community you want to b
           try {
             await ctx.api.deleteMessage(chatId, ctx.message.message_id);
             await incrementModStat(chatIdStr, 'messagesBlocked');
-            await ctx.reply(`Hey, we're a cannabis culture community and we love talking about the plant - but we can't allow buying/selling discussions, especially for other substances.
-
-This keeps our community safe and legal. Feel free to discuss cannabis culture, strains, and experiences though!`);
+            await ctx.reply(
+              `${username ? `@${username}` : "Hey"}, your message was removed.\n\n` +
+              `REASON: Drug trafficking language detected.\n\n` +
+              `We're a cannabis culture community but can't allow buying/selling discussions. ` +
+              `Keep it to culture, strains, and experiences!`
+            );
             await flagForModReview(ctx, userIdStr, username || "", text, 75, "Drug trafficking language detected");
           } catch (e) {
             console.log("Couldn't delete trafficking message");
@@ -7903,16 +7917,18 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
               // Log the violation
               await logViolation(chatIdStr, userIdStr, username || "", "hard_drug_message", text, `Matched: ${hardDrugCheck.matched.join(", ")}`, warningCount === 1 ? "warn" : warningCount === 2 ? "warn" : "mute");
               
+              const matchedDrugs = hardDrugCheck.matched.join(", ");
               if (warningCount === 1) {
                 await ctx.reply(
-                  `Hey ${username ? `@${username}` : "friend"}, just a heads up - we're a cannabis culture community here.\n\n` +
-                  `Discussing hard drugs isn't something we allow. ` +
-                  `This is your first warning. Let's keep it green!`
+                  `${username ? `@${username}` : "Hey"}, your message was removed.\n\n` +
+                  `REASON: Hard drug content detected ("${matchedDrugs}").\n\n` +
+                  `This is WARNING #1. We're a cannabis culture community - hard drugs aren't allowed. Keep it green!`
                 );
               } else if (warningCount === 2) {
                 await ctx.reply(
-                  `${username ? `@${username}` : "Friend"}, this is your second warning about hard drug content.\n\n` +
-                  `One more and you'll be muted. We take this seriously for everyone's safety.`
+                  `${username ? `@${username}` : "Hey"}, your message was removed.\n\n` +
+                  `REASON: Hard drug content (second offense - "${matchedDrugs}").\n\n` +
+                  `This is WARNING #2. One more = 1 hour mute. We take this seriously for safety.`
                 );
               } else {
                 // Mute on 3rd offense (1 hour)
@@ -7921,8 +7937,9 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
                     can_send_messages: false,
                   }, { until_date: Math.floor(Date.now() / 1000) + 3600 });
                   await ctx.reply(
-                    `${username ? `@${username}` : "User"} has been muted for 1 hour after repeated hard drug content violations.\n\n` +
-                    `This is a cannabis culture community - not a place for other substances.`
+                    `${username ? `@${username}` : "User"} has been MUTED for 1 hour.\n\n` +
+                    `REASON: Third offense - hard drug content ("${matchedDrugs}").\n\n` +
+                    `Cannabis culture only. You can read but not post.`
                   );
                   hateSpeechWarnings.delete(warningKey);
                 } catch (muteErr) {
