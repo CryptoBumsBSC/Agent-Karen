@@ -346,6 +346,163 @@ const CRYPTO_ADDRESS_REGEX = /(0x[a-fA-F0-9]{40}|bc1[a-zA-HJ-NP-Z0-9]{25,39}|eth
 
 // === ADVANCED MODERATION SYSTEM ===
 
+// === RAID DETECTION ===
+interface JoinEvent {
+  userId: string;
+  timestamp: number;
+}
+
+// Track recent joins per chat for raid detection
+const recentJoins = new Map<string, JoinEvent[]>();
+
+// Lockdown mode per chat
+const lockdownMode = new Map<string, { active: boolean; until: number }>();
+
+// Raid detection settings
+const RAID_THRESHOLD = 5; // Number of joins to trigger raid alert
+const RAID_WINDOW = 120000; // 2 minutes in milliseconds
+const LOCKDOWN_DURATION = 300000; // 5 minutes lockdown
+
+// Check if raid is happening and handle lockdown
+function trackJoinForRaid(chatId: string, userId: string): { isRaid: boolean; joinCount: number } {
+  const now = Date.now();
+  
+  // Get or create join history for this chat
+  if (!recentJoins.has(chatId)) {
+    recentJoins.set(chatId, []);
+  }
+  
+  const joins = recentJoins.get(chatId)!;
+  
+  // Add this join
+  joins.push({ userId, timestamp: now });
+  
+  // Clean up old joins (older than window)
+  const cutoff = now - RAID_WINDOW;
+  const recentOnly = joins.filter(j => j.timestamp > cutoff);
+  recentJoins.set(chatId, recentOnly);
+  
+  // Check if we've hit threshold
+  const isRaid = recentOnly.length >= RAID_THRESHOLD;
+  
+  if (isRaid && !isInLockdown(chatId)) {
+    // Activate lockdown
+    lockdownMode.set(chatId, { active: true, until: now + LOCKDOWN_DURATION });
+  }
+  
+  return { isRaid, joinCount: recentOnly.length };
+}
+
+function isInLockdown(chatId: string): boolean {
+  const lock = lockdownMode.get(chatId);
+  if (!lock) return false;
+  
+  if (Date.now() > lock.until) {
+    // Lockdown expired
+    lockdownMode.delete(chatId);
+    return false;
+  }
+  
+  return lock.active;
+}
+
+function endLockdown(chatId: string): boolean {
+  if (lockdownMode.has(chatId)) {
+    lockdownMode.delete(chatId);
+    return true;
+  }
+  return false;
+}
+
+// === ADMIN IMPERSONATION DETECTION ===
+
+// Cache admin usernames per chat (refreshed on join events)
+const adminCache = new Map<string, { usernames: string[]; lastUpdated: number }>();
+const ADMIN_CACHE_TTL = 300000; // 5 minutes
+
+// Levenshtein distance for similarity matching
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+  
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+  
+  return matrix[b.length][a.length];
+}
+
+// Check if username is similar to any admin (impersonation attempt)
+function checkAdminImpersonation(newUsername: string, adminUsernames: string[]): { isImpersonation: boolean; similarTo: string | null; similarity: number } {
+  if (!newUsername || adminUsernames.length === 0) {
+    return { isImpersonation: false, similarTo: null, similarity: 0 };
+  }
+  
+  const normalizedNew = newUsername.toLowerCase().replace(/[_\-\.0-9]/g, '');
+  
+  for (const admin of adminUsernames) {
+    if (!admin) continue;
+    
+    const normalizedAdmin = admin.toLowerCase().replace(/[_\-\.0-9]/g, '');
+    
+    // Skip if they're exactly the same (could be the admin themselves)
+    if (normalizedNew === normalizedAdmin) continue;
+    
+    // Skip very short usernames
+    if (normalizedAdmin.length < 3 || normalizedNew.length < 3) continue;
+    
+    const distance = levenshteinDistance(normalizedNew, normalizedAdmin);
+    const maxLen = Math.max(normalizedNew.length, normalizedAdmin.length);
+    const similarity = 1 - (distance / maxLen);
+    
+    // High similarity (> 70%) and not exact match = suspicious
+    if (similarity > 0.7 && similarity < 1.0) {
+      return { isImpersonation: true, similarTo: admin, similarity };
+    }
+    
+    // Also check for common impersonation patterns
+    // Like adding underscores, numbers, or I/l/1 swaps
+    const commonSwaps = [
+      { pattern: /l/g, replace: '1' },
+      { pattern: /i/g, replace: '1' },
+      { pattern: /o/g, replace: '0' },
+      { pattern: /e/g, replace: '3' },
+      { pattern: /a/g, replace: '4' },
+      { pattern: /s/g, replace: '5' },
+    ];
+    
+    let swappedNew = normalizedNew;
+    let swappedAdmin = normalizedAdmin;
+    
+    for (const swap of commonSwaps) {
+      swappedNew = swappedNew.replace(swap.pattern, swap.replace);
+      swappedAdmin = swappedAdmin.replace(swap.pattern, swap.replace);
+    }
+    
+    if (swappedNew === swappedAdmin) {
+      return { isImpersonation: true, similarTo: admin, similarity: 0.95 };
+    }
+  }
+  
+  return { isImpersonation: false, similarTo: null, similarity: 0 };
+}
+
 // Domain blocklist for known scam/phishing sites
 const BLOCKED_DOMAINS = [
   "bit.ly", "tinyurl.com", // URL shorteners often used for scams (careful with allowlist)
@@ -2203,10 +2360,6 @@ async function recordProjectQuestion(username: string): Promise<void> {
 }
 
 // === NEW USER MESSAGE TRACKING & EDIT DETECTION ===
-// In-memory cache for fast raid detection (join timestamps)
-const recentJoins: Map<string, number[]> = new Map(); // chatId -> array of join timestamps
-const RAID_THRESHOLD = 10; // 10+ joins in 1 minute triggers raid mode
-const RAID_WINDOW_MS = 60000; // 1 minute
 
 // Track new user message for edit detection
 async function trackNewUserMessage(
@@ -2314,24 +2467,7 @@ async function isNewUser(chatId: string, userId: string): Promise<boolean> {
   }
 }
 
-// Detect raid by tracking join rate
-function detectRaid(chatId: string): boolean {
-  const now = Date.now();
-  const joins = recentJoins.get(chatId) || [];
-  
-  // Clean old joins outside window
-  const recentJoinsFiltered = joins.filter(t => now - t < RAID_WINDOW_MS);
-  recentJoins.set(chatId, recentJoinsFiltered);
-  
-  return recentJoinsFiltered.length >= RAID_THRESHOLD;
-}
-
-// Record a join for raid detection
-function recordJoin(chatId: string): void {
-  const joins = recentJoins.get(chatId) || [];
-  joins.push(Date.now());
-  recentJoins.set(chatId, joins);
-}
+// Detect raid - uses the trackJoinForRaid function defined earlier
 
 // Check for suspicious username patterns
 function hasSuspiciousUsername(username: string | undefined): boolean {
@@ -4525,6 +4661,100 @@ Stay safe, fam!`;
 _Karen gets smarter with every conversation! Rate my responses with the +1/-1 buttons to help me learn faster!_`, 
       { parse_mode: "Markdown" }
     );
+  });
+
+  // === RAID LOCKDOWN COMMANDS ===
+  
+  // /unlock - Admin command to end raid lockdown early
+  bot.command("unlock", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const chatId = ctx.chat.id;
+    const chatIdStr = chatId.toString();
+    
+    // Check if user is admin
+    try {
+      const member = await ctx.api.getChatMember(chatId, ctx.from.id);
+      const isAdmin = member.status === "administrator" || member.status === "creator";
+      
+      if (!isAdmin) {
+        await ctx.reply("Only admins can end lockdown mode.");
+        return;
+      }
+      
+      if (isInLockdown(chatIdStr)) {
+        endLockdown(chatIdStr);
+        await ctx.reply(
+          `Lockdown Mode Ended\n\n` +
+          `Chat has been unlocked by @${ctx.from.username || ctx.from.first_name}.\n` +
+          `Normal operations resumed.`
+        );
+      } else {
+        await ctx.reply("Chat is not currently in lockdown mode.");
+      }
+    } catch (e) {
+      console.log("Error checking admin status:", e);
+      await ctx.reply("Couldn't verify admin status. Try again!");
+    }
+  });
+  
+  // /lockdown - Admin command to manually trigger lockdown
+  bot.command("lockdown", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const chatId = ctx.chat.id;
+    const chatIdStr = chatId.toString();
+    
+    // Check if user is admin
+    try {
+      const member = await ctx.api.getChatMember(chatId, ctx.from.id);
+      const isAdmin = member.status === "administrator" || member.status === "creator";
+      
+      if (!isAdmin) {
+        await ctx.reply("Only admins can trigger lockdown mode.");
+        return;
+      }
+      
+      if (isInLockdown(chatIdStr)) {
+        await ctx.reply("Chat is already in lockdown mode. Use /unlock to end it.");
+      } else {
+        lockdownMode.set(chatIdStr, { active: true, until: Date.now() + LOCKDOWN_DURATION });
+        await ctx.reply(
+          `LOCKDOWN MODE ACTIVATED\n\n` +
+          `Triggered manually by @${ctx.from.username || ctx.from.first_name}.\n\n` +
+          `New users will be restricted for 5 minutes.\n` +
+          `Use /unlock to end early.`
+        );
+      }
+    } catch (e) {
+      console.log("Error triggering lockdown:", e);
+      await ctx.reply("Couldn't activate lockdown. Try again!");
+    }
+  });
+  
+  // /raidstatus - Check current raid detection status
+  bot.command("raidstatus", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    
+    const chatIdStr = ctx.chat.id.toString();
+    const joins = recentJoins.get(chatIdStr) || [];
+    const now = Date.now();
+    const recentCount = joins.filter(j => now - j.timestamp < RAID_WINDOW).length;
+    const inLockdown = isInLockdown(chatIdStr);
+    const lockInfo = lockdownMode.get(chatIdStr);
+    
+    let status = `*Raid Detection Status*\n\n`;
+    status += `Recent joins (last 2 min): ${recentCount}\n`;
+    status += `Raid threshold: ${RAID_THRESHOLD}\n`;
+    status += `Lockdown: ${inLockdown ? 'ACTIVE' : 'Off'}\n`;
+    
+    if (inLockdown && lockInfo) {
+      const remainingMs = lockInfo.until - now;
+      const remainingMin = Math.max(0, Math.ceil(remainingMs / 60000));
+      status += `Lockdown ends in: ${remainingMin} min\n`;
+    }
+    
+    await ctx.reply(status, { parse_mode: "Markdown" });
   });
 
   // === TRUST SYSTEM COMMANDS ===
@@ -7130,6 +7360,147 @@ Check the leaderboard with /refboard`;
       const chatId = ctx.chat.id;
       const chatIdStr = chatId.toString();
       const newMemberId = member.id.toString();
+      
+      // === RAID DETECTION ===
+      const raidCheck = trackJoinForRaid(chatIdStr, newMemberId);
+      if (raidCheck.isRaid) {
+        // First time hitting raid threshold - alert admins
+        if (raidCheck.joinCount === RAID_THRESHOLD) {
+          try {
+            const admins = await ctx.api.getChatAdministrators(chatId);
+            const adminMentions = admins
+              .filter(a => !a.user.is_bot)
+              .slice(0, 3)
+              .map(a => a.user.username ? `@${a.user.username}` : a.user.first_name)
+              .join(", ");
+            
+            await ctx.reply(
+              `RAID ALERT ${adminMentions}\n\n` +
+              `${raidCheck.joinCount} users joined in the last 2 minutes!\n\n` +
+              `LOCKDOWN MODE ACTIVATED - New users are restricted for 5 minutes.\n` +
+              `Use /unlock to end lockdown early.`,
+              { parse_mode: "Markdown" }
+            );
+          } catch (e) {
+            console.log("Couldn't send raid alert:", e);
+          }
+        }
+        
+        // ENFORCE LOCKDOWN - Restrict new users during raid
+        try {
+          const lockInfo = lockdownMode.get(chatIdStr);
+          if (lockInfo) {
+            // Restrict user until lockdown ends
+            const untilDate = Math.floor(lockInfo.until / 1000);
+            await ctx.api.restrictChatMember(chatId, member.id, {
+              can_send_messages: false,
+              can_send_audios: false,
+              can_send_documents: false,
+              can_send_photos: false,
+              can_send_videos: false,
+              can_send_video_notes: false,
+              can_send_voice_notes: false,
+              can_send_polls: false,
+              can_send_other_messages: false,
+              can_add_web_page_previews: false
+            }, { until_date: untilDate });
+            
+            // Silent - don't spam during raids
+            console.log(`Restricted user ${username || newMemberId} during raid lockdown`);
+          }
+        } catch (e) {
+          console.log("Couldn't restrict user during lockdown:", e);
+        }
+      }
+      
+      // Check if currently in lockdown (even if this join didn't trigger it)
+      if (isInLockdown(chatIdStr)) {
+        try {
+          const lockInfo = lockdownMode.get(chatIdStr);
+          if (lockInfo) {
+            const untilDate = Math.floor(lockInfo.until / 1000);
+            await ctx.api.restrictChatMember(chatId, member.id, {
+              can_send_messages: false,
+              can_send_audios: false,
+              can_send_documents: false,
+              can_send_photos: false,
+              can_send_videos: false,
+              can_send_video_notes: false,
+              can_send_voice_notes: false,
+              can_send_polls: false,
+              can_send_other_messages: false,
+              can_add_web_page_previews: false
+            }, { until_date: untilDate });
+          }
+        } catch (e) {
+          console.log("Couldn't restrict user during active lockdown:", e);
+        }
+      }
+      
+      // === ADMIN IMPERSONATION DETECTION ===
+      if (username) {
+        try {
+          // Get or refresh admin cache
+          const cached = adminCache.get(chatIdStr);
+          let adminUsernames: string[] = [];
+          
+          if (!cached || Date.now() - cached.lastUpdated > ADMIN_CACHE_TTL) {
+            const admins = await ctx.api.getChatAdministrators(chatId);
+            adminUsernames = admins
+              .filter(a => !a.user.is_bot && a.user.username)
+              .map(a => a.user.username!);
+            adminCache.set(chatIdStr, { usernames: adminUsernames, lastUpdated: Date.now() });
+          } else {
+            adminUsernames = cached.usernames;
+          }
+          
+          const impersonationCheck = checkAdminImpersonation(username, adminUsernames);
+          
+          if (impersonationCheck.isImpersonation) {
+            // Alert admins about potential impersonator
+            const adminMentions = adminUsernames
+              .slice(0, 3)
+              .map(u => `@${u}`)
+              .join(", ");
+            
+            await ctx.reply(
+              `IMPERSONATION ALERT ${adminMentions}\n\n` +
+              `New user @${username} has a username VERY similar to admin @${impersonationCheck.similarTo}\n\n` +
+              `Similarity: ${Math.round(impersonationCheck.similarity * 100)}%\n\n` +
+              `This could be a scammer impersonating an admin. Please verify!`,
+              { parse_mode: "Markdown" }
+            );
+            
+            await logViolation(chatIdStr, newMemberId, username, "impersonation", username, `Similar to @${impersonationCheck.similarTo}`, "warn");
+          }
+        } catch (e) {
+          console.log("Couldn't check impersonation:", e);
+        }
+      }
+      
+      // === NEW ACCOUNT WARNING ===
+      // Track first-seen time in community profile for new user monitoring
+      try {
+        const existingProfile = await db.select()
+          .from(communityProfiles)
+          .where(and(
+            eq(communityProfiles.telegramUserId, newMemberId),
+            eq(communityProfiles.chatId, chatIdStr)
+          ))
+          .limit(1);
+        
+        if (existingProfile.length === 0) {
+          // Brand new user - create profile with firstSeen timestamp (createdAt is auto)
+          await db.insert(communityProfiles).values({
+            telegramUserId: newMemberId,
+            username: username || null,
+            firstName: fullName || name,
+            chatId: chatIdStr
+          }).onConflictDoNothing();
+        }
+      } catch (e) {
+        console.log("Error tracking new user:", e);
+      }
 
       // Check for contract addresses in username or name
       // Ethereum/Base pattern: 0x followed by 40 hex chars

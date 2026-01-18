@@ -83,7 +83,12 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Dangerous File Blocking**: Blocks executables (.exe, .bat, .scr, .apk, etc.) with admin alerts.
     - **Contract Address Blocking**: Auto-kicks users with crypto contract addresses in their names.
     - **Role & Permission System**: Granular control over user actions and moderation commands.
-    - **Anti-Raid Mode**: Stricter moderation settings for raid scenarios.
+    - **Anti-Raid Mode**: Automatic raid detection with lockdown:
+        - Tracks join rate per chat (5+ joins in 2 minutes = raid)
+        - Auto-activates lockdown mode restricting new users for 5 minutes
+        - Admin commands: `/unlock` (end early), `/lockdown` (manual), `/raidstatus`
+    - **Admin Impersonation Detection**: Levenshtein similarity matching catches usernames similar to admins (> 70% match), including l33t speak variants (l/1, o/0, etc.)
+    - **New User Tracking**: First-seen timestamps stored for all new members.
     - **Community Analytics**: Tracks various moderation statistics.
     - **Safety-First Explainers**: Karen explains why messages are deleted in friendly, educational language.
 - **Trust System**:
