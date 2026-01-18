@@ -7431,6 +7431,22 @@ Check the leaderboard with /refboard`;
               can_send_other_messages: false,
               can_add_web_page_previews: false
             }, { until_date: untilDate });
+            
+            // Public warning (only every 5th user to avoid spam during raid)
+            const joins = recentJoins.get(chatIdStr) || [];
+            if (joins.length % 5 === 0) {
+              const remainingMs = lockInfo.until - Date.now();
+              const remainingMin = Math.max(1, Math.ceil(remainingMs / 60000));
+              await ctx.reply(
+                `RAID LOCKDOWN WARNING\n\n` +
+                `User: ${username ? `@${username}` : fullName}\n` +
+                `REASON: Chat is in lockdown mode due to suspected raid\n\n` +
+                `ACTION: Temporarily restricted for ${remainingMin} minute${remainingMin > 1 ? 's' : ''}\n` +
+                `You'll be able to chat once lockdown ends.`
+              );
+            }
+            
+            await logViolation(chatIdStr, newMemberId, username || fullName, "raid_lockdown", "Joined during raid", "Restricted during lockdown", "restrict");
           }
         } catch (e) {
           console.log("Couldn't restrict user during active lockdown:", e);
@@ -7457,21 +7473,45 @@ Check the leaderboard with /refboard`;
           const impersonationCheck = checkAdminImpersonation(username, adminUsernames);
           
           if (impersonationCheck.isImpersonation) {
-            // Alert admins about potential impersonator
+            // Add offense to mute system (progressive punishment)
+            const { muteSeconds, offenseCount } = addOffense(chatId, member.id);
+            
+            // Mute the impersonator
+            const untilDate = Math.floor(Date.now() / 1000) + muteSeconds;
+            await ctx.api.restrictChatMember(chatId, member.id, {
+              can_send_messages: false,
+              can_send_audios: false,
+              can_send_documents: false,
+              can_send_photos: false,
+              can_send_videos: false,
+              can_send_video_notes: false,
+              can_send_voice_notes: false,
+              can_send_polls: false,
+              can_send_other_messages: false,
+              can_add_web_page_previews: false
+            }, { until_date: untilDate });
+            
+            // Alert admins with public warning
             const adminMentions = adminUsernames
               .slice(0, 3)
               .map(u => `@${u}`)
               .join(", ");
             
+            const muteDuration = muteSeconds >= 3600 
+              ? `${Math.floor(muteSeconds / 3600)} hour${muteSeconds >= 7200 ? 's' : ''}`
+              : `${Math.floor(muteSeconds / 60)} minutes`;
+            
             await ctx.reply(
-              `IMPERSONATION ALERT ${adminMentions}\n\n` +
-              `New user @${username} has a username VERY similar to admin @${impersonationCheck.similarTo}\n\n` +
-              `Similarity: ${Math.round(impersonationCheck.similarity * 100)}%\n\n` +
-              `This could be a scammer impersonating an admin. Please verify!`,
+              `IMPERSONATION WARNING #${offenseCount} ${adminMentions}\n\n` +
+              `User: @${username}\n` +
+              `REASON: Username similar to admin @${impersonationCheck.similarTo} (${Math.round(impersonationCheck.similarity * 100)}% match)\n\n` +
+              `ACTION: Muted for ${muteDuration}\n\n` +
+              `This could be a scammer impersonating an admin!`,
               { parse_mode: "Markdown" }
             );
             
-            await logViolation(chatIdStr, newMemberId, username, "impersonation", username, `Similar to @${impersonationCheck.similarTo}`, "warn");
+            await logViolation(chatIdStr, newMemberId, username, "impersonation", username, `Similar to @${impersonationCheck.similarTo}`, "mute");
+            await incrementModStat(chatIdStr, 'scamsBlocked');
           }
         } catch (e) {
           console.log("Couldn't check impersonation:", e);

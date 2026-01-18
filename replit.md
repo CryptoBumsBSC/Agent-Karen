@@ -87,7 +87,7 @@ The backend operates on Node.js with Express for health checks and API routes. T
         - Tracks join rate per chat (5+ joins in 2 minutes = raid)
         - Auto-activates lockdown mode restricting new users for 5 minutes
         - Admin commands: `/unlock` (end early), `/lockdown` (manual), `/raidstatus`
-    - **Admin Impersonation Detection**: Levenshtein similarity matching catches usernames similar to admins (> 70% match), including l33t speak variants (l/1, o/0, etc.)
+    - **Admin Impersonation Detection**: Levenshtein similarity matching catches usernames similar to admins (> 70% match), including l33t speak variants (l/1, o/0, etc.). Integrates with mute system for progressive punishment with public warnings.
     - **New User Tracking**: First-seen timestamps stored for all new members.
     - **Community Analytics**: Tracks various moderation statistics.
     - **Safety-First Explainers**: Karen explains why messages are deleted in friendly, educational language.
