@@ -35,6 +35,14 @@ The backend operates on Node.js with Express for health checks and API routes. T
     - **Seed Storm Game LIVE**: Game playable at t.me/SeedStormBot/SeedStorm. Telegram Stars integration for boosts and prizes. `/seedstorm` command for full info. Keyword triggers for "seed storm" mentions. Excited promo messages with live link.
     - **NFT Status**: Coming soon (not launched yet). Bot responds with teaser messages when asked about minting.
     - **User Interaction Memory**: Tracks last 7 user requests, detects interests from repeated topics, and provides returning user context with natural references ("Last time you asked about...").
+    - **Karen Personality System**: Dynamic personality features that add character depth:
+        - Mood-based responses: Grumpier mornings (5-9am), caffeinated (9am-12pm), hungry (12-2pm), peak performance (2-5pm), mellow evenings (5-9pm), sleepy nights
+        - Catchphrases: 15 signature Karen lines randomly dropped ("Did I stutter?", "Bless your heart", "That's above my pay grade")
+        - Running gags: Ex-husband Gary references, "book club" (wine night), HOA meeting complaints
+        - Reaction moments: Sassy responses when spam is caught ("Another one bites the dust")
+        - Milestone celebrations: 100th, 500th, 1000th message achievements celebrated
+        - Season/holiday awareness: 4/20, Halloween, Christmas, Thanksgiving themed responses
+        - Karen Mode intensifier: Responds to "okay karen" with doubled-down sass
     - **Bot Learning System**: Karen learns from community feedback to improve responses over time. Features include:
         - Pattern recognition using keyword extraction and 60% similarity matching
         - Thumbs up/down feedback buttons on AI responses

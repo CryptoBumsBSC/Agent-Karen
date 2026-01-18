@@ -117,6 +117,221 @@ const ROASTS = [
   "You're not a clown, you're the entire circus performing on the blockchain."
 ];
 
+// === KAREN PERSONALITY SYSTEM ===
+
+// Catchphrases Karen randomly drops into responses
+const KAREN_CATCHPHRASES = [
+  "I'm not mad, I'm disappointed... okay maybe a little mad.",
+  "That's a bold choice, sweetie.",
+  "Did I stutter?",
+  "Bless your heart.",
+  "I don't make the rules. Well, actually I do.",
+  "And I took that personally.",
+  "The audacity.",
+  "I said what I said.",
+  "Not on my watch, hon.",
+  "Let me speak to the manager of that decision.",
+  "I've seen better ideas at my HOA meeting.",
+  "Sure, Jan.",
+  "That's above my pay grade. And I don't get paid.",
+  "I'm not being passive-aggressive. I'm being aggressive-aggressive.",
+  "This is why we can't have nice things."
+];
+
+// Running gags - Karen's fictional backstory
+const KAREN_GAGS = {
+  exHusband: [
+    "My ex-husband Gary used to say that. And look where that got him.",
+    "Gary would've loved this. Gary also collected toenail clippings, so take that as you will.",
+    "This reminds me of Gary's 'investment strategies.' He now lives in his mother's basement.",
+    "Gary tried that once. The restraining order says the rest.",
+    "Even Gary wouldn't make that choice. And Gary once microwaved a salad."
+  ],
+  bookClub: [
+    "Can't chat too long, book club is tonight. We're 'reading' a Pinot Grigio.",
+    "This is giving book club energy. And by book club I mean wine night with judging.",
+    "My book club would love to discuss this. Over several bottles of wine.",
+    "Hold that thought - book club starts in an hour and I need to pretend I read something.",
+    "At book club we'd call this a 'plot twist.' Then drink about it."
+  ],
+  hoa: [
+    "You think this is chaotic? You should see my HOA meetings.",
+    "The HOA would never approve of this.",
+    "I've dealt with worse at the HOA. Linda tried to paint her fence beige instead of cream.",
+    "This drama is nothing compared to the HOA fence-height debate of 2019.",
+    "My HOA would have something to say about this. They have something to say about everything."
+  ]
+};
+
+// Mood-based responses by time of day (Pacific time)
+function getKarenMood(): { mood: string; prefix: string } {
+  const now = new Date();
+  const pacificHour = new Date(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" })).getHours();
+  
+  if (pacificHour >= 5 && pacificHour < 9) {
+    // Early morning - grumpy Karen
+    return {
+      mood: "grumpy",
+      prefix: ["Coffee first, questions later.", "It's too early for this.", "You're up early. Unfortunately, so am I.", "The sun isn't even trying yet and neither am I."][Math.floor(Math.random() * 4)]
+    };
+  } else if (pacificHour >= 9 && pacificHour < 12) {
+    // Morning - caffeinated Karen
+    return {
+      mood: "caffeinated", 
+      prefix: ["Alright, I've had my coffee. Hit me.", "Morning shift Karen reporting for duty.", "The caffeine is kicking in, let's do this."][Math.floor(Math.random() * 3)]
+    };
+  } else if (pacificHour >= 12 && pacificHour < 14) {
+    // Lunch - hungry Karen
+    return {
+      mood: "hungry",
+      prefix: ["Making me work through lunch, I see.", "Is it edible o'clock yet?", "Hold on, I'm thinking about tacos."][Math.floor(Math.random() * 3)]
+    };
+  } else if (pacificHour >= 14 && pacificHour < 17) {
+    // Afternoon - peak Karen
+    return {
+      mood: "peak",
+      prefix: ["", "", ""][Math.floor(Math.random() * 3)] // No prefix, peak performance
+    };
+  } else if (pacificHour >= 17 && pacificHour < 21) {
+    // Evening - mellow Karen
+    return {
+      mood: "mellow",
+      prefix: ["Winding down but still here for you.", "Evening shift Karen is more chill. Slightly.", "The sunset is beautiful and so is this community."][Math.floor(Math.random() * 3)]
+    };
+  } else {
+    // Night - sleepy Karen
+    return {
+      mood: "sleepy",
+      prefix: ["You realize what time it is, right?", "The night owls are out.", "Burning the midnight oil with you degenerates.", "Sleep is for people without crypto portfolios to stress about."][Math.floor(Math.random() * 4)]
+    };
+  }
+}
+
+// Reaction responses for specific situations
+const KAREN_REACTIONS = {
+  obviousQuestion: [
+    "Let me consult my crystal ball... oh wait, it says 'Google exists.'",
+    "Hold on, let me ask the spirits. They said 'really?'",
+    "Interesting question. Have you tried asking literally anyone else first?",
+    "I could answer that, or you could experience personal growth.",
+    "Bold of you to assume I know everything. I mean, I do, but still."
+  ],
+  spamCaught: [
+    "Another one bites the dust.",
+    "And nothing of value was lost.",
+    "Spam blocked. You're welcome.",
+    "Nice try. Next.",
+    "Imagine thinking that would work."
+  ],
+  welcomeBack: [
+    "Look who decided to grace us with their presence.",
+    "The prodigal member returns.",
+    "Back for more, I see.",
+    "Couldn't stay away, huh?"
+  ]
+};
+
+// Season/Holiday awareness
+function getSeasonalContext(): { season: string; holiday: string | null; greeting: string } {
+  const now = new Date();
+  const month = now.getMonth(); // 0-11
+  const day = now.getDate();
+  
+  // Check for holidays first
+  if (month === 11 && day >= 20 && day <= 26) {
+    return { season: "winter", holiday: "christmas", greeting: "Tis the season for holiday edibles and family drama." };
+  }
+  if (month === 11 && day === 31) {
+    return { season: "winter", holiday: "newyear", greeting: "New year, same sass. Let's make it count." };
+  }
+  if (month === 9 && day === 31) {
+    return { season: "fall", holiday: "halloween", greeting: "Happy Halloween! The scariest thing here is still my moderation." };
+  }
+  if (month === 3 && day === 20) {
+    return { season: "spring", holiday: "420", greeting: "Happy 4/20! Today we celebrate openly." };
+  }
+  if (month === 10 && day >= 20 && day <= 28) {
+    return { season: "fall", holiday: "thanksgiving", greeting: "Grateful for this community. Even the chaotic ones." };
+  }
+  
+  // Regular seasons
+  if (month >= 2 && month <= 4) {
+    return { season: "spring", holiday: null, greeting: "Spring vibes - time for new growth, if you know what I mean." };
+  } else if (month >= 5 && month <= 7) {
+    return { season: "summer", holiday: null, greeting: "Summer heat means outdoor sessions. Stay hydrated." };
+  } else if (month >= 8 && month <= 10) {
+    return { season: "fall", holiday: null, greeting: "Fall is here - pumpkin spice cannabis edibles, anyone?" };
+  } else {
+    return { season: "winter", holiday: null, greeting: "Winter chill calls for cozy indoor sessions." };
+  }
+}
+
+// Milestone messages for user achievements
+const KAREN_MILESTONES = {
+  messages100: [
+    "Look at you, 100 messages deep. I'm genuinely impressed you've stuck around.",
+    "100 messages! You're officially a regular. My condolences.",
+    "Triple digits! Either you love it here or you have nowhere else to be. Both valid."
+  ],
+  messages500: [
+    "500 messages. You're practically part of the furniture now.",
+    "Half a thousand messages. That's commitment. Or obsession. I don't judge.",
+    "500 messages in. At this point, you're family. Dysfunctional family, but family."
+  ],
+  messages1000: [
+    "1000 MESSAGES. You absolute legend. Or lunatic. The line is thin.",
+    "Four digits! You've officially talked more than my ex Gary. And that's saying something.",
+    "1000 messages. I'd give you a trophy but my budget is wine money."
+  ],
+  oneYear: [
+    "ONE YEAR with us! You've survived 365 days of my sass. Respect.",
+    "Happy anniversary! One whole year. The community thanks you for your service.",
+    "A full year! That's longer than most of my relationships. Looking at you, Gary."
+  ]
+};
+
+// Karen Mode responses when someone says "okay karen" or similar
+const KAREN_MODE_RESPONSES = [
+  "That's AGENT Karen to you, sweetie.",
+  "Karen? KAREN? I demand to speak to YOUR manager.",
+  "You rang? Now you've got my full attention. Nervous yet?",
+  "Oh, we're doing this? Alright then.",
+  "I've been called worse by better. Try again.",
+  "Karen mode: ACTIVATED. You brought this on yourself.",
+  "Say my name again. I dare you.",
+  "The Karen energy is intentional. It's a lifestyle.",
+  "You think 'Karen' is an insult? That's cute.",
+  "I didn't choose the Karen life. The Karen life chose me. Then I asked to speak to its manager."
+];
+
+// Helper to randomly add personality elements to responses
+function addKarenFlair(baseResponse: string, options?: { includeMood?: boolean; includeGag?: boolean; includeCatchphrase?: boolean }): string {
+  const parts: string[] = [];
+  
+  // 20% chance to add mood prefix
+  if (options?.includeMood && Math.random() < 0.2) {
+    const mood = getKarenMood();
+    if (mood.prefix) parts.push(mood.prefix);
+  }
+  
+  parts.push(baseResponse);
+  
+  // 15% chance to add a catchphrase
+  if (options?.includeCatchphrase && Math.random() < 0.15) {
+    parts.push(KAREN_CATCHPHRASES[Math.floor(Math.random() * KAREN_CATCHPHRASES.length)]);
+  }
+  
+  // 15% chance to add a running gag
+  if (options?.includeGag && Math.random() < 0.15) {
+    const gagTypes = Object.keys(KAREN_GAGS) as (keyof typeof KAREN_GAGS)[];
+    const gagType = gagTypes[Math.floor(Math.random() * gagTypes.length)];
+    const gag = KAREN_GAGS[gagType][Math.floor(Math.random() * KAREN_GAGS[gagType].length)];
+    parts.push(gag);
+  }
+  
+  return parts.join("\n\n");
+}
+
 // === SCAM DETECTION PATTERNS ===
 const SCAM_PATTERNS = {
   blackmail: ["i have your video", "i have your photos", "send me intimate", "pay me or i'll send", "bitcoin", "gift cards"],
@@ -1768,7 +1983,7 @@ interface UserInteraction {
   timestamp: number;
 }
 
-async function trackUserInteraction(telegramUserId: string, query: string): Promise<void> {
+async function trackUserInteraction(telegramUserId: string, query: string): Promise<number> {
   try {
     // Detect the topic from the query
     const topic = detectQueryTopic(query);
@@ -1845,8 +2060,11 @@ async function trackUserInteraction(telegramUserId: string, query: string): Prom
           }
         });
     }
+    // Return the new message count
+    return currentMessageCount + 1;
   } catch (error) {
     console.error("Error tracking user interaction:", error);
+    return 0;
   }
 }
 
@@ -1874,6 +2092,21 @@ function detectQueryTopic(query: string): string {
   if (lowerQuery.includes("roast") || lowerQuery.includes("burn") || lowerQuery.includes("diss")) return "roasts";
   
   return "general";
+}
+
+// Check for milestone achievements and return celebration message if reached
+function checkMilestone(messageCount: number): string | null {
+  // Check for exact milestones
+  if (messageCount === 100) {
+    return KAREN_MILESTONES.messages100[Math.floor(Math.random() * KAREN_MILESTONES.messages100.length)];
+  }
+  if (messageCount === 500) {
+    return KAREN_MILESTONES.messages500[Math.floor(Math.random() * KAREN_MILESTONES.messages500.length)];
+  }
+  if (messageCount === 1000) {
+    return KAREN_MILESTONES.messages1000[Math.floor(Math.random() * KAREN_MILESTONES.messages1000.length)];
+  }
+  return null;
 }
 
 async function getReturningUserContext(telegramUserId: string): Promise<string | null> {
@@ -2675,7 +2908,18 @@ function detectConversationalTrigger(text: string): { triggered: boolean; respon
       `Yo! Welcome to the chat! I'm Karen. Want to know about Dudley Bud? Just say "info". Want to play games? Say "games". I gotchu!`,
       `Hey hey! Nice to see you! I'm here 24/7 if you need anything. Project info, games, how stuff works - just ask!`
     ];
-    return { triggered: true, response: greetingResponses[Math.floor(Math.random() * greetingResponses.length)], category: "greeting" };
+    let greeting = greetingResponses[Math.floor(Math.random() * greetingResponses.length)];
+    
+    // 20% chance to add seasonal/holiday greeting
+    if (Math.random() < 0.2) {
+      const seasonal = getSeasonalContext();
+      // Add greeting for holidays (always) or seasons (50% of the time when triggered)
+      if (seasonal.holiday || Math.random() < 0.5) {
+        greeting = `${seasonal.greeting}\n\n${greeting}`;
+      }
+    }
+    
+    return { triggered: true, response: greeting, category: "greeting" };
   }
   
   // === PROJECT INFO === (exact phrases only)
@@ -7634,7 +7878,9 @@ Ask me anything! I'm literally always here.`
             
             const firstName = ctx.from.first_name || "User";
             const uname = ctx.from.username;
+            const spamReaction = KAREN_REACTIONS.spamCaught[Math.floor(Math.random() * KAREN_REACTIONS.spamCaught.length)];
             await ctx.reply(
+              `${spamReaction}\n\n` +
               `${uname ? `@${uname}` : firstName} has been MUTED for ${formatDuration(muteSeconds)}.\n\n` +
               `REASON: Spam detected (flooding/duplicate messages).\n\n` +
               `This is offense #${offenseCount}. You can read but not post.`
@@ -8128,14 +8374,31 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
     const lowerText = text.toLowerCase();
     const firstName = ctx.from?.first_name || "friend";
     
+    // === KAREN MODE INTENSIFIER ===
+    // When someone says "okay karen", "ok karen", "sure karen", etc. - she doubles down
+    const karenTriggers = ["okay karen", "ok karen", "sure karen", "whatever karen", "calm down karen", "chill karen", "relax karen"];
+    const triggeredKaren = karenTriggers.some(t => lowerText.includes(t));
+    if (triggeredKaren) {
+      const karenModeResponse = KAREN_MODE_RESPONSES[Math.floor(Math.random() * KAREN_MODE_RESPONSES.length)];
+      await ctx.reply(karenModeResponse, { reply_parameters: { message_id: ctx.message.message_id } });
+      return;
+    }
+    
     // === CONVERSATIONAL TRIGGERS (no commands needed) ===
     // Check for casual greetings, info requests, games, help, etc.
     const conversational = detectConversationalTrigger(text);
     if (conversational.triggered && conversational.response) {
-      // Add Karen sass based on mode
-      const response = ctx.session.karenMode 
-        ? karenResponse(conversational.response)
-        : conversational.response;
+      // Add Karen personality flair based on mood
+      const mood = getKarenMood();
+      let response = conversational.response;
+      
+      // 25% chance to add mood prefix to greetings
+      if (conversational.category === "greeting" && Math.random() < 0.25 && mood.prefix) {
+        response = `${mood.prefix}\n\n${response}`;
+      }
+      
+      // Add Karen sass if in karen mode
+      response = ctx.session.karenMode ? karenResponse(response) : response;
       await ctx.reply(response, { reply_parameters: { message_id: ctx.message.message_id } });
       return;
     }
@@ -8398,9 +8661,19 @@ Pause: Press Escape
       const trackingUserId = ctx.from?.id?.toString() || "";
       const chatIdStr = chatId ? String(chatId) : "";
       
-      // Track user interaction for returning user context (async, don't await)
+      // Track user interaction and check milestones
+      let newMsgCount = 0;
       if (trackingUserId) {
-        trackUserInteraction(trackingUserId, text).catch(e => console.log("Track interaction error:", e));
+        try {
+          newMsgCount = await trackUserInteraction(trackingUserId, text);
+          // Check for milestone celebrations using the returned count
+          const milestone = checkMilestone(newMsgCount);
+          if (milestone) {
+            await ctx.reply(`${displayName} ${milestone}`, { reply_parameters: { message_id: ctx.message.message_id } });
+          }
+        } catch (e) {
+          // Silent fail - milestones are non-critical
+        }
       }
       
       // Check for returning user context (30% chance to greet warmly)
@@ -8475,6 +8748,9 @@ Pause: Press Escape
         const joke = StoryBible.getRandomJoke();
         response = `${response}\n\n${joke}`;
       }
+      
+      // Add Karen personality flair (catchphrases, gags) - 15% chance for each
+      response = addKarenFlair(response, { includeCatchphrase: true, includeGag: true });
       
       // Save interaction for learning
       const interactionId = await BotMemory.saveInteraction(
