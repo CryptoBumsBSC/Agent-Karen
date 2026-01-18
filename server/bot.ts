@@ -3776,9 +3776,10 @@ const userOffenses: Map<number, Map<number, UserOffense>> = new Map();
 
 // Mute durations: 15 min, 4 hours, 72 hours
 const MUTE_DURATIONS = [
-  15 * 60,           // 15 minutes in seconds
-  4 * 60 * 60,       // 4 hours in seconds  
-  72 * 60 * 60       // 72 hours in seconds
+  15 * 60,           // 15 minutes in seconds (1st offense)
+  4 * 60 * 60,       // 4 hours in seconds (2nd offense)
+  72 * 60 * 60       // 72 hours in seconds (3rd offense)
+  // 4th offense = permanent ban (handled in addOffense)
 ];
 
 // Spam tracking
@@ -3847,11 +3848,16 @@ function getUserOffenses(chatId: number, userId: number): UserOffense {
   return chatOffenses.get(userId)!;
 }
 
-// Add offense and return mute duration
-function addOffense(chatId: number, userId: number): { muteSeconds: number; offenseCount: number; notifyAdmin: boolean } {
+// Add offense and return mute duration (4th offense = ban)
+function addOffense(chatId: number, userId: number): { muteSeconds: number; offenseCount: number; notifyAdmin: boolean; shouldBan: boolean } {
   const offense = getUserOffenses(chatId, userId);
   offense.count++;
   offense.lastOffense = Date.now();
+  
+  // 4th offense = permanent ban
+  if (offense.count >= 4) {
+    return { muteSeconds: 0, offenseCount: offense.count, notifyAdmin: true, shouldBan: true };
+  }
   
   // Get mute duration based on offense count (cap at max)
   const muteIndex = Math.min(offense.count - 1, MUTE_DURATIONS.length - 1);
@@ -3861,7 +3867,39 @@ function addOffense(chatId: number, userId: number): { muteSeconds: number; offe
   // Notify admin after 2nd offense
   const notifyAdmin = offense.count >= 2;
   
-  return { muteSeconds, offenseCount: offense.count, notifyAdmin };
+  return { muteSeconds, offenseCount: offense.count, notifyAdmin, shouldBan: false };
+}
+
+// Standardized warning message format for consistency
+function formatWarning(options: {
+  type: string;
+  username: string;
+  offenseCount: number;
+  reason: string;
+  action: string;
+  nextStep?: string;
+}): string {
+  const header = `COMMUNITY WARNING #${options.offenseCount}`;
+  const user = `User: ${options.username}`;
+  const reason = `REASON: ${options.reason}`;
+  const action = `ACTION: ${options.action}`;
+  
+  let message = `${header}\n\n${user}\n${reason}\n\n${action}`;
+  
+  // Add escalation warning
+  if (options.offenseCount === 1) {
+    message += `\n\nNext offense = 4 hour mute`;
+  } else if (options.offenseCount === 2) {
+    message += `\n\nNext offense = 72 hour mute`;
+  } else if (options.offenseCount === 3) {
+    message += `\n\nFINAL WARNING - Next offense = PERMANENT BAN`;
+  }
+  
+  if (options.nextStep) {
+    message += `\n\n${options.nextStep}`;
+  }
+  
+  return message;
 }
 
 // Check if message is spam
@@ -6473,32 +6511,51 @@ Check the leaderboard with /refboard`;
     }
     
     const reason = ctx.message?.text?.replace("/warn", "").trim() || "Breaking community rules";
-    const { muteSeconds, offenseCount, notifyAdmin } = addOffense(ctx.chat.id, targetUser.id);
+    const { muteSeconds, offenseCount, notifyAdmin, shouldBan } = addOffense(ctx.chat.id, targetUser.id);
+    const targetName = targetUser.username ? `@${targetUser.username}` : targetUser.first_name;
     
-    // Apply mute
     try {
-      const muteUntil = Math.floor(Date.now() / 1000) + muteSeconds;
-      await ctx.api.restrictChatMember(ctx.chat.id, targetUser.id, {
-        can_send_messages: false,
-        can_send_audios: false,
-        can_send_documents: false,
-        can_send_photos: false,
-        can_send_videos: false,
-        can_send_video_notes: false,
-        can_send_voice_notes: false,
-        can_send_polls: false,
-        can_send_other_messages: false,
-        can_add_web_page_previews: false
-      }, { until_date: muteUntil });
-      
-      await ctx.reply(`WARNING #${offenseCount} for ${targetUser.first_name}\n\nReason: ${reason}\n\nMuted for: ${formatDuration(muteSeconds)}`);
-      
-      // Notify admins after 2nd offense
-      if (notifyAdmin) {
-        await ctx.reply(`ATTENTION ADMINS: ${targetUser.first_name} has ${offenseCount} offenses. Consider taking further action.`);
+      if (shouldBan) {
+        // 4th offense = permanent ban
+        await ctx.api.banChatMember(ctx.chat.id, targetUser.id);
+        
+        const banMessage = formatWarning({
+          type: "ban",
+          username: targetName,
+          offenseCount,
+          reason,
+          action: "PERMANENTLY BANNED"
+        });
+        
+        await ctx.reply(`${banMessage}\n\nUser has been removed from the community for repeated violations.`);
+      } else {
+        // Apply mute
+        const muteUntil = Math.floor(Date.now() / 1000) + muteSeconds;
+        await ctx.api.restrictChatMember(ctx.chat.id, targetUser.id, {
+          can_send_messages: false,
+          can_send_audios: false,
+          can_send_documents: false,
+          can_send_photos: false,
+          can_send_videos: false,
+          can_send_video_notes: false,
+          can_send_voice_notes: false,
+          can_send_polls: false,
+          can_send_other_messages: false,
+          can_add_web_page_previews: false
+        }, { until_date: muteUntil });
+        
+        const warningMessage = formatWarning({
+          type: "warn",
+          username: targetName,
+          offenseCount,
+          reason,
+          action: `Muted for ${formatDuration(muteSeconds)}`
+        });
+        
+        await ctx.reply(warningMessage);
       }
     } catch (error) {
-      await ctx.reply(`Warning #${offenseCount} for ${targetUser.first_name}.\n\nReason: ${reason}\n\n(Note: Couldn't apply mute - check bot permissions)`);
+      await ctx.reply(`Warning #${offenseCount} for ${targetUser.first_name}.\n\nReason: ${reason}\n\n(Note: Couldn't apply action - check bot permissions)`);
     }
   });
 
@@ -7474,43 +7531,52 @@ Check the leaderboard with /refboard`;
           
           if (impersonationCheck.isImpersonation) {
             // Add offense to mute system (progressive punishment)
-            const { muteSeconds, offenseCount } = addOffense(chatId, member.id);
+            const { muteSeconds, offenseCount, shouldBan } = addOffense(chatId, member.id);
+            const adminMentions = adminUsernames.slice(0, 3).map(u => `@${u}`).join(", ");
+            const reason = `Username similar to admin @${impersonationCheck.similarTo} (${Math.round(impersonationCheck.similarity * 100)}% match)`;
             
-            // Mute the impersonator
-            const untilDate = Math.floor(Date.now() / 1000) + muteSeconds;
-            await ctx.api.restrictChatMember(chatId, member.id, {
-              can_send_messages: false,
-              can_send_audios: false,
-              can_send_documents: false,
-              can_send_photos: false,
-              can_send_videos: false,
-              can_send_video_notes: false,
-              can_send_voice_notes: false,
-              can_send_polls: false,
-              can_send_other_messages: false,
-              can_add_web_page_previews: false
-            }, { until_date: untilDate });
+            if (shouldBan) {
+              // 4th offense = permanent ban
+              await ctx.api.banChatMember(chatId, member.id);
+              
+              const banMessage = formatWarning({
+                type: "impersonation",
+                username: `@${username}`,
+                offenseCount,
+                reason,
+                action: "PERMANENTLY BANNED"
+              });
+              
+              await ctx.reply(`${adminMentions}\n\n${banMessage}\n\nPotential scammer removed from community.`);
+              await logViolation(chatIdStr, newMemberId, username, "impersonation", username, reason, "ban");
+            } else {
+              // Mute the impersonator
+              const untilDate = Math.floor(Date.now() / 1000) + muteSeconds;
+              await ctx.api.restrictChatMember(chatId, member.id, {
+                can_send_messages: false,
+                can_send_audios: false,
+                can_send_documents: false,
+                can_send_photos: false,
+                can_send_videos: false,
+                can_send_video_notes: false,
+                can_send_voice_notes: false,
+                can_send_polls: false,
+                can_send_other_messages: false,
+                can_add_web_page_previews: false
+              }, { until_date: untilDate });
+              
+              const warningMessage = formatWarning({
+                type: "impersonation",
+                username: `@${username}`,
+                offenseCount,
+                reason,
+                action: `Muted for ${formatDuration(muteSeconds)}`
+              });
+              
+              await ctx.reply(`${adminMentions}\n\n${warningMessage}\n\nThis could be a scammer!`);
+              await logViolation(chatIdStr, newMemberId, username, "impersonation", username, reason, "mute");
+            }
             
-            // Alert admins with public warning
-            const adminMentions = adminUsernames
-              .slice(0, 3)
-              .map(u => `@${u}`)
-              .join(", ");
-            
-            const muteDuration = muteSeconds >= 3600 
-              ? `${Math.floor(muteSeconds / 3600)} hour${muteSeconds >= 7200 ? 's' : ''}`
-              : `${Math.floor(muteSeconds / 60)} minutes`;
-            
-            await ctx.reply(
-              `IMPERSONATION WARNING #${offenseCount} ${adminMentions}\n\n` +
-              `User: @${username}\n` +
-              `REASON: Username similar to admin @${impersonationCheck.similarTo} (${Math.round(impersonationCheck.similarity * 100)}% match)\n\n` +
-              `ACTION: Muted for ${muteDuration}\n\n` +
-              `This could be a scammer impersonating an admin!`,
-              { parse_mode: "Markdown" }
-            );
-            
-            await logViolation(chatIdStr, newMemberId, username, "impersonation", username, `Similar to @${impersonationCheck.similarTo}`, "mute");
             await incrementModStat(chatIdStr, 'scamsBlocked');
           }
         } catch (e) {
@@ -8266,40 +8332,54 @@ Ask me anything! I'm literally always here.`
         const userIsAdmin = await isAdmin(ctx);
         
         if (!userIsAdmin && isSpam(chatId, ctx.from.id, text)) {
-          const { muteSeconds, offenseCount, notifyAdmin } = addOffense(chatId, ctx.from.id);
+          const { muteSeconds, offenseCount, shouldBan } = addOffense(chatId, ctx.from.id);
+          const firstName = ctx.from.first_name || "User";
+          const uname = ctx.from.username;
+          const spamReaction = KAREN_REACTIONS.spamCaught[Math.floor(Math.random() * KAREN_REACTIONS.spamCaught.length)];
+          const targetName = uname ? `@${uname}` : firstName;
           
           try {
             // Delete the spam message
             await ctx.api.deleteMessage(chatId, ctx.message.message_id);
             
-            // Mute the user
-            const muteUntil = Math.floor(Date.now() / 1000) + muteSeconds;
-            await ctx.api.restrictChatMember(chatId, ctx.from.id, {
-              can_send_messages: false,
-              can_send_audios: false,
-              can_send_documents: false,
-              can_send_photos: false,
-              can_send_videos: false,
-              can_send_video_notes: false,
-              can_send_voice_notes: false,
-              can_send_polls: false,
-              can_send_other_messages: false,
-              can_add_web_page_previews: false
-            }, { until_date: muteUntil });
-            
-            const firstName = ctx.from.first_name || "User";
-            const uname = ctx.from.username;
-            const spamReaction = KAREN_REACTIONS.spamCaught[Math.floor(Math.random() * KAREN_REACTIONS.spamCaught.length)];
-            await ctx.reply(
-              `${spamReaction}\n\n` +
-              `${uname ? `@${uname}` : firstName} has been MUTED for ${formatDuration(muteSeconds)}.\n\n` +
-              `REASON: Spam detected (flooding/duplicate messages).\n\n` +
-              `This is offense #${offenseCount}. You can read but not post.`
-            );
-            
-            // Notify admins after 2nd offense
-            if (notifyAdmin) {
-              await ctx.reply(`Admins: ${uname ? `@${uname}` : firstName} has ${offenseCount} spam offenses and may need a permanent ban.`);
+            if (shouldBan) {
+              // 4th offense = permanent ban
+              await ctx.api.banChatMember(chatId, ctx.from.id);
+              
+              const banMessage = formatWarning({
+                type: "ban",
+                username: targetName,
+                offenseCount,
+                reason: "Spam detected (repeated flooding/duplicate messages)",
+                action: "PERMANENTLY BANNED"
+              });
+              
+              await ctx.reply(`${spamReaction}\n\n${banMessage}\n\nUser has been removed for repeated spam violations.`);
+            } else {
+              // Mute the user
+              const muteUntil = Math.floor(Date.now() / 1000) + muteSeconds;
+              await ctx.api.restrictChatMember(chatId, ctx.from.id, {
+                can_send_messages: false,
+                can_send_audios: false,
+                can_send_documents: false,
+                can_send_photos: false,
+                can_send_videos: false,
+                can_send_video_notes: false,
+                can_send_voice_notes: false,
+                can_send_polls: false,
+                can_send_other_messages: false,
+                can_add_web_page_previews: false
+              }, { until_date: muteUntil });
+              
+              const warningMessage = formatWarning({
+                type: "spam",
+                username: targetName,
+                offenseCount,
+                reason: "Spam detected (flooding/duplicate messages)",
+                action: `Muted for ${formatDuration(muteSeconds)}`
+              });
+              
+              await ctx.reply(`${spamReaction}\n\n${warningMessage}`);
             }
           } catch (error) {
             console.log("Couldn't auto-moderate spam - check bot permissions");
