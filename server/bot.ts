@@ -275,6 +275,78 @@ const HARD_DRUG_EMOJIS = [
   "\u{1F36D}", // lollipop (pills)
 ];
 
+// === DEALER/TRAFFICKING BIO DETECTION (auto-ban unless trusted) ===
+// Phrases that indicate drug dealing - instant ban for non-trusted users
+const DEALER_PHRASES = [
+  "the plug", "im the plug", "i'm the plug", "your plug", "ur plug",
+  "fully active", "active now", "ready to serve", "menu available", "check menu",
+  "fast drop", "dropgang", "drop gang", "next day delivery", "fast shipping",
+  "same day delivery", "no feds", "no fed", "vouched by many", "highly vouched",
+  "taking orders", "dm for menu", "dm for prices", "hmu for deals"
+];
+
+// Dealer emojis - these combined with dealer context = instant ban
+const DEALER_EMOJIS = [
+  "\u{1F50C}", // plug emoji
+  "\u{1F4F1}", // phone (call/text me)
+  "\u26FD", // gas pump (gas = potent weed or meeting spot)
+  "\u{1FA82}", // parachute (drugs on the way)
+  "\u{1F4E6}", // package (drug delivery)
+  "\u{1F4B0}", // money bag
+  "\u{1F911}", // money face
+  "\u{1F680}", // rocket (high quality)
+  "\u{1F525}", // fire (hot products)
+  "\u2744\ufe0f", // snowflake (cocaine)
+  "\u{1F328}\ufe0f", // cloud with snow (cocaine)
+  "\u2603\ufe0f", // snowman (cocaine)
+  "\u{1F341}", // maple leaf (marijuana - allowed alone but not with dealer context)
+  "\u{1F496}", // sparkling heart (MDMA)
+  "\u26A1", // lightning (MDMA)
+  "\u{1F48A}", // pill (MDMA)
+  "\u{1F3AF}", // dart/bullseye (high quality)
+];
+
+// Detect dealer/trafficking signals in bio, username, or messages
+// Returns true if user should be BANNED (not just warned)
+function detectDealerSignals(text: string): { detected: boolean; matched: string[] } {
+  const lowerText = text.toLowerCase();
+  const normalizedText = normalizeForDrugDetection(text);
+  const matched: string[] = [];
+  
+  // Check dealer phrases
+  for (const phrase of DEALER_PHRASES) {
+    if (normalizedText.includes(phrase.toLowerCase().replace(/['"]/g, ''))) {
+      matched.push(`phrase: ${phrase}`);
+    }
+  }
+  
+  // Count dealer emojis
+  let emojiCount = 0;
+  const foundEmojis: string[] = [];
+  for (const emoji of DEALER_EMOJIS) {
+    if (text.includes(emoji)) {
+      emojiCount++;
+      foundEmojis.push(emoji);
+    }
+  }
+  
+  // Multiple dealer emojis together = suspicious
+  if (emojiCount >= 2) {
+    matched.push(`emojis: ${foundEmojis.join(' ')}`);
+  }
+  
+  // Single dealer emoji + suspicious text = ban
+  if (emojiCount >= 1) {
+    const suspiciousTerms = ["dm", "hmu", "hit me", "message me", "active", "ready", "available", "menu", "delivery", "shipping", "orders"];
+    const hasSuspiciousText = suspiciousTerms.some(term => lowerText.includes(term));
+    if (hasSuspiciousText) {
+      matched.push(`emoji+context: ${foundEmojis.join(' ')}`);
+    }
+  }
+  
+  return { detected: matched.length > 0, matched };
+}
+
 const TRAFFICKING_TERMS = ["selling", "buying", "wtb", "wts", "for sale", "hmu for", "dm for", "got that", "plug for", "looking for plug", "need a plug"];
 
 function detectDrugTrafficking(text: string): boolean {
@@ -6850,9 +6922,43 @@ Check the leaderboard with /refboard`;
         await ctx.reply(`Warning: New member @${username} has suspicious indicators:\n${flags.join("\n")}\n\nAdmins, please verify!`);
       }
       
-      // Check username/name for hard drug references (exemptions apply)
+      // Check username/name for dealer signals (auto-ban unless trusted)
       // Note: Telegram API doesn't provide user bio on join events, only username/name
       const nameCheckTexts = [fullName, username].filter(Boolean).join(" ");
+      
+      // First check for dealer signals (instant ban)
+      const dealerCheck = detectDealerSignals(nameCheckTexts);
+      if (dealerCheck.detected) {
+        const isExempt = await isExemptFromDrugCheck(ctx, chatIdStr, newMemberId);
+        if (!isExempt) {
+          try {
+            // Ban user with dealer signals in name
+            await ctx.api.banChatMember(chatId, member.id);
+            await logViolation(chatIdStr, newMemberId, username || fullName, "dealer_bio", nameCheckTexts, `Dealer signals: ${dealerCheck.matched.join(", ")}`, "ban");
+            
+            const admins = await ctx.api.getChatAdministrators(chatId);
+            const adminMentions = admins
+              .filter(a => !a.user.is_bot)
+              .slice(0, 3)
+              .map(a => a.user.username ? `@${a.user.username}` : a.user.first_name)
+              .join(", ");
+            
+            await ctx.reply(
+              `BANNED: ${adminMentions}\n\n` +
+              `User @${username || name} was auto-banned for dealer signals in their profile.\n` +
+              `Matched: ${dealerCheck.matched.join(", ")}\n\n` +
+              `We're a cannabis culture community - not a marketplace. Zero tolerance for dealers.`
+            );
+            
+            await incrementModStat(chatIdStr, 'scamsBlocked');
+            continue; // Skip rest of welcome
+          } catch (banErr) {
+            console.log("Couldn't ban dealer:", banErr);
+          }
+        }
+      }
+      
+      // Then check for hard drug references (warn)
       const drugCheck = detectHardDrugs(nameCheckTexts);
       if (drugCheck.found) {
         // Check if exempt (admin/owner/fully trusted) - new users won't be
@@ -6860,7 +6966,7 @@ Check the leaderboard with /refboard`;
         if (!isExempt) {
           try {
             // Warn first - log the violation
-            await logViolation(chatIdStr, newMemberId, username || fullName, "hard_drug_name", `Name/username contained: ${drugCheck.matched.join(", ")}`, "warn");
+            await logViolation(chatIdStr, newMemberId, username || fullName, "hard_drug_name", nameCheckTexts, `Name/username contained: ${drugCheck.matched.join(", ")}`, "warn");
             
             // Notify admins
             const admins = await ctx.api.getChatAdministrators(chatId);
@@ -7672,7 +7778,31 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
           return;
         }
         
-        // 1E2. Hard drug term/emoji detection (exemptions for trusted members)
+        // 1E2. Dealer signal detection (auto-ban unless trusted)
+        const dealerCheck = detectDealerSignals(text);
+        if (dealerCheck.detected) {
+          const isExempt = await isExemptFromDrugCheck(ctx, chatIdStr, userIdStr);
+          if (!isExempt) {
+            try {
+              await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+              await ctx.api.banChatMember(chatId, parseInt(userIdStr));
+              await logViolation(chatIdStr, userIdStr, username || "", "dealer_message", text, `Dealer signals: ${dealerCheck.matched.join(", ")}`, "ban");
+              
+              await ctx.reply(
+                `BANNED: @${username || "User"} was auto-banned for dealer activity.\n\n` +
+                `We're a cannabis culture community - not a marketplace.\n` +
+                `Zero tolerance for dealing.`
+              );
+              
+              await incrementModStat(chatIdStr, 'scamsBlocked');
+            } catch (e) {
+              console.log("Couldn't ban dealer from message:", e);
+            }
+            return;
+          }
+        }
+        
+        // 1E3. Hard drug term/emoji detection (exemptions for trusted members)
         const hardDrugCheck = detectHardDrugs(text);
         if (hardDrugCheck.found) {
           // Check if user is exempt (admin, owner, or fully trusted)
@@ -7696,7 +7826,7 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
               await incrementModStat(chatIdStr, 'messagesBlocked');
               
               // Log the violation
-              await logViolation(chatIdStr, userIdStr, username || "", "hard_drug_message", `Matched: ${hardDrugCheck.matched.join(", ")}`, warningCount === 1 ? "warn" : warningCount === 2 ? "warn" : "mute");
+              await logViolation(chatIdStr, userIdStr, username || "", "hard_drug_message", text, `Matched: ${hardDrugCheck.matched.join(", ")}`, warningCount === 1 ? "warn" : warningCount === 2 ? "warn" : "mute");
               
               if (warningCount === 1) {
                 await ctx.reply(
@@ -7714,8 +7844,7 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
                 try {
                   await ctx.api.restrictChatMember(chatId, parseInt(userIdStr), {
                     can_send_messages: false,
-                    until_date: Math.floor(Date.now() / 1000) + 3600,
-                  });
+                  }, { until_date: Math.floor(Date.now() / 1000) + 3600 });
                   await ctx.reply(
                     `${username ? `@${username}` : "User"} has been muted for 1 hour after repeated hard drug content violations.\n\n` +
                     `This is a cannabis culture community - not a place for other substances.`

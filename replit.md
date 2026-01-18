@@ -58,6 +58,12 @@ The backend operates on Node.js with Express for health checks and API routes. T
         - Progressive warning system (warn → warn → 1hr mute)
         - **Exemptions**: Admins, owners, and fully trusted members (trust level 3 or vouched) bypass detection
         - Name/username check on new member joins (Note: Telegram API doesn't expose user bio in join events - only name/username can be checked)
+    - **Dealer Detection System**: Auto-ban for dealer signals in bio/username/messages:
+        - Dealer phrases: "the plug", "fully active", "menu available", "fast drop", "no feds", "taking orders", etc.
+        - Dealer emojis: plug, phone, gas pump, parachute, package, money bag, rocket, fire, snowflake, pill, etc.
+        - Multiple dealer emojis together = instant ban
+        - Single dealer emoji + suspicious context (dm, active, menu, delivery) = instant ban
+        - **Exemptions**: Admins, owners, and fully trusted members bypass detection
     - **Link Control**: Restrictions on new users posting links, with allowlists for official domains.
     - **Media Caption Moderation**: Scans photo/video/document captions for scam content and links.
     - **Message Edit Tracking**: Monitors when new users (< 24 hours OR < 5 messages) edit their messages. Catches attempts to sneak scam/spam/links by editing innocent messages.
