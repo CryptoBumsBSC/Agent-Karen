@@ -493,6 +493,10 @@ function detectEmojiSpam(text: string): boolean {
 const hateSpeechWarnings = new Map<string, { count: number; lastWarning: number }>();
 const HATE_SPEECH_WARNING_RESET = 24 * 60 * 60 * 1000; // 24 hours
 
+// Track dealer signal warnings per user (warn → 48hr mute → ban)
+const dealerWarnings = new Map<string, { count: number; lastWarning: number }>();
+const DEALER_WARNING_RESET = 7 * 24 * 60 * 60 * 1000; // 7 days - longer memory for dealer behavior
+
 // Track unique user interactions (user:chat -> Set<replied_to_user_id>)
 const uniqueInteractionsCache = new Map<string, { users: Set<string>; date: string }>();
 
@@ -6932,15 +6936,18 @@ Check the leaderboard with /refboard`;
       // Note: Telegram API doesn't provide user bio on join events, only username/name
       const nameCheckTexts = [fullName, username].filter(Boolean).join(" ");
       
-      // First check for dealer signals (instant ban)
+      // First check for dealer signals in name/username (warn on join, watch closely)
       const dealerCheck = detectDealerSignals(nameCheckTexts);
       if (dealerCheck.detected) {
         const isExempt = await isExemptFromDrugCheck(ctx, chatIdStr, newMemberId);
         if (!isExempt) {
           try {
-            // Ban user with dealer signals in name
-            await ctx.api.banChatMember(chatId, member.id);
-            await logViolation(chatIdStr, newMemberId, username || fullName, "dealer_bio", nameCheckTexts, `Dealer signals: ${dealerCheck.matched.join(", ")}`, "ban");
+            // Set first warning for dealer signals in name (they start with 1 strike)
+            const warningKey = `dealer:${newMemberId}:${chatIdStr}`;
+            dealerWarnings.set(warningKey, { count: 1, lastWarning: Date.now() });
+            
+            const matchedSignals = dealerCheck.matched.join(", ");
+            await logViolation(chatIdStr, newMemberId, username || fullName, "dealer_bio", nameCheckTexts, `Dealer signals: ${matchedSignals}`, "warn");
             
             const admins = await ctx.api.getChatAdministrators(chatId);
             const adminMentions = admins
@@ -6950,16 +6957,18 @@ Check the leaderboard with /refboard`;
               .join(", ");
             
             await ctx.reply(
-              `BANNED: ${adminMentions}\n\n` +
-              `User @${username || name} was auto-banned for dealer signals in their profile.\n` +
-              `Matched: ${dealerCheck.matched.join(", ")}\n\n` +
-              `We're a cannabis culture community - not a marketplace. Zero tolerance for dealers.`
+              `Heads up ${adminMentions}\n\n` +
+              `New member @${username || name} has dealer-style signals in their profile.\n` +
+              `DETECTED: "${matchedSignals}"\n\n` +
+              `@${username || name} - This is a cannabis CULTURE community, not a marketplace.\n` +
+              `You're on WARNING #1. Any dealer-style messages = 48hr mute, then ban.\n\n` +
+              `If you're here for the culture, welcome! Just keep it clean.`
             );
             
             await incrementModStat(chatIdStr, 'scamsBlocked');
-            continue; // Skip rest of welcome
-          } catch (banErr) {
-            console.log("Couldn't ban dealer:", banErr);
+            // Don't skip welcome - give them a chance but they're flagged
+          } catch (warnErr) {
+            console.log("Couldn't warn dealer on join:", warnErr);
           }
         }
       }
@@ -7784,25 +7793,85 @@ This keeps our community safe and legal. Feel free to discuss cannabis culture, 
           return;
         }
         
-        // 1E2. Dealer signal detection (auto-ban unless trusted)
+        // 1E2. Dealer signal detection (progressive: warn → 48hr mute → ban)
         const dealerCheck = detectDealerSignals(text);
         if (dealerCheck.detected) {
           const isExempt = await isExemptFromDrugCheck(ctx, chatIdStr, userIdStr);
           if (!isExempt) {
+            // Track warnings for dealer signals
+            const warningKey = `dealer:${userIdStr}:${chatIdStr}`;
+            const existing = dealerWarnings.get(warningKey);
+            const now = Date.now();
+            
+            // Reset if warning is old (7 days)
+            if (existing && (now - existing.lastWarning > DEALER_WARNING_RESET)) {
+              dealerWarnings.delete(warningKey);
+            }
+            
+            const warningCount = (dealerWarnings.get(warningKey)?.count || 0) + 1;
+            dealerWarnings.set(warningKey, { count: warningCount, lastWarning: now });
+            
             try {
               await ctx.api.deleteMessage(chatId, ctx.message.message_id);
-              await ctx.api.banChatMember(chatId, parseInt(userIdStr));
-              await logViolation(chatIdStr, userIdStr, username || "", "dealer_message", text, `Dealer signals: ${dealerCheck.matched.join(", ")}`, "ban");
-              
-              await ctx.reply(
-                `BANNED: @${username || "User"} was auto-banned for dealer activity.\n\n` +
-                `We're a cannabis culture community - not a marketplace.\n` +
-                `Zero tolerance for dealing.`
-              );
-              
               await incrementModStat(chatIdStr, 'scamsBlocked');
+              
+              const matchedSignals = dealerCheck.matched.join(", ");
+              
+              if (warningCount === 1) {
+                // First offense: warn
+                await logViolation(chatIdStr, userIdStr, username || "", "dealer_message", text, `Dealer signals: ${matchedSignals}`, "warn");
+                await ctx.reply(
+                  `Hey ${username ? `@${username}` : "friend"}, your message was removed.\n\n` +
+                  `REASON: Dealer-style language detected ("${matchedSignals}").\n\n` +
+                  `This is a cannabis CULTURE community - not a marketplace. ` +
+                  `We don't allow buying, selling, or "DM/PM me" type messages.\n\n` +
+                  `This is your FIRST warning. Next time = 48 hour mute.`
+                );
+              } else if (warningCount === 2) {
+                // Second offense: 48 hour mute/restrict
+                await logViolation(chatIdStr, userIdStr, username || "", "dealer_message", text, `Dealer signals: ${matchedSignals}`, "mute_48h");
+                try {
+                  await ctx.api.restrictChatMember(chatId, parseInt(userIdStr), {
+                    can_send_messages: false,
+                    can_send_audios: false,
+                    can_send_documents: false,
+                    can_send_photos: false,
+                    can_send_videos: false,
+                    can_send_video_notes: false,
+                    can_send_voice_notes: false,
+                    can_send_polls: false,
+                    can_send_other_messages: false,
+                    can_add_web_page_previews: false,
+                  }, { until_date: Math.floor(Date.now() / 1000) + (48 * 3600) }); // 48 hours
+                  
+                  await ctx.reply(
+                    `${username ? `@${username}` : "User"} has been MUTED for 48 hours.\n\n` +
+                    `REASON: Second dealer-style message ("${matchedSignals}").\n\n` +
+                    `You can still read messages but cannot post. ` +
+                    `If this happens again after unmute = PERMANENT BAN.\n\n` +
+                    `We're a culture community, not a marketplace.`
+                  );
+                } catch (muteErr) {
+                  console.log("Couldn't mute dealer:", muteErr);
+                }
+              } else {
+                // Third offense: permanent ban
+                await logViolation(chatIdStr, userIdStr, username || "", "dealer_message", text, `Dealer signals: ${matchedSignals}`, "ban");
+                try {
+                  await ctx.api.banChatMember(chatId, parseInt(userIdStr));
+                  await ctx.reply(
+                    `BANNED: @${username || "User"} permanently removed.\n\n` +
+                    `REASON: Third dealer-style offense ("${matchedSignals}").\n\n` +
+                    `Two warnings were given. We're a cannabis culture community - ` +
+                    `marketplace behavior is not tolerated.`
+                  );
+                  dealerWarnings.delete(warningKey);
+                } catch (banErr) {
+                  console.log("Couldn't ban dealer:", banErr);
+                }
+              }
             } catch (e) {
-              console.log("Couldn't ban dealer from message:", e);
+              console.log("Couldn't process dealer message:", e);
             }
             return;
           }
