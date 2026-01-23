@@ -11394,8 +11394,8 @@ export async function startBot() {
   }
 
   // Start bot with retry logic for 409 conflicts (common during rapid restarts)
-  const maxRetries = 10;
-  const retryDelay = 8000; // 8 seconds
+  const maxRetries = 5;
+  const retryDelay = 5000; // 5 seconds
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -11408,11 +11408,20 @@ export async function startBot() {
       });
       break; // Success, exit retry loop
     } catch (error: any) {
-      if (error?.error_code === 409 && attempt < maxRetries) {
-        console.log(`409 conflict detected (attempt ${attempt}/${maxRetries}). Waiting ${retryDelay/1000}s before retry...`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      if (error?.error_code === 409) {
+        if (attempt < maxRetries) {
+          console.log(`409 conflict detected (attempt ${attempt}/${maxRetries}). Waiting ${retryDelay/1000}s before retry...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        } else {
+          // After max retries, gracefully run in health-check only mode
+          // This allows production to run the bot while dev keeps the health server alive
+          console.log("Bot already running elsewhere (likely production). Running in health-check mode only.");
+          console.log("Health server remains active on port 5000. Bot features handled by production instance.");
+          // Keep the process alive without crashing
+          return;
+        }
       } else {
-        throw error; // Rethrow if not a 409 or max retries reached
+        throw error; // Rethrow non-409 errors
       }
     }
   }
