@@ -231,6 +231,156 @@ const KAREN_REACTIONS = {
   ]
 };
 
+// Karen's curated GIF collection - free Telegram-compatible GIF URLs
+// Categories match Karen's moods and response contexts
+const KAREN_GIFS = {
+  sassy: [
+    "https://media.giphy.com/media/3o85xIO33l7RlmLR4I/giphy.gif", // Hair flip
+    "https://media.giphy.com/media/l0MYGb1LuZ3n7dRnO/giphy.gif", // Eye roll
+    "https://media.giphy.com/media/3o7btT1T9qpQZWhNmg/giphy.gif", // Talk to hand
+    "https://media.giphy.com/media/xT9KVuimKtly3zoJ0Y/giphy.gif", // Sassy snap
+    "https://media.giphy.com/media/l4FGnnlIQslHkOPaU/giphy.gif", // Whatever
+  ],
+  celebrating: [
+    "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif", // Celebration dance
+    "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif", // Clapping
+    "https://media.giphy.com/media/3oz8xAFtqoOUUrsh7W/giphy.gif", // Party
+    "https://media.giphy.com/media/l0MYJnJQ4EiYLxvQ4/giphy.gif", // Cheering
+    "https://media.giphy.com/media/26BRBKqUiq586bRVm/giphy.gif", // Confetti
+  ],
+  annoyed: [
+    "https://media.giphy.com/media/3o7btPCcdNniyf0ArS/giphy.gif", // Facepalm
+    "https://media.giphy.com/media/l4FGuhL4U2WyjdkaY/giphy.gif", // Sighing
+    "https://media.giphy.com/media/26n6WywJyh39n1pBu/giphy.gif", // Exasperated
+    "https://media.giphy.com/media/3o6Zt6RpIeTnS1dFIs/giphy.gif", // Done with this
+    "https://media.giphy.com/media/l0IylOPCNkiqOgMyA/giphy.gif", // Deep breath
+  ],
+  laughing: [
+    "https://media.giphy.com/media/10JhviFuU2gWD6/giphy.gif", // LOL
+    "https://media.giphy.com/media/3oEjHAUOqG3lSS0f1C/giphy.gif", // Laughing hard
+    "https://media.giphy.com/media/l1ughbsd9qXz2s9SE/giphy.gif", // Cracking up
+    "https://media.giphy.com/media/3oEjI4sFlp73fvEYgw/giphy.gif", // Giggling
+    "https://media.giphy.com/media/26n6ziTEeDDbowBkQ/giphy.gif", // Dying laughing
+  ],
+  warning: [
+    "https://media.giphy.com/media/l4FGGafcOHmrlQxG0/giphy.gif", // Finger wag
+    "https://media.giphy.com/media/3o6gDWzmAzrpi5DQU8/giphy.gif", // Watch it
+    "https://media.giphy.com/media/dC9DTdqPmRnlS/giphy.gif", // Oh no you didn't
+    "https://media.giphy.com/media/l0IypeKl9NJhPFMrK/giphy.gif", // Stop right there
+    "https://media.giphy.com/media/3o7btNhMBytxAM6YBa/giphy.gif", // Nope
+  ],
+  welcoming: [
+    "https://media.giphy.com/media/xT9IgG50Fb7Mi0prBC/giphy.gif", // Friendly wave
+    "https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif", // Welcome
+    "https://media.giphy.com/media/3oEjHV0z8S7WM4MwnK/giphy.gif", // Hello there
+    "https://media.giphy.com/media/xUPGGDNsLvqsBOhuU0/giphy.gif", // Hi wave
+    "https://media.giphy.com/media/3ornk57KwDXf81rjWM/giphy.gif", // Greeting
+  ],
+  bye: [
+    "https://media.giphy.com/media/kaBU6pgv0OsPHz2yxy/giphy.gif", // Bye bye
+    "https://media.giphy.com/media/m9eG1qVjvN56H0MXt8/giphy.gif", // Peace out
+    "https://media.giphy.com/media/3o7qDSOvfaCO9b3MlO/giphy.gif", // Later
+    "https://media.giphy.com/media/l0HlvtIPzPdt2usKs/giphy.gif", // Goodbye wave
+    "https://media.giphy.com/media/42D3CxaINsAFemFuId/giphy.gif", // Exit
+  ],
+  thinking: [
+    "https://media.giphy.com/media/3o7TKTDn976rzVgky4/giphy.gif", // Thinking
+    "https://media.giphy.com/media/a5viI92PAF89q/giphy.gif", // Hmm
+    "https://media.giphy.com/media/lKXEBR8m1jWso/giphy.gif", // Contemplating
+    "https://media.giphy.com/media/3o7buirYcmV5nSwIRW/giphy.gif", // Let me think
+    "https://media.giphy.com/media/CaiVJuZGvR8HK/giphy.gif", // Processing
+  ]
+};
+
+// Get a random GIF from a category
+function getKarenGif(category: keyof typeof KAREN_GIFS): string {
+  const gifs = KAREN_GIFS[category];
+  return gifs[Math.floor(Math.random() * gifs.length)];
+}
+
+// Determine GIF category based on response context
+function getGifCategoryForContext(context: string): keyof typeof KAREN_GIFS | null {
+  const lowerContext = context.toLowerCase();
+  
+  // Warning/moderation contexts
+  if (lowerContext.includes("warn") || lowerContext.includes("mute") || lowerContext.includes("spam") || lowerContext.includes("banned")) {
+    return "warning";
+  }
+  
+  // Welcome contexts
+  if (lowerContext.includes("welcome") || lowerContext.includes("hello") || lowerContext.includes("hi ") || lowerContext.includes("joined")) {
+    return "welcoming";
+  }
+  
+  // Goodbye/kick contexts
+  if (lowerContext.includes("bye") || lowerContext.includes("kicked") || lowerContext.includes("removed") || lowerContext.includes("left")) {
+    return "bye";
+  }
+  
+  // Celebration contexts
+  if (lowerContext.includes("congrat") || lowerContext.includes("winner") || lowerContext.includes("milestone") || lowerContext.includes("celebrate") || lowerContext.includes("achieved")) {
+    return "celebrating";
+  }
+  
+  // Annoyed contexts
+  if (lowerContext.includes("again") || lowerContext.includes("seriously") || lowerContext.includes("really") || lowerContext.includes("ugh")) {
+    return "annoyed";
+  }
+  
+  // Laughing contexts (jokes, roasts)
+  if (lowerContext.includes("joke") || lowerContext.includes("roast") || lowerContext.includes("lol") || lowerContext.includes("haha") || lowerContext.includes("funny")) {
+    return "laughing";
+  }
+  
+  // Thinking contexts (questions, AI responses)
+  if (lowerContext.includes("?") || lowerContext.includes("ask") || lowerContext.includes("what") || lowerContext.includes("how") || lowerContext.includes("why")) {
+    return "thinking";
+  }
+  
+  // Default to sassy for general Karen responses
+  return "sassy";
+}
+
+// Should Karen send a GIF with this response? (15% chance by default)
+function shouldSendGif(forceChance?: number): boolean {
+  const chance = forceChance ?? 0.15; // 15% default
+  return Math.random() < chance;
+}
+
+// Send a Karen GIF based on context (only bot sends these, not users)
+async function sendKarenGif(ctx: Context, category?: keyof typeof KAREN_GIFS, responseText?: string): Promise<void> {
+  try {
+    // Determine category from response text if not specified
+    const gifCategory = category || (responseText ? getGifCategoryForContext(responseText) : "sassy") || "sassy";
+    const gifUrl = getKarenGif(gifCategory);
+    
+    // Send the GIF as an animation
+    await ctx.replyWithAnimation(gifUrl);
+  } catch (error) {
+    // Silently fail if GIF can't be sent - don't break the flow
+    console.log("Couldn't send GIF:", error);
+  }
+}
+
+// Reply with text and optionally a GIF (Karen's enhanced reply)
+async function karenReplyWithGif(
+  ctx: Context, 
+  text: string, 
+  options?: { 
+    forceGif?: boolean; 
+    gifCategory?: keyof typeof KAREN_GIFS;
+    gifChance?: number;
+  }
+): Promise<void> {
+  // Send the text reply first
+  await ctx.reply(text);
+  
+  // Maybe send a GIF (15% chance by default, or forced)
+  if (options?.forceGif || shouldSendGif(options?.gifChance)) {
+    await sendKarenGif(ctx, options?.gifCategory, text);
+  }
+}
+
 // Season/Holiday awareness
 function getSeasonalContext(): { season: string; holiday: string | null; greeting: string } {
   const now = new Date();
@@ -4293,7 +4443,7 @@ Commands:
 
 Got questions? Just ask!`;
 
-    await ctx.reply(welcome);
+    await karenReplyWithGif(ctx, welcome, { gifCategory: "welcoming", gifChance: 0.30 });
   });
 
   // /info - Project info
@@ -4305,7 +4455,7 @@ Got questions? Just ask!`;
   bot.command("joke", async (ctx) => {
     const joke = await generateDadJoke();
     const response = ctx.session.karenMode ? karenResponse(joke) : joke;
-    await ctx.reply(response);
+    await karenReplyWithGif(ctx, response, { gifCategory: "laughing", gifChance: 0.20 });
   });
 
   // /fact - Random medical fact
@@ -4531,7 +4681,7 @@ Stay safe, fam!`;
     const target = parts[1] || ctx.from?.first_name || "yourself";
     
     const roast = await generateRoast(target, "Dudley Bud community chat");
-    await ctx.reply(roast);
+    await karenReplyWithGif(ctx, roast, { gifCategory: "sassy", gifChance: 0.25 });
   });
 
   // === GIVEAWAY COMMANDS (Owner Only) ===
@@ -6974,7 +7124,7 @@ Check the leaderboard with /refboard`;
       await cacheAnswer(question, aiResponse);
     }
     
-    await ctx.reply(fullResponse);
+    await karenReplyWithGif(ctx, fullResponse, { gifChance: 0.15 });
   });
 
   // === MODERATION COMMANDS ===
@@ -7784,7 +7934,7 @@ Ask me anything! I'm literally always here.`
       ];
       
       const welcome = welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)];
-      await ctx.reply(welcome);
+      await karenReplyWithGif(ctx, welcome, { gifCategory: "welcoming", gifChance: 0.25 });
     }
   });
 
@@ -8380,6 +8530,10 @@ Ask me anything! I'm literally always here.`
               });
               
               await ctx.reply(`${spamReaction}\n\n${warningMessage}`);
+              // 10% chance for a sassy GIF on spam catch
+              if (shouldSendGif(0.10)) {
+                await sendKarenGif(ctx, "warning");
+              }
             }
           } catch (error) {
             console.log("Couldn't auto-moderate spam - check bot permissions");
