@@ -43,6 +43,7 @@ The backend operates on Node.js with Express for health checks and API routes. T
         - Milestone celebrations: 100th, 500th, 1000th message achievements celebrated
         - Season/holiday awareness: 4/20, Halloween, Christmas, Thanksgiving themed responses
         - Karen Mode intensifier: Responds to "okay karen" with doubled-down sass
+        - GIF Reactions: Curated collection of mood-matching GIFs (sassy, celebrating, annoyed, laughing, warning, welcoming, bye, thinking) - 15-25% chance to include a context-aware GIF with responses. Only bot can send these GIFs.
     - **Bot Learning System**: Karen learns from community feedback to improve responses over time. Features include:
         - Pattern recognition using keyword extraction and 60% similarity matching
         - Thumbs up/down feedback buttons on AI responses
