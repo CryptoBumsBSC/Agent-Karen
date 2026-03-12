@@ -4311,6 +4311,9 @@ async function checkInactiveAdmins(chatId: number) {
       // Skip bots
       if (admin.user.is_bot) continue;
       
+      // Only remind @AussieBoomer
+      if (admin.user.username?.toLowerCase() !== 'aussieboomer') continue;
+      
       const userId = admin.user.id;
       const activity = chatAdmins.get(userId);
       const lastAlerted = chatAlerts.get(userId) || 0;
@@ -4323,10 +4326,7 @@ async function checkInactiveAdmins(chatId: number) {
       
       // Only alert if inactive AND we haven't alerted about them recently
       if (isInactive && !alreadyAlerted) {
-        const mention = admin.user.username 
-          ? `@${admin.user.username}` 
-          : admin.user.first_name;
-        inactiveAdmins.push(mention);
+        inactiveAdmins.push('@AussieBoomer');
         
         // Mark as alerted
         chatAlerts.set(userId, now);
