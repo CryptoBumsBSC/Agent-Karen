@@ -305,7 +305,8 @@ export function registerAdminRoutes(app: Express) {
     res.json(rows);
   });
 
-  app.delete("/api/admin/violations/:id", requireRole("admin"), async (req, res) => {
+  // Per task spec: moderators (and above) can clear individual violations
+  app.delete("/api/admin/violations/:id", requireAuth, async (req, res) => {
     await db.delete(violationLogs).where(eq(violationLogs.id, parseInt(req.params.id)));
     res.json({ ok: true });
   });
