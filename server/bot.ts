@@ -467,7 +467,8 @@ async function getFeatureSettings(chatId: string): Promise<FeatureSettings> {
     };
     featureSettingsCache.set(chatId, settings);
     return settings;
-  } catch {
+  } catch (err) {
+    console.error(`[FeatureSettings] DB error for chat ${chatId} — falling back to all-ON defaults:`, err);
     return { ...DEFAULT_FEATURE_SETTINGS };
   }
 }
@@ -8259,6 +8260,16 @@ Ask me anything! I'm literally always here.`
     const interactionId = parseInt(match[2]);
     const userId = ctx.from.id.toString();
     
+    // Check if learning is enabled for this chat
+    const _feedbackChatId = ctx.chat?.id?.toString();
+    if (_feedbackChatId) {
+      const _learningFeats = await getFeatureSettings(_feedbackChatId);
+      if (!_learningFeats.learning) {
+        await ctx.answerCallbackQuery({ text: "Thanks for the feedback!" });
+        return;
+      }
+    }
+    
     const isPositive = feedbackType === 'up';
     const success = await BotMemory.learnFromFeedback(interactionId, userId, isPositive);
     
@@ -9625,7 +9636,10 @@ Pause: Press Escape
       }
       
       // Add Karen personality flair (catchphrases, gags) - 15% chance for each
-      response = addKarenFlair(response, { includeCatchphrase: true, includeGag: true });
+      const _personalityFeats = await getFeatureSettings(chatIdStr);
+      if (_personalityFeats.personality) {
+        response = addKarenFlair(response, { includeCatchphrase: true, includeGag: true });
+      }
       
       // Save interaction for learning
       const interactionId = await BotMemory.saveInteraction(
@@ -9660,24 +9674,27 @@ Pause: Press Escape
 }
 
 // === SCHEDULED RECIPE POSTING ===
-function postDailyRecipe() {
+async function postDailyRecipe() {
   if (!botInstance) return;
   
   const recipe = getRandomRecipe();
   const message = formatRecipePost(recipe);
   
-  // Post to all active chats
+  // Post to all active chats (respecting per-chat scheduled toggle)
+  let postedCount = 0;
   for (const chatId of Array.from(activeChats)) {
+    const feats = await getFeatureSettings(chatId.toString());
+    if (!feats.scheduled) continue;
     botInstance.api.sendMessage(chatId, message).catch((err) => {
       console.error(`Failed to send recipe to chat ${chatId}:`, err);
-      // Remove chat if we can't send to it
       if (err.description?.includes("chat not found") || err.description?.includes("bot was blocked")) {
         activeChats.delete(chatId);
       }
     });
+    postedCount++;
   }
   
-  console.log(`Posted daily recipe to ${activeChats.size} chats: ${recipe.name}`);
+  console.log(`Posted daily recipe to ${postedCount} chats (${activeChats.size} total): ${recipe.name}`);
 }
 
 // Track if we've posted today to prevent duplicates
@@ -9784,22 +9801,26 @@ function getRandomQuote(): typeof DAILY_QUOTES[0] {
   return DAILY_QUOTES[index];
 }
 
-function postDailyQuote() {
+async function postDailyQuote() {
   if (!botInstance) return;
   
   const quote = getRandomQuote();
   const message = `QUOTE OF THE DAY\n\n"${quote.quote}"\n\n— ${quote.author}\n\nHave a great day, Bud Fam!`;
   
+  let postedCount = 0;
   for (const chatId of Array.from(activeChats)) {
+    const feats = await getFeatureSettings(chatId.toString());
+    if (!feats.scheduled) continue;
     botInstance.api.sendMessage(chatId, message).catch((err) => {
       console.error(`Failed to send quote to chat ${chatId}:`, err);
       if (err.description?.includes("chat not found") || err.description?.includes("bot was blocked")) {
         activeChats.delete(chatId);
       }
     });
+    postedCount++;
   }
   
-  console.log(`Posted daily quote to ${activeChats.size} chats: "${quote.quote.substring(0, 30)}..."`);
+  console.log(`Posted daily quote to ${postedCount} chats (${activeChats.size} total): "${quote.quote.substring(0, 30)}..."`);
 }
 
 function startQuoteScheduler() {
