@@ -8,6 +8,9 @@ import * as StoryBible from "./storyBible";
 
 // === BOT TOKEN ===
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+// Global owner identity — set GLOBAL_OWNER_USER_ID in Replit Secrets for immutable ID-based auth.
+// Falls back to username check when the env var is absent (useful during initial setup).
+const GLOBAL_OWNER_USER_ID = process.env.GLOBAL_OWNER_USER_ID || "";
 
 // === OpenAI Client ===
 const openai = new OpenAI({
@@ -4228,9 +4231,12 @@ async function isOwner(ctx: MyContext): Promise<boolean> {
   }
 }
 
-// isGlobalOwner — checks @aussieBoomer username regardless of which chat they're in.
-// Used for cross-community owner commands (/communities, /activate, etc.)
+// isGlobalOwner — checks Telegram user ID first (immutable), falls back to username.
+// Set GLOBAL_OWNER_USER_ID in Replit Secrets for hardened auth; username check is a convenience fallback.
 function isGlobalOwner(ctx: MyContext): boolean {
+  if (GLOBAL_OWNER_USER_ID) {
+    return ctx.from?.id?.toString() === GLOBAL_OWNER_USER_ID;
+  }
   return ctx.from?.username?.toLowerCase() === "aussieboomer";
 }
 
@@ -5256,12 +5262,12 @@ _Karen gets smarter with every conversation! Rate my responses with the +1/-1 bu
       await ctx.reply("Settings are managed per group chat. Add me to a group and use /settings there!");
       return;
     }
-    const adminCheck = await isAdmin(ctx);
+    const chatIdStr = ctx.chat.id.toString();
+    const adminCheck = await isBotAdmin(ctx, chatIdStr);
     if (!adminCheck) {
       await ctx.reply("Only admins can view or change settings!");
       return;
     }
-    const chatIdStr = ctx.chat.id.toString();
     const feats = await getFeatureSettings(chatIdStr);
     const lines = (Object.keys(FEATURE_LABELS) as (keyof FeatureSettings)[]).map(key => {
       const on = feats[key];
@@ -5279,7 +5285,8 @@ _Karen gets smarter with every conversation! Rate my responses with the +1/-1 bu
       await ctx.reply("Feature toggles only work in group chats!");
       return;
     }
-    const adminCheck = await isAdmin(ctx);
+    const chatIdStr = ctx.chat.id.toString();
+    const adminCheck = await isBotAdmin(ctx, chatIdStr);
     if (!adminCheck) {
       await ctx.reply("Only admins can toggle features!");
       return;
@@ -5292,7 +5299,6 @@ _Karen gets smarter with every conversation! Rate my responses with the +1/-1 bu
       await ctx.reply(`Please specify a valid feature name.\n\nValid options:\n${validKeys}\n\nExample: /toggle spam`);
       return;
     }
-    const chatIdStr = ctx.chat.id.toString();
     const feats = await getFeatureSettings(chatIdStr);
     const newValue = !feats[featureName];
     await updateFeatureSetting(chatIdStr, featureName, newValue);
@@ -6964,7 +6970,8 @@ Check the leaderboard with /refboard`;
     if (!ctx.chat || !ctx.from) return;
     if (ctx.chat.type === "private") return;
     
-    const adminCheck = await isAdmin(ctx);
+    const chatIdStr = ctx.chat.id.toString();
+    const adminCheck = await isBotAdmin(ctx, chatIdStr);
     if (!adminCheck) {
       await ctx.reply("Only admins can ban users!");
       return;
@@ -7055,7 +7062,8 @@ Check the leaderboard with /refboard`;
     if (!ctx.chat || !ctx.from) return;
     if (ctx.chat.type === "private") return;
     
-    const adminCheck = await isAdmin(ctx);
+    const chatIdStr = ctx.chat.id.toString();
+    const adminCheck = await isBotAdmin(ctx, chatIdStr);
     if (!adminCheck) {
       await ctx.reply("Only admins can mute users!");
       return;
@@ -7141,7 +7149,8 @@ Check the leaderboard with /refboard`;
     if (!ctx.chat || !ctx.from) return;
     if (ctx.chat.type === "private") return;
     
-    const adminCheck = await isAdmin(ctx);
+    const chatIdStr = ctx.chat.id.toString();
+    const adminCheck = await isBotAdmin(ctx, chatIdStr);
     if (!adminCheck) {
       await ctx.reply("Only admins can warn users!");
       return;
