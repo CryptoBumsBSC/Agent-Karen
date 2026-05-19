@@ -781,6 +781,59 @@ const WALLET_DRAINER_PHRASES = [
   "wallet sync required", "dapp connection", "web3 validation"
 ];
 
+// Inferno Drainer + other known drainer infrastructure domains (permit/approve attack vector)
+const INFERNO_DRAINER_DOMAINS = [
+  // Inferno Drainer family
+  "infernodrain", "inferno-drainer", "infernodrainer", "inferno-drain",
+  // Other named drainer families
+  "pink-drainer", "angel-drainer", "venom-drainer", "ms-drainer",
+  "monkey-drainer", "vulture-drainer", "rainbow-drainer", "ape-drainer",
+  // Permit / approve attack infrastructure
+  "eth-approve", "approve-eth", "signpermit", "permit-sign", "wallet-approve",
+  "token-approve", "approve-token", "unlimited-approve", "approve-unlimited",
+  "permit2-claim", "uniswap-permit", "metamask-permit",
+  "connect-approve", "dapp-approve", "web3-approve",
+  // Fragment lookalikes (username-sale scam → permit signature trap)
+  "fragment-io", "fragmnt", "fragmentt", "fragment-ton", "fragmentsale",
+  "t-fragment", "ton-fragment", "fragment-market",
+  // Generic drainer URL fragments
+  "wallet-drain", "crypto-drain", "nft-drain", "drain-wallet",
+  "claimeth", "claimbtc", "claim-usdt", "claimusdt",
+  "eth-giveaway", "btc-giveaway", "nft-giveaway",
+];
+
+// Permit-signature / wallet-connect bait patterns (EIP-2612, eth_signTypedData_v4, etc.)
+const PERMIT_SIGNATURE_PATTERNS = [
+  // EVM-level call names
+  "eth_signtypeddata", "signtypeddata_v4", "eth_sign(", "personal_sign",
+  "signpermit", "permit signature", "sign to verify",
+  // ERC-20 approve-style attacks
+  "approve()", "transferfrom(", "unlimited approval", "approve unlimited",
+  "approve all tokens", "setapprovalforall", "token approval required",
+  // Social-engineering framing
+  "verification signature", "sign this message to claim", "sign to claim",
+  "sign to receive", "small verification fee", "gas optimization fee",
+  "one-time verification", "wallet authorization required",
+  "approve to claim", "approve to receive", "approve and claim",
+  "authorize to claim", "permit to claim",
+  // Fragment / username-sale bait
+  "buy your @", "buy your username", "sell your username",
+  "username auction", "purchase your handle",
+];
+
+// Fake CAPTCHA patterns — "verify you're human" harvest attacks steal session tokens / keys
+const FAKE_CAPTCHA_PATTERNS = [
+  "verify you're human", "verify you are human", "verify that you're human",
+  "tap to verify", "click to verify", "press to verify",
+  "complete captcha", "captcha verification", "complete verification",
+  "human verification", "prove you're human", "prove you are human",
+  "not a robot", "i'm not a robot", "im not a robot",
+  "bot check", "anti-bot verification", "pass the captcha",
+  "click the button to verify", "tap the button to verify",
+  "verify your humanity", "verification required to join",
+  "verify your membership", "verify your access",
+];
+
 // Seed phrase detection - catches attempts to share/steal recovery phrases
 const SEED_PHRASE_WORDS = [
   "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse",
@@ -802,6 +855,33 @@ function detectSeedPhrase(text: string): boolean {
     }
   }
   return matchCount >= 10;
+}
+
+// Detect Inferno Drainer domains or permit-signature text patterns.
+// Returns a short description of what matched, or null if clean.
+function detectPermitSignatureAttack(text: string): string | null {
+  const lowerText = text.toLowerCase();
+  // Scan every URL in the message for known drainer domains
+  const urlRegex = /https?:\/\/([^\s\/]+)/gi;
+  let urlMatch;
+  while ((urlMatch = urlRegex.exec(text)) !== null) {
+    const domain = urlMatch[1].toLowerCase();
+    const hit = INFERNO_DRAINER_DOMAINS.find(d => domain.includes(d));
+    if (hit) return `drainer domain (${urlMatch[1]})`;
+  }
+  // Scan message text for permit-sig social-engineering phrases
+  for (const pattern of PERMIT_SIGNATURE_PATTERNS) {
+    if (lowerText.includes(pattern)) return `permit-sig phrase ("${pattern}")`;
+  }
+  return null;
+}
+
+// Detect fake CAPTCHA harvest attacks: CAPTCHA phrase + an external link (the dangerous combo).
+function detectFakeCaptcha(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  if (!FAKE_CAPTCHA_PATTERNS.some(p => lowerText.includes(p))) return false;
+  // Only flag when paired with a link — standalone phrases can appear in educational text
+  return /https?:\/\/[^\s]+/i.test(text);
 }
 
 // === HATE SPEECH & CONTENT MODERATION ===
@@ -1454,6 +1534,12 @@ function calculateRiskScore(text: string, username: string | undefined, accountA
       score += 15;
     }
   }
+  
+  // Check for Inferno Drainer / permit-signature attack patterns (high confidence = +50)
+  if (detectPermitSignatureAttack(text)) score += 50;
+  
+  // Check for fake CAPTCHA harvest patterns (high confidence = +45)
+  if (detectFakeCaptcha(text)) score += 45;
   
   // Check for links (excluding allowed domains)
   const urlRegex = /https?:\/\/[^\s]+/gi;
@@ -8863,6 +8949,50 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
         }
         
         } // end feats.scam short-link block
+        
+        // 1C2. Inferno Drainer domain + permit-signature / EIP-2612 attack detector
+        if (feats.scam) {
+          const permitHit = detectPermitSignatureAttack(text);
+          if (permitHit) {
+            try {
+              await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+              await incrementModStat(chatIdStr, 'scamsBlocked');
+              await ctx.reply(
+                `That message was removed — it matches known wallet-drain infrastructure.\n\n` +
+                `Permit-signature attacks look like innocent "verification signatures" or "small gas fees" ` +
+                `but silently grant unlimited access to your tokens via ERC-20 approve(). ` +
+                `NEVER sign anything from a link shared in a crypto group.\n\n` +
+                `Legitimate projects never ask you to sign a wallet approval to claim anything. ` +
+                `If you received a DM pushing this, block and report them immediately.`
+              );
+              await flagForModReview(ctx, userIdStr, username || "", text, 90, `Permit-sig/drainer attack: ${permitHit}`);
+            } catch (e) {
+              console.log("Couldn't delete permit-sig/drainer message");
+            }
+            return;
+          }
+        }
+        
+        // 1C3. Fake CAPTCHA harvest attack detector
+        // "verify you're human" prompts + external links steal session tokens / private keys
+        if (feats.scam && detectFakeCaptcha(text)) {
+          try {
+            await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+            await incrementModStat(chatIdStr, 'scamsBlocked');
+            await ctx.reply(
+              `That message was removed — it looks like a fake CAPTCHA or verification prompt.\n\n` +
+              `Fake "verify you're human" links inside crypto groups are a major attack vector. ` +
+              `They harvest session tokens, inject clipboard malware, or steal private keys — ` +
+              `NOT verify anything. The $200k Unihax0r drain in May 2025 came through exactly this.\n\n` +
+              `Real group verifications NEVER use external links. ` +
+              `If this was a mistake, reach out to an admin directly.`
+            );
+            await flagForModReview(ctx, userIdStr, username || "", text, 92, "Fake CAPTCHA / verification harvest attempt");
+          } catch (e) {
+            console.log("Couldn't delete fake CAPTCHA message");
+          }
+          return;
+        }
         
         // 1D. Hate speech detection with progressive warnings
         const hateSpeechCheck = feats.hate ? detectHateSpeech(text) : { detected: false };
