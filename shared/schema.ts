@@ -356,6 +356,8 @@ export const chatFeatureSettings = pgTable("chat_feature_settings", {
   massMention: boolean("mass_mention").default(true).notNull(),
   crossBan: boolean("cross_ban").default(true).notNull(),
   bioScan: boolean("bio_scan").default(true).notNull(),
+  aiChat: boolean("ai_chat").default(true).notNull(),
+  medicalQA: boolean("medical_qa").default(true).notNull(),
   updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

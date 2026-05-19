@@ -418,6 +418,8 @@ export interface FeatureSettings {
   massMention: boolean;
   crossBan: boolean;
   bioScan: boolean;
+  aiChat: boolean;
+  medicalQA: boolean;
 }
 
 const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
@@ -427,6 +429,7 @@ const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
   scheduled: true, referrals: true, giveaways: true, games: true,
   trust: true, stories: true,
   captcha: true, accountAge: true, massMention: true, crossBan: true, bioScan: true,
+  aiChat: true, medicalQA: true,
 };
 
 const FEATURE_LABELS: Record<keyof FeatureSettings, string> = {
@@ -455,6 +458,8 @@ const FEATURE_LABELS: Record<keyof FeatureSettings, string> = {
   massMention: "Mass-Mention Spam Detection (5+ @s in one message)",
   crossBan: "Cross-Group Ban Propagation (ban in one = ban in all)",
   bioScan: "Profile Bio Scanning (scam check at join)",
+  aiChat: "AI Chat Responses (GPT-4o-mini / roasts / auto-engage)",
+  medicalQA: "Medical Cannabis Q&A Mode (disclaimers + medical context)",
 };
 
 // In-memory cache — avoids a DB hit on every message
@@ -517,6 +522,7 @@ async function getFeatureSettings(chatId: string): Promise<FeatureSettings> {
       trust: r.trust, stories: r.stories,
       captcha: r.captcha, accountAge: r.accountAge, massMention: r.massMention,
       crossBan: r.crossBan, bioScan: r.bioScan,
+      aiChat: r.aiChat, medicalQA: r.medicalQA,
     };
     featureSettingsCache.set(chatId, settings);
     return settings;
@@ -673,6 +679,7 @@ const WIZARD_FEATURE_KEYS: (keyof FeatureSettings)[] = [
   "gifs", "personality", "learning", "scheduled",
   "referrals", "giveaways", "games", "trust", "stories",
   "captcha", "accountAge", "massMention", "crossBan", "bioScan",
+  "aiChat", "medicalQA",
 ];
 
 // Season/Holiday awareness
@@ -5117,10 +5124,15 @@ Stay safe, fam!`;
 
   // /roast - Roast someone
   bot.command("roast", async (ctx) => {
+    if (!ctx.chat) return;
+    const _roastFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_roastFeats.aiChat) {
+      await ctx.reply("AI features are currently disabled in this chat. An admin can enable them with /toggle aiChat");
+      return;
+    }
     const text = ctx.message?.text || "";
     const parts = text.split(" ");
     const target = parts[1] || ctx.from?.first_name || "yourself";
-    
     const roast = await generateRoast(target, "Dudley Bud community chat");
     await karenReplyWithGif(ctx, roast, { gifCategory: "sassy", gifChance: 0.25 });
   });
@@ -7579,6 +7591,12 @@ Check the leaderboard with /refboard`;
 
   // /ask - Ask AI anything (with live crypto/NFT/cannabis data)
   bot.command("ask", async (ctx) => {
+    if (!ctx.chat) return;
+    const _askFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_askFeats.aiChat) {
+      await ctx.reply("AI responses are currently disabled in this chat. An admin can enable them with /toggle aiChat");
+      return;
+    }
     const question = ctx.message?.text?.replace("/ask", "").trim();
     if (!question) {
       await ctx.reply("What would you like to know? Use: /ask [your question]\n\nExamples:\n- /ask what's bitcoin worth?\n- /ask cannabis brownie recipe\n- /ask how does the referral program work?");
@@ -7635,8 +7653,10 @@ Check the leaderboard with /refboard`;
       liveData += `\n\nRECIPE:\n${recipe}`;
     }
     
-    // Handle medical cannabis queries - add disclaimer
-    if (isMedical) {
+    // Handle medical cannabis queries - add disclaimer (only when medicalQA toggle is ON)
+    const _qaFeats = await getFeatureSettings(ctx.chat?.id?.toString() || "0");
+    const effectiveMedical = isMedical && _qaFeats.medicalQA;
+    if (effectiveMedical) {
       disclaimer = MEDICAL_DISCLAIMER;
     }
     
@@ -7681,7 +7701,7 @@ Check the leaderboard with /refboard`;
     let context = "User asking a question about Dudley Bud";
     if (isCrypto) context = "User asking about crypto/NFT. Provide helpful market commentary.";
     if (isRecipe) context = "User asking about cannabis recipes/edibles. Be helpful and emphasize safe dosing.";
-    if (isMedical) context = "User asking about medical cannabis. Provide general educational info but emphasize consulting professionals.";
+    if (effectiveMedical) context = "User asking about medical cannabis. Provide general educational info but emphasize consulting professionals.";
     
     const aiResponse = await getAIResponse(question, context);
     const fullResponse = aiResponse + liveData + disclaimer;
@@ -9051,10 +9071,14 @@ Check the leaderboard with /refboard`;
         }
       }
 
+      // Fetch community config first so we can use the custom bot nickname in welcome messages
+      const communityData = await getCommunity(chatIdStr);
+      const botName = communityData?.botNickname || "Karen";
+
       const welcomeMessages = [
         `Hey ${name}! Welcome to the Dudley Bud fam!
 
-I'm Karen, your friendly (okay, sometimes sassy) community manager. Here's the deal:
+I'm ${botName}, your friendly (okay, sometimes sassy) community manager. Here's the deal:
 
 - Read the pinned messages first
 - Our team NEVER DMs first - anyone who does is a scammer
@@ -9064,7 +9088,7 @@ Got questions? Just ask me anything - I don't bite... much.`,
 
         `Well well, ${name} just walked in!
 
-Welcome to Dudley Bud! I'm Karen, I run this place.
+Welcome to Dudley Bud! I'm ${botName}, I run this place.
 
 Quick tips:
 - Check the pinned messages
@@ -9075,7 +9099,7 @@ Don't be shy - I'm here 24/7!`,
 
         `Welcome ${name}! Good to see a new face!
 
-I'm Karen - community manager, trivia host, and occasional roaster.
+I'm ${botName} - community manager, trivia host, and occasional roaster.
 
 Before you dive in:
 - Pinned messages = must read
@@ -9084,9 +9108,7 @@ Before you dive in:
 
 Ask me anything! I'm literally always here.`
       ];
-      
-      // Use custom community welcome message if configured, otherwise rotate defaults
-      const communityData = await getCommunity(chatIdStr);
+
       let welcome: string;
       if (communityData?.welcomeMessage) {
         welcome = communityData.welcomeMessage.replace(/\{name\}/gi, name);
@@ -9657,7 +9679,8 @@ Ask me anything! I'm literally always here.`
     // Update activity time and reset auto-engage timer
     ctx.session.lastActivityTime = Date.now();
     if (chatId && chatId < 0) { // Only for group chats (negative IDs)
-      resetAutoEngageTimer(chatId);
+      const _engageFeats = await getFeatureSettings(chatId.toString());
+      if (_engageFeats.aiChat) resetAutoEngageTimer(chatId);
       
       // Track this chat for scheduled posts (recipes, etc.)
       activeChats.add(chatId);
