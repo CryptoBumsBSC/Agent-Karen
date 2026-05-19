@@ -9192,7 +9192,7 @@ Check the leaderboard with /refboard`;
       if (_bioJoinFeats.bioScan) {
         try {
           const userChat = await ctx.api.getChat(member.id);
-          const bio = ((userChat as Record<string, unknown>).bio as string | undefined) || "";
+          const bio = ((userChat as unknown as Record<string, unknown>).bio as string | undefined) || "";
           if (bio) {
             const bioLower = bio.toLowerCase();
             const bioHit = BIO_SCAM_PHRASES.find(phrase => bioLower.includes(phrase));
@@ -10672,7 +10672,7 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
     }
     
     // Story generator trigger - generate random Dudleyverse story
-    if ((lowerText === "story" || lowerText.includes("tell me a story") || lowerText.includes("dudley story") || lowerText.includes("dudleyverse")) && (await getFeatureSettings(chatIdStr)).stories) {
+    if ((lowerText === "story" || lowerText.includes("tell me a story") || lowerText.includes("dudley story") || lowerText.includes("dudleyverse")) && (await getFeatureSettings(String(chatId))).stories) {
       const story = StoryBible.generateRandomStory(username || firstName);
       await ctx.reply(`Alright ${firstName}, gather 'round for today's tale...\n\n${story}\n\nClassic Dudleyverse chaos, sweetie.`, { reply_parameters: { message_id: ctx.message.message_id } });
       return;
@@ -13238,7 +13238,7 @@ export async function startBot() {
   // CAPTCHA expiry cleanup — ban any user who didn't tap verify within 10 minutes
   setInterval(async () => {
     const now = Date.now();
-    for (const [key, pending] of captchaPending.entries()) {
+    for (const [key, pending] of Array.from(captchaPending.entries())) {
       if (now - pending.timestamp > 10 * 60 * 1000) {
         captchaPending.delete(key);
         try {
