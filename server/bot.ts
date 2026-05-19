@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { type Community as CommunityDbRow, communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs, chatFeatureSettings, communities } from "@shared/schema";
+import { type Community as CommunityDbRow, communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs, chatFeatureSettings, communities, globalBans } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 import * as StoryBible from "./storyBible";
@@ -413,6 +413,11 @@ export interface FeatureSettings {
   games: boolean;
   trust: boolean;
   stories: boolean;
+  captcha: boolean;
+  accountAge: boolean;
+  massMention: boolean;
+  crossBan: boolean;
+  bioScan: boolean;
 }
 
 const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
@@ -421,6 +426,7 @@ const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
   newuser: true, gifs: true, personality: true, learning: true,
   scheduled: true, referrals: true, giveaways: true, games: true,
   trust: true, stories: true,
+  captcha: true, accountAge: true, massMention: true, crossBan: true, bioScan: true,
 };
 
 const FEATURE_LABELS: Record<keyof FeatureSettings, string> = {
@@ -444,10 +450,52 @@ const FEATURE_LABELS: Record<keyof FeatureSettings, string> = {
   games: "Games (Trivia/Puzzle)",
   trust: "Trust System",
   stories: "Story Generator",
+  captcha: "CAPTCHA Verification Gate (new joins)",
+  accountAge: "New Account Age Gate (block brand-new Telegram accounts)",
+  massMention: "Mass-Mention Spam Detection (5+ @s in one message)",
+  crossBan: "Cross-Group Ban Propagation (ban in one = ban in all)",
+  bioScan: "Profile Bio Scanning (scam check at join)",
 };
 
 // In-memory cache — avoids a DB hit on every message
 const featureSettingsCache = new Map<string, FeatureSettings>();
+
+// CAPTCHA pending verifications — key: `${chatId}_${userId}`
+const captchaPending = new Map<string, { chatId: number; userId: number; timestamp: number }>();
+
+// Bio scam phrases checked via getChat() at join time
+const BIO_SCAM_PHRASES = [
+  "dm for signals", "dm for profits", "dm for trades", "signal provider",
+  "guaranteed profits", "investment manager", "recovery specialist",
+  "contact me for", "binary trading", "forex trader", "pump signals",
+  "free crypto", "free signals", "crypto manager", "wallet recovery",
+  "earn daily", "passive income trader",
+];
+
+// Telegram user IDs are sequential. IDs above this threshold were created in 2025-2026.
+// Used as a heuristic for the accountAge gate — not 100% precise but good enough.
+function isNewAccountHeuristic(userId: number): boolean {
+  return userId > 7_500_000_000;
+}
+
+// Record a user in the cross-group global ban list
+async function recordGlobalBan(
+  userId: string, username: string | undefined, displayName: string | undefined,
+  chatId: string, reason: string
+): Promise<void> {
+  try {
+    await db.insert(globalBans).values({ userId, username, displayName, bannedInChatId: chatId, reason })
+      .onConflictDoNothing();
+  } catch { /* already recorded */ }
+}
+
+// Check if a user exists in the global ban list
+async function isGloballyBanned(userId: string): Promise<boolean> {
+  try {
+    const rows = await db.select().from(globalBans).where(eq(globalBans.userId, userId)).limit(1);
+    return rows.length > 0;
+  } catch { return false; }
+}
 
 async function getFeatureSettings(chatId: string): Promise<FeatureSettings> {
   if (featureSettingsCache.has(chatId)) return featureSettingsCache.get(chatId)!;
@@ -467,6 +515,8 @@ async function getFeatureSettings(chatId: string): Promise<FeatureSettings> {
       personality: r.personality, learning: r.learning, scheduled: r.scheduled,
       referrals: r.referrals, giveaways: r.giveaways, games: r.games,
       trust: r.trust, stories: r.stories,
+      captcha: r.captcha, accountAge: r.accountAge, massMention: r.massMention,
+      crossBan: r.crossBan, bioScan: r.bioScan,
     };
     featureSettingsCache.set(chatId, settings);
     return settings;
@@ -622,6 +672,7 @@ const WIZARD_FEATURE_KEYS: (keyof FeatureSettings)[] = [
   "links", "edits", "files", "impersonation", "newuser",
   "gifs", "personality", "learning", "scheduled",
   "referrals", "giveaways", "games", "trust", "stories",
+  "captcha", "accountAge", "massMention", "crossBan", "bioScan",
 ];
 
 // Season/Holiday awareness
@@ -7004,8 +7055,17 @@ Check the leaderboard with /refboard`;
         actorUsername: ctx.from.username,
         executionSource: "admin"
       });
-      
-      await ctx.reply(`Banned ${targetUser.first_name}. They can no longer join this group.`);
+
+      // Cross-group propagation — record in global ban list if feature is ON
+      const _banFeats = await getFeatureSettings(chatIdStr);
+      if (_banFeats.crossBan) {
+        await recordGlobalBan(
+          String(targetUser.id), targetUser.username,
+          targetUser.first_name, chatIdStr, "Admin ban"
+        );
+      }
+
+      await ctx.reply(`Banned ${targetUser.first_name}. They can no longer join this group.${_banFeats.crossBan ? " They are also blocked from all other Karen-managed communities." : ""}`);
     } catch (error) {
       await ctx.reply("Couldn't ban that user. Make sure I have admin permissions!");
     }
@@ -8438,7 +8498,32 @@ Check the leaderboard with /refboard`;
       const chatId = ctx.chat.id;
       const chatIdStr = chatId.toString();
       const newMemberId = member.id.toString();
-      
+
+      // === GLOBAL BAN CHECK — runs before everything else ===
+      const _earlyFeats = await getFeatureSettings(chatIdStr);
+      if (_earlyFeats.crossBan && await isGloballyBanned(newMemberId)) {
+        try {
+          await ctx.api.banChatMember(chatId, member.id);
+          console.log(`[CrossBan] Globally banned user ${newMemberId} auto-removed from ${chatIdStr}`);
+        } catch {}
+        continue;
+      }
+
+      // === ACCOUNT AGE GATE — remove brand-new Telegram accounts ===
+      if (_earlyFeats.accountAge && !member.is_bot && isNewAccountHeuristic(member.id)) {
+        try {
+          await ctx.api.banChatMember(chatId, member.id);
+          await ctx.api.unbanChatMember(chatId, member.id);
+          await ctx.reply(
+            `${fullName || name} was removed — their Telegram account appears to have been created very recently.\n\n` +
+            `To protect this community, brand-new accounts cannot join immediately. ` +
+            `Please try again in a few days.`
+          );
+          await logViolation(chatIdStr, newMemberId, username || fullName, "account_age", "High user ID heuristic", "Account created very recently", "kick");
+        } catch (e) { console.log("[AccountAge] Couldn't kick new account:", e); }
+        continue;
+      }
+
       // === RAID DETECTION ===
       const _raidFeats = await getFeatureSettings(chatIdStr);
       if (!_raidFeats.raid) {
@@ -8752,6 +8837,28 @@ Check the leaderboard with /refboard`;
         }
       }
 
+      // === PROFILE BIO SCAN — getChat() can return bio even though join events don't ===
+      const _bioJoinFeats = await getFeatureSettings(chatIdStr);
+      if (_bioJoinFeats.bioScan) {
+        try {
+          const userChat = await ctx.api.getChat(member.id);
+          const bio = ((userChat as Record<string, unknown>).bio as string | undefined) || "";
+          if (bio) {
+            const bioLower = bio.toLowerCase();
+            const bioHit = BIO_SCAM_PHRASES.find(phrase => bioLower.includes(phrase));
+            const bioHasWallet = /0x[a-fA-F0-9]{8,}/i.test(bio) || /[13][a-km-zA-HJ-NP-Z1-9]{25,34}/.test(bio);
+            if (bioHit || bioHasWallet) {
+              await ctx.api.banChatMember(chatId, member.id);
+              const reason = bioHit ? `Bio contains scam phrase: "${bioHit}"` : "Bio contains crypto wallet address";
+              await ctx.reply(`${fullName || name} was removed at join — bio scan flagged scam content.\nREASON: ${reason}`);
+              await logViolation(chatIdStr, newMemberId, username || fullName, "bio_scan", bio.slice(0, 200), reason, "ban");
+              await incrementModStat(chatIdStr, 'scamsBlocked');
+              continue;
+            }
+          }
+        } catch { /* Bio not available or API error — no action */ }
+      }
+
       // Check if this member was referred via an invite link
       // Note: Telegram doesn't always provide invite link info in message context
       // We'll also use chat_member updates for better tracking
@@ -8774,6 +8881,43 @@ Check the leaderboard with /refboard`;
       
       // Track new join in moderation stats
       await incrementModStat(chatIdStr, 'newJoins');
+
+      // === CAPTCHA VERIFICATION GATE ===
+      const _captchaJoinFeats = await getFeatureSettings(chatIdStr);
+      if (_captchaJoinFeats.captcha && !member.is_bot) {
+        try {
+          await ctx.api.restrictChatMember(chatId, member.id, {
+            can_send_messages: false,
+            can_send_audios: false,
+            can_send_documents: false,
+            can_send_photos: false,
+            can_send_videos: false,
+            can_send_video_notes: false,
+            can_send_voice_notes: false,
+            can_send_polls: false,
+            can_send_other_messages: false,
+            can_add_web_page_previews: false
+          }, { until_date: Math.floor(Date.now() / 1000) + 600 });
+
+          captchaPending.set(`${chatId}_${member.id}`, { chatId, userId: member.id, timestamp: Date.now() });
+
+          await ctx.reply(
+            `Welcome ${name}! One quick step before you can chat:\n\n` +
+            `Tap the button below to confirm you're a real person. ` +
+            `You have 10 minutes — unverified accounts are automatically removed.`,
+            {
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: "✅ I'm a real person — let me in!", callback_data: `captcha:${chatId}:${member.id}` }
+                ]]
+              }
+            }
+          );
+          continue; // CAPTCHA message IS the welcome — skip the regular welcome below
+        } catch {
+          // If restrict fails (bot lacks permissions), fall through to normal welcome
+        }
+      }
 
       const welcomeMessages = [
         `Hey ${name}! Welcome to the Dudley Bud fam!
@@ -8818,6 +8962,54 @@ Ask me anything! I'm literally always here.`
         welcome = welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)];
       }
       await karenReplyWithGif(ctx, welcome, { gifCategory: "welcoming", gifChance: 0.25 });
+    }
+  });
+
+  // === CAPTCHA VERIFICATION CALLBACK ===
+  bot.callbackQuery(/^captcha:/, async (ctx) => {
+    const data = ctx.callbackQuery.data || "";
+    const parts = data.split(":");
+    if (parts.length !== 3) { await ctx.answerCallbackQuery(); return; }
+
+    const [, chatIdStr, userIdStr] = parts;
+    const chatId = parseInt(chatIdStr);
+    const userId = parseInt(userIdStr);
+
+    if (ctx.from.id !== userId) {
+      await ctx.answerCallbackQuery({ text: "This verification button isn't for you!", show_alert: true });
+      return;
+    }
+
+    const pendingKey = `${chatId}_${userId}`;
+    if (!captchaPending.has(pendingKey)) {
+      await ctx.answerCallbackQuery({ text: "Already verified or session expired.", show_alert: true });
+      return;
+    }
+    captchaPending.delete(pendingKey);
+
+    try {
+      await ctx.api.restrictChatMember(chatId, userId, {
+        can_send_messages: true,
+        can_send_audios: true,
+        can_send_documents: true,
+        can_send_photos: true,
+        can_send_videos: true,
+        can_send_video_notes: true,
+        can_send_voice_notes: true,
+        can_send_polls: true,
+        can_send_other_messages: true,
+        can_add_web_page_previews: true
+      });
+
+      await ctx.answerCallbackQuery({ text: "✅ Verified! You can now chat. Welcome!", show_alert: false });
+      try {
+        await ctx.editMessageText(
+          `✅ ${ctx.from.first_name} passed verification and is now a full member. Welcome!`,
+          { reply_markup: { inline_keyboard: [] } }
+        );
+      } catch { /* edit failed — not critical */ }
+    } catch {
+      await ctx.answerCallbackQuery({ text: "Verification failed — please ask an admin to restore your permissions.", show_alert: true });
     }
   });
 
@@ -9482,7 +9674,26 @@ Ask me anything! I'm literally always here.`
         // Check if user is admin (admins are exempt from spam detection)
         const userIsAdmin = await isAdmin(ctx);
         const _spamFeats = await getFeatureSettings(String(chatId));
-        
+
+        // Mass-mention spam detection — 5+ @mentions in one message
+        if (!userIsAdmin && _spamFeats.massMention) {
+          const mentionEntities = ctx.message?.entities?.filter(e =>
+            e.type === "mention" || e.type === "text_mention"
+          ) || [];
+          if (mentionEntities.length >= 5) {
+            try {
+              await ctx.api.deleteMessage(chatId, ctx.message.message_id);
+              const mentionTarget = ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name;
+              await ctx.reply(
+                `${mentionTarget} — mentioning ${mentionEntities.length} people in one message is not allowed.\n\n` +
+                `Mass-mentions are a spam pattern. Please keep it to 1-2 at a time.`
+              );
+              await logViolation(String(chatId), String(ctx.from.id), ctx.from.username || ctx.from.first_name || "unknown", "mass_mention", text.slice(0, 200), `${mentionEntities.length} @mentions in one message`, "delete");
+            } catch { /* delete failed — bot may lack permissions */ }
+            return;
+          }
+        }
+
         if (!userIsAdmin && _spamFeats.spam && isSpam(chatId, ctx.from.id, text)) {
           const { muteSeconds, offenseCount, shouldBan } = addOffense(chatId, ctx.from.id);
           const firstName = ctx.from.first_name || "User";
@@ -12670,6 +12881,20 @@ export async function startBot() {
 
   // Start the community expiry scheduler (checks daily for expired trials)
   startCommunityExpiryScheduler();
+
+  // CAPTCHA expiry cleanup — ban any user who didn't tap verify within 10 minutes
+  setInterval(async () => {
+    const now = Date.now();
+    for (const [key, pending] of captchaPending.entries()) {
+      if (now - pending.timestamp > 10 * 60 * 1000) {
+        captchaPending.delete(key);
+        try {
+          await bot.api.banChatMember(pending.chatId, pending.userId);
+          console.log(`[CAPTCHA] Banned unverified user ${pending.userId} in chat ${pending.chatId}`);
+        } catch { /* user may have already left */ }
+      }
+    }
+  }, 2 * 60 * 1000);
 
   // Clear any pending webhook to prevent conflicts
   try {

@@ -351,7 +351,23 @@ export const chatFeatureSettings = pgTable("chat_feature_settings", {
   games: boolean("games").default(true).notNull(),
   trust: boolean("trust").default(true).notNull(),
   stories: boolean("stories").default(true).notNull(),
+  captcha: boolean("captcha").default(true).notNull(),
+  accountAge: boolean("account_age").default(true).notNull(),
+  massMention: boolean("mass_mention").default(true).notNull(),
+  crossBan: boolean("cross_ban").default(true).notNull(),
+  bioScan: boolean("bio_scan").default(true).notNull(),
   updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Global ban list — bans propagated across all Karen-managed communities
+export const globalBans = pgTable("global_bans", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  username: text("username"),
+  displayName: text("display_name"),
+  bannedInChatId: text("banned_in_chat_id").notNull(),
+  reason: text("reason").default("Admin ban"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
 // Multi-community SaaS — one row per Telegram group using Karen bot
