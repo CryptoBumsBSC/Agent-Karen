@@ -354,6 +354,22 @@ export const chatFeatureSettings = pgTable("chat_feature_settings", {
   updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Multi-community SaaS — one row per Telegram group using Karen bot
+export const communities = pgTable("communities", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull().unique(),
+  displayName: text("display_name").notNull().default("Community"),
+  botNickname: text("bot_nickname").default("Karen"),
+  welcomeMessage: text("welcome_message"),
+  timezone: text("timezone").default("America/Los_Angeles"),
+  status: text("status").default("trial").notNull(), // trial | active | free | banned
+  trialExpiresAt: timestamp("trial_expires_at"),
+  isOnboarded: boolean("is_onboarded").default(false),
+  onboardingStep: integer("onboarding_step").default(0),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // === BOT LEARNING SYSTEM ===
 
 // Bot interactions - stores all conversations for learning
@@ -415,6 +431,7 @@ export const insertUserProjectQuestionSchema = createInsertSchema(userProjectQue
 export const insertNewUserMessageSchema = createInsertSchema(newUserMessages).omit({ id: true, createdAt: true });
 export const insertViolationLogSchema = createInsertSchema(violationLogs).omit({ id: true, createdAt: true });
 export const insertChatFeatureSettingsSchema = createInsertSchema(chatFeatureSettings).omit({ id: true, updatedAt: true });
+export const insertCommunitySchema = createInsertSchema(communities).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertBotInteractionSchema = createInsertSchema(botInteractions).omit({ id: true, createdAt: true });
 export const insertUserFeedbackSchema = createInsertSchema(userFeedback).omit({ id: true, createdAt: true });
 export const insertLearnedPatternSchema = createInsertSchema(learnedPatterns).omit({ id: true, createdAt: true });
@@ -444,6 +461,8 @@ export type NewUserMessage = typeof newUserMessages.$inferSelect;
 export type ViolationLog = typeof violationLogs.$inferSelect;
 export type ChatFeatureSettings = typeof chatFeatureSettings.$inferSelect;
 export type InsertChatFeatureSettings = z.infer<typeof insertChatFeatureSettingsSchema>;
+export type Community = typeof communities.$inferSelect;
+export type InsertCommunity = z.infer<typeof insertCommunitySchema>;
 export type BotInteraction = typeof botInteractions.$inferSelect;
 export type UserFeedback = typeof userFeedback.$inferSelect;
 export type LearnedPattern = typeof learnedPatterns.$inferSelect;

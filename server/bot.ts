@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs, chatFeatureSettings } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs, chatFeatureSettings, communities } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 import * as StoryBible from "./storyBible";
@@ -481,6 +481,118 @@ async function updateFeatureSetting(chatId: string, feature: keyof FeatureSettin
   cached[feature] = value;
   featureSettingsCache.set(chatId, cached);
 }
+
+// === MULTI-COMMUNITY SAAS SYSTEM ===
+
+interface CommunityRecord {
+  chatId: string;
+  displayName: string;
+  botNickname: string;
+  welcomeMessage: string | null;
+  timezone: string;
+  status: string; // trial | active | free | banned
+  trialExpiresAt: Date | null;
+  isOnboarded: boolean;
+  onboardingStep: number;
+}
+
+const communityCache = new Map<string, CommunityRecord>();
+
+function mapCommunityRow(r: any): CommunityRecord {
+  return {
+    chatId: r.chatId,
+    displayName: r.displayName || "Community",
+    botNickname: r.botNickname || "Karen",
+    welcomeMessage: r.welcomeMessage || null,
+    timezone: r.timezone || "America/Los_Angeles",
+    status: r.status || "trial",
+    trialExpiresAt: r.trialExpiresAt ? new Date(r.trialExpiresAt) : null,
+    isOnboarded: r.isOnboarded || false,
+    onboardingStep: r.onboardingStep || 0,
+  };
+}
+
+async function getCommunity(chatId: string): Promise<CommunityRecord | null> {
+  if (communityCache.has(chatId)) return communityCache.get(chatId)!;
+  try {
+    const rows = await db.select().from(communities).where(eq(communities.chatId, chatId)).limit(1);
+    if (rows.length === 0) return null;
+    const community = mapCommunityRow(rows[0]);
+    communityCache.set(chatId, community);
+    return community;
+  } catch (err) {
+    console.error(`[Community] DB error for chat ${chatId}:`, err);
+    return null;
+  }
+}
+
+async function ensureCommunity(chatId: string, displayName?: string): Promise<CommunityRecord> {
+  const existing = await getCommunity(chatId);
+  if (existing) return existing;
+  const trialExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await db.insert(communities).values({
+    chatId,
+    displayName: displayName || "Community",
+    status: "trial",
+    trialExpiresAt,
+  }).onConflictDoNothing();
+  const community: CommunityRecord = {
+    chatId,
+    displayName: displayName || "Community",
+    botNickname: "Karen",
+    welcomeMessage: null,
+    timezone: "America/Los_Angeles",
+    status: "trial",
+    trialExpiresAt,
+    isOnboarded: false,
+    onboardingStep: 0,
+  };
+  communityCache.set(chatId, community);
+  return community;
+}
+
+function isSubscribed(community: CommunityRecord): boolean {
+  if (community.status === "active") return true;
+  if (community.status === "trial") {
+    if (!community.trialExpiresAt) return true;
+    return community.trialExpiresAt > new Date();
+  }
+  return false;
+}
+
+function getStatusLabel(community: CommunityRecord): string {
+  if (community.status === "banned") return "BANNED";
+  if (community.status === "active") return "ACTIVE (Paid)";
+  if (community.status === "trial") {
+    const now = new Date();
+    if (!community.trialExpiresAt || community.trialExpiresAt > now) {
+      const days = community.trialExpiresAt
+        ? Math.max(0, Math.ceil((community.trialExpiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+        : 7;
+      return `TRIAL (${days} day${days !== 1 ? "s" : ""} remaining)`;
+    }
+    return "TRIAL EXPIRED — upgrade to restore features";
+  }
+  return "FREE (limited commands only)";
+}
+
+async function updateCommunity(chatId: string, updates: Record<string, any>): Promise<void> {
+  const cleanUpdates = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
+  await db.update(communities)
+    .set({ ...cleanUpdates, updatedAt: new Date() })
+    .where(eq(communities.chatId, chatId));
+  const cached = communityCache.get(chatId);
+  if (cached) communityCache.set(chatId, { ...cached, ...cleanUpdates });
+}
+
+// In-memory setup wizard state per chat (cleared when wizard completes or bot restarts)
+interface SetupWizardState {
+  step: number; // 1=name, 2=timezone, 3=welcome
+  initiatorId: number;
+  displayName?: string;
+  timezone?: string;
+}
+const setupWizardState = new Map<string, SetupWizardState>();
 
 // Season/Holiday awareness
 function getSeasonalContext(): { season: string; holiday: string | null; greeting: string } {
@@ -4089,6 +4201,12 @@ async function isOwner(ctx: MyContext): Promise<boolean> {
   }
 }
 
+// isGlobalOwner — checks @aussieBoomer username regardless of which chat they're in.
+// Used for cross-community owner commands (/communities, /activate, etc.)
+function isGlobalOwner(ctx: MyContext): boolean {
+  return ctx.from?.username?.toLowerCase() === "aussieboomer";
+}
+
 // Check if user is admin or creator
 async function isAdmin(ctx: MyContext): Promise<boolean> {
   if (!ctx.chat || !ctx.from) return false;
@@ -4602,6 +4720,38 @@ export function createBot(): Bot<MyContext> {
       lastActivityTime: Date.now()
     })
   }));
+
+  // === SUBSCRIPTION GATE MIDDLEWARE ===
+  // Groups must have an active trial or paid subscription for full feature access.
+  // Banned groups: no response at all. Free/expired: only basic commands work.
+  bot.use(async (ctx, next) => {
+    const chatId = ctx.chat?.id;
+    if (!chatId || chatId >= 0) return next(); // Pass through DMs and untracked contexts
+    const chatIdStr = chatId.toString();
+    const community = await getCommunity(chatIdStr);
+
+    // Banned communities: bot goes completely silent
+    if (community?.status === "banned") return;
+
+    // Free/expired communities: only essential commands are allowed
+    if (community && !isSubscribed(community)) {
+      const text = ((ctx.message as any)?.text || "").trim();
+      const FREE_COMMANDS = ["/help", "/start", "/info", "/ask", "/setup", "/community"];
+      if (text.startsWith("/")) {
+        const cmdBase = text.split(/[\s@]/)[0].toLowerCase();
+        if (!FREE_COMMANDS.some(fc => cmdBase === fc)) {
+          await ctx.reply(
+            `This community's Karen subscription has expired.\n\n` +
+            `Available on free tier: /help, /info, /ask, /setup, /community\n\n` +
+            `Contact @aussieBoomer to activate your subscription and unlock all features.`
+          );
+          return;
+        }
+      }
+    }
+
+    return next();
+  });
 
   // === COMMAND HANDLERS ===
 
@@ -7706,6 +7856,277 @@ Check the leaderboard with /refboard`;
     await ctx.reply(`✅ @${replyTo.username || replyTo.first_name}'s role set to: ${role}`);
   });
 
+  // === COMMUNITY SAAS COMMANDS ===
+
+  // /setup — Multi-step onboarding wizard for new communities (admin only)
+  bot.command("setup", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") {
+      await ctx.reply("Run /setup in your group chat to configure Karen for your community!");
+      return;
+    }
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can run the setup wizard.");
+      return;
+    }
+    const chatIdStr = ctx.chat.id.toString();
+    const existing = await getCommunity(chatIdStr);
+
+    if (existing?.isOnboarded) {
+      await ctx.reply(
+        `This community is already configured!\n\n` +
+        `Name: ${existing.displayName}\n` +
+        `Nickname: ${existing.botNickname}\n` +
+        `Timezone: ${existing.timezone}\n` +
+        `Status: ${getStatusLabel(existing)}\n\n` +
+        `Use /community to view full config.\n` +
+        `Update settings: /setname /setwelcome /setnickname /settimezone`
+      );
+      return;
+    }
+
+    setupWizardState.set(chatIdStr, { step: 1, initiatorId: ctx.from.id });
+    await ctx.reply(
+      `WELCOME TO KAREN SETUP!\n\n` +
+      `I'll walk you through configuring me for your community. Admins only.\n\n` +
+      `STEP 1 OF 3: What's the name of your community?\n` +
+      `(e.g. "Dudley Bud", "CryptoHub", "NFT Lounge")\n\n` +
+      `Type the name to continue.`
+    );
+  });
+
+  // /community — View current community config and subscription status
+  bot.command("community", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") {
+      await ctx.reply("Run /community in your group chat to see its config!");
+      return;
+    }
+    const chatIdStr = ctx.chat.id.toString();
+    const community = await getCommunity(chatIdStr);
+
+    if (!community) {
+      await ctx.reply(
+        `This group hasn't been set up yet.\n\n` +
+        `Run /setup (admin only) to configure Karen and start your FREE 7-day trial with all 20 features enabled!`
+      );
+      return;
+    }
+
+    const feats = await getFeatureSettings(chatIdStr);
+    const enabledFeatures = Object.entries(feats).filter(([, v]) => v).map(([k]) => k);
+
+    await ctx.reply(
+      `COMMUNITY CONFIG\n\n` +
+      `Name: ${community.displayName}\n` +
+      `Bot Nickname: ${community.botNickname}\n` +
+      `Timezone: ${community.timezone}\n` +
+      `Welcome Message: ${community.welcomeMessage ? "Custom (set)" : "Default rotation"}\n` +
+      `Status: ${getStatusLabel(community)}\n\n` +
+      `Active features (${enabledFeatures.length}/20): ${enabledFeatures.join(", ")}\n\n` +
+      `Manage: /setname /setwelcome /setnickname /settimezone /settings /toggle`
+    );
+  });
+
+  // /setname [name] — Update community display name
+  bot.command("setname", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    if (!(await isAdmin(ctx))) { await ctx.reply("Only admins can update community settings."); return; }
+    const name = (ctx.match || "").trim();
+    if (!name) { await ctx.reply("Usage: /setname Your Community Name"); return; }
+    const chatIdStr = ctx.chat.id.toString();
+    await ensureCommunity(chatIdStr);
+    await updateCommunity(chatIdStr, { displayName: name });
+    await ctx.reply(`Community name updated to: ${name}`);
+  });
+
+  // /setwelcome [message] — Set a custom welcome message for new members
+  bot.command("setwelcome", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    if (!(await isAdmin(ctx))) { await ctx.reply("Only admins can update community settings."); return; }
+    const message = (ctx.match || "").trim();
+    if (!message) {
+      await ctx.reply(
+        `Usage: /setwelcome Your welcome message\n\n` +
+        `Use {name} as a placeholder for the new member's name.\n` +
+        `Example: /setwelcome Hey {name}! Welcome to our community! Read the pinned messages.`
+      );
+      return;
+    }
+    const chatIdStr = ctx.chat.id.toString();
+    await ensureCommunity(chatIdStr);
+    await updateCommunity(chatIdStr, { welcomeMessage: message });
+    const preview = message.replace("{name}", ctx.from.first_name || "NewMember");
+    await ctx.reply(`Custom welcome message saved!\n\nPreview: "${preview}"`);
+  });
+
+  // /setnickname [name] — Set what Karen calls herself in this group
+  bot.command("setnickname", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    if (!(await isAdmin(ctx))) { await ctx.reply("Only admins can update community settings."); return; }
+    const nickname = (ctx.match || "").trim();
+    if (!nickname || nickname.length > 30) {
+      await ctx.reply("Usage: /setnickname Nickname (max 30 chars)\nExample: /setnickname Karla");
+      return;
+    }
+    const chatIdStr = ctx.chat.id.toString();
+    await ensureCommunity(chatIdStr);
+    await updateCommunity(chatIdStr, { botNickname: nickname });
+    await ctx.reply(`Got it! I'll go by "${nickname}" in this community from now on.`);
+  });
+
+  // /settimezone [tz] — Set timezone for scheduled posts
+  bot.command("settimezone", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    if (!(await isAdmin(ctx))) { await ctx.reply("Only admins can update community settings."); return; }
+    const tz = (ctx.match || "").trim();
+    if (!tz) {
+      await ctx.reply(
+        `Usage: /settimezone Timezone\n\n` +
+        `Common options:\n` +
+        `• America/Los_Angeles (Pacific)\n` +
+        `• America/New_York (Eastern)\n` +
+        `• Europe/London (GMT/BST)\n` +
+        `• Australia/Sydney (AEST)\n` +
+        `• Asia/Singapore (SGT)\n` +
+        `• UTC`
+      );
+      return;
+    }
+    try { Intl.DateTimeFormat(undefined, { timeZone: tz }); } catch {
+      await ctx.reply("Invalid timezone. Use standard IANA names like America/New_York or Australia/Sydney.");
+      return;
+    }
+    const chatIdStr = ctx.chat.id.toString();
+    await ensureCommunity(chatIdStr);
+    await updateCommunity(chatIdStr, { timezone: tz });
+    await ctx.reply(`Timezone updated to: ${tz}`);
+  });
+
+  // === OWNER MANAGEMENT COMMANDS (usable from any chat by @aussieBoomer) ===
+
+  // /communities — List all registered communities
+  bot.command("communities", async (ctx) => {
+    if (!ctx.from) return;
+    if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+    try {
+      const allCommunities = await db.select().from(communities).orderBy(desc(communities.createdAt));
+      if (allCommunities.length === 0) {
+        await ctx.reply("No communities registered yet. Groups create a record when an admin runs /setup.");
+        return;
+      }
+      const lines = allCommunities.map(c => {
+        const record = mapCommunityRow(c);
+        return `• ${record.displayName} (${record.chatId})\n  Status: ${getStatusLabel(record)}`;
+      });
+      const chunks: string[] = [];
+      let current = `REGISTERED COMMUNITIES (${allCommunities.length} total)\n\n`;
+      for (const line of lines) {
+        if ((current + line + "\n\n").length > 3800) { chunks.push(current); current = ""; }
+        current += line + "\n\n";
+      }
+      if (current) chunks.push(current);
+      for (const chunk of chunks) await ctx.reply(chunk.trim());
+    } catch (err) {
+      console.error("Error listing communities:", err);
+      await ctx.reply("Error fetching community list.");
+    }
+  });
+
+  // /activate [chatId] — Mark a community as paid/active
+  bot.command("activate", async (ctx) => {
+    if (!ctx.from) return;
+    if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+    const chatId = (ctx.match || "").trim();
+    if (!chatId) { await ctx.reply("Usage: /activate -100123456789"); return; }
+    const existing = await getCommunity(chatId);
+    if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}\n\nRun /communities to see all registered communities.`); return; }
+    await updateCommunity(chatId, { status: "active" });
+    communityCache.delete(chatId);
+    if (botInstance) {
+      try { await botInstance.api.sendMessage(parseInt(chatId), `Your Karen subscription has been ACTIVATED! All 20 feature sections are now unlocked. Thank you for your support!`); } catch {}
+    }
+    await ctx.reply(`Community "${existing.displayName}" (${chatId}) activated.`);
+  });
+
+  // /deactivate [chatId] — Downgrade to free tier
+  bot.command("deactivate", async (ctx) => {
+    if (!ctx.from) return;
+    if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+    const chatId = (ctx.match || "").trim();
+    if (!chatId) { await ctx.reply("Usage: /deactivate -100123456789"); return; }
+    const existing = await getCommunity(chatId);
+    if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
+    await updateCommunity(chatId, { status: "free" });
+    communityCache.delete(chatId);
+    if (botInstance) {
+      try { await botInstance.api.sendMessage(parseInt(chatId), `Your Karen subscription has ended. Only basic commands (/help, /info, /ask) are available. Contact @aussieBoomer to reactivate.`); } catch {}
+    }
+    await ctx.reply(`Community "${existing.displayName}" (${chatId}) downgraded to free tier.`);
+  });
+
+  // /extendtrial [chatId] [days] — Extend a community's trial period
+  bot.command("extendtrial", async (ctx) => {
+    if (!ctx.from) return;
+    if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+    const parts = (ctx.match || "").trim().split(/\s+/);
+    const chatId = parts[0];
+    const days = parseInt(parts[1] || "7");
+    if (!chatId || isNaN(days) || days < 1) { await ctx.reply("Usage: /extendtrial -100123456789 7"); return; }
+    const existing = await getCommunity(chatId);
+    if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
+    const baseDate = existing.trialExpiresAt && existing.trialExpiresAt > new Date() ? existing.trialExpiresAt : new Date();
+    const newExpiry = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
+    await updateCommunity(chatId, { status: "trial", trialExpiresAt: newExpiry });
+    communityCache.delete(chatId);
+    if (botInstance) {
+      try { await botInstance.api.sendMessage(parseInt(chatId), `Your Karen trial has been extended by ${days} days! New expiry: ${newExpiry.toDateString()}.`); } catch {}
+    }
+    await ctx.reply(`Trial extended for "${existing.displayName}" (${chatId}) by ${days} days.\nNew expiry: ${newExpiry.toDateString()}`);
+  });
+
+  // /bangroup [chatId] — Ban a community (bot goes silent)
+  bot.command("bangroup", async (ctx) => {
+    if (!ctx.from) return;
+    if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+    const chatId = (ctx.match || "").trim();
+    if (!chatId) { await ctx.reply("Usage: /bangroup -100123456789"); return; }
+    const existing = await getCommunity(chatId);
+    if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
+    await updateCommunity(chatId, { status: "banned" });
+    communityCache.delete(chatId);
+    await ctx.reply(`Community "${existing.displayName}" (${chatId}) has been banned. Bot will now ignore all messages from this group.`);
+  });
+
+  // /communityinfo [chatId] — Full details for a specific community
+  bot.command("communityinfo", async (ctx) => {
+    if (!ctx.from) return;
+    if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+    const chatId = (ctx.match || "").trim();
+    if (!chatId) { await ctx.reply("Usage: /communityinfo -100123456789"); return; }
+    const community = await getCommunity(chatId);
+    if (!community) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
+    const feats = await getFeatureSettings(chatId);
+    const enabledCount = Object.values(feats).filter(Boolean).length;
+    await ctx.reply(
+      `COMMUNITY DETAILS\n\n` +
+      `Chat ID: ${community.chatId}\n` +
+      `Name: ${community.displayName}\n` +
+      `Bot Nickname: ${community.botNickname}\n` +
+      `Timezone: ${community.timezone}\n` +
+      `Welcome Message: ${community.welcomeMessage || "Default"}\n` +
+      `Status: ${getStatusLabel(community)}\n` +
+      `Trial Expires: ${community.trialExpiresAt ? community.trialExpiresAt.toDateString() : "N/A"}\n` +
+      `Onboarded: ${community.isOnboarded ? "Yes" : "No"}\n` +
+      `Active Features: ${enabledCount}/20`
+    );
+  });
+
   // === END MODERATION COMMANDS ===
 
   // === MESSAGE EDIT TRACKING (New User Security) ===
@@ -8243,7 +8664,14 @@ Before you dive in:
 Ask me anything! I'm literally always here.`
       ];
       
-      const welcome = welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)];
+      // Use custom community welcome message if configured, otherwise rotate defaults
+      const communityData = await getCommunity(chatIdStr);
+      let welcome: string;
+      if (communityData?.welcomeMessage) {
+        welcome = communityData.welcomeMessage.replace(/\{name\}/gi, name);
+      } else {
+        welcome = welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)];
+      }
       await karenReplyWithGif(ctx, welcome, { gifCategory: "welcoming", gifChance: 0.25 });
     }
   });
@@ -8798,7 +9226,73 @@ Ask me anything! I'm literally always here.`
           );
         }
       }
-      
+
+      // === SETUP WIZARD INTERCEPT ===
+      // Catch the admin's responses to the multi-step /setup wizard
+      // This must run before spam/scam detection so wizard messages aren't false-flagged
+      const _wChatIdStr = String(chatId);
+      const _wizardState = setupWizardState.get(_wChatIdStr);
+      if (_wizardState && ctx.from?.id === _wizardState.initiatorId && !ctx.from.is_bot) {
+        if (_wizardState.step === 1) {
+          const communityName = text.trim();
+          setupWizardState.set(_wChatIdStr, { ..._wizardState, step: 2, displayName: communityName });
+          await ctx.reply(
+            `Great name!\n\n` +
+            `STEP 2 OF 3: What timezone should I use for scheduled posts?\n\n` +
+            `Common options:\n` +
+            `• America/Los_Angeles (Pacific)\n` +
+            `• America/New_York (Eastern)\n` +
+            `• Europe/London (GMT/BST)\n` +
+            `• Australia/Sydney (AEST)\n` +
+            `• UTC\n\n` +
+            `Type one of the above, or "skip" to use Pacific Time.`
+          );
+        } else if (_wizardState.step === 2) {
+          let timezone = text.trim();
+          if (timezone.toLowerCase() === "skip") timezone = "America/Los_Angeles";
+          try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch {
+            await ctx.reply("That doesn't look like a valid timezone. Try again or type 'skip' to use Pacific Time.");
+            return;
+          }
+          setupWizardState.set(_wChatIdStr, { ..._wizardState, step: 3, timezone });
+          await ctx.reply(
+            `Timezone set to ${timezone}!\n\n` +
+            `STEP 3 OF 3: Set a custom welcome message for new members.\n\n` +
+            `Use {name} as a placeholder for the new member's name.\n` +
+            `Example: Hey {name}! Welcome to our community! Read the pinned messages.\n\n` +
+            `Type your message, or "skip" to use the default welcome rotation.`
+          );
+        } else if (_wizardState.step === 3) {
+          const welcomeMsg = text.trim().toLowerCase() === "skip" ? null : text.trim();
+          const displayName = _wizardState.displayName || "Community";
+          const timezone = _wizardState.timezone || "America/Los_Angeles";
+          setupWizardState.delete(_wChatIdStr);
+
+          const community = await ensureCommunity(_wChatIdStr, displayName);
+          await updateCommunity(_wChatIdStr, {
+            displayName,
+            timezone,
+            ...(welcomeMsg ? { welcomeMessage: welcomeMsg } : {}),
+            isOnboarded: true,
+            onboardingStep: 4,
+          });
+          communityCache.delete(_wChatIdStr); // Force fresh read next time
+
+          const trialExpiry = community.trialExpiresAt ? community.trialExpiresAt.toDateString() : "7 days from now";
+          await ctx.reply(
+            `SETUP COMPLETE!\n\n` +
+            `Community Name: ${displayName}\n` +
+            `Timezone: ${timezone}\n` +
+            `Welcome Message: ${welcomeMsg ? "Custom" : "Default rotation"}\n\n` +
+            `Your 7-day FREE TRIAL is active until ${trialExpiry}.\n` +
+            `All 20 feature sections are ON by default. Use /settings to view and /toggle to adjust.\n\n` +
+            `After the trial, contact @aussieBoomer to continue.\n\n` +
+            `Use /community anytime to check your config.`
+          );
+        }
+        return; // Don't process wizard messages through normal chat handling
+      }
+
       // SPAM DETECTION - Auto-mute spammers with escalating punishment
       if (ctx.from?.id && !ctx.from.is_bot) {
         // Check if user is admin (admins are exempt from spam detection)
@@ -11900,6 +12394,49 @@ Weekly top referrer gets a special budify avatar! Type /refboard to see current 
 }
 
 // === START BOT ===
+// Checks daily for communities whose 7-day trial has expired and downgrades them to free tier
+function startCommunityExpiryScheduler() {
+  const checkExpiredTrials = async () => {
+    try {
+      const now = new Date();
+      const expiredRows = await db.select().from(communities)
+        .where(sql`status = 'trial' AND trial_expires_at IS NOT NULL AND trial_expires_at < ${now.toISOString()}`);
+
+      for (const row of expiredRows) {
+        await db.update(communities)
+          .set({ status: "free", updatedAt: new Date() })
+          .where(eq(communities.chatId, row.chatId));
+        communityCache.delete(row.chatId); // Force cache refresh
+
+        const chatIdNum = parseInt(row.chatId);
+        if (!isNaN(chatIdNum) && botInstance) {
+          try {
+            await botInstance.api.sendMessage(
+              chatIdNum,
+              `Your Karen 7-day trial has ended.\n\n` +
+              `To continue using all features (spam/scam protection, games, referrals, scheduled posts, and more), ` +
+              `contact @aussieBoomer to activate your subscription.\n\n` +
+              `For now, only /help, /info, and /ask are available.`
+            );
+          } catch {}
+        }
+        console.log(`[Community] Downgraded expired trial: ${row.chatId} (${row.displayName})`);
+      }
+
+      if (expiredRows.length > 0) {
+        console.log(`[Community] Expiry check complete — downgraded ${expiredRows.length} trial(s)`);
+      }
+    } catch (err) {
+      console.error("[Community] Error in expiry check:", err);
+    }
+  };
+
+  // Run once at startup to catch any that expired while bot was offline, then daily
+  setTimeout(checkExpiredTrials, 10_000); // 10s delay after startup
+  setInterval(checkExpiredTrials, 24 * 60 * 60 * 1000);
+  console.log("Community expiry scheduler started — checks daily for expired trials");
+}
+
 export async function startBot() {
   if (!BOT_TOKEN) {
     console.log("========================================");
@@ -11946,6 +12483,9 @@ export async function startBot() {
   
   // Start the winner announcement scheduler
   startWinnerAnnouncementScheduler();
+
+  // Start the community expiry scheduler (checks daily for expired trials)
+  startCommunityExpiryScheduler();
 
   // Clear any pending webhook to prevent conflicts
   try {
