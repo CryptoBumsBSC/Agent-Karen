@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs, chatFeatureSettings, communities } from "@shared/schema";
+import { type Community as CommunityDbRow, communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs, chatFeatureSettings, communities } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 import * as StoryBible from "./storyBible";
@@ -498,7 +498,7 @@ interface CommunityRecord {
 
 const communityCache = new Map<string, CommunityRecord>();
 
-function mapCommunityRow(r: any): CommunityRecord {
+function mapCommunityRow(r: CommunityDbRow): CommunityRecord {
   return {
     chatId: r.chatId,
     displayName: r.displayName || "Community",
@@ -576,23 +576,46 @@ function getStatusLabel(community: CommunityRecord): string {
   return "FREE (limited commands only)";
 }
 
-async function updateCommunity(chatId: string, updates: Record<string, any>): Promise<void> {
-  const cleanUpdates = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
+interface CommunityUpdates {
+  displayName?: string;
+  botNickname?: string;
+  welcomeMessage?: string | null;
+  timezone?: string;
+  status?: string;
+  trialExpiresAt?: Date | null;
+  isOnboarded?: boolean;
+  onboardingStep?: number;
+}
+
+async function updateCommunity(chatId: string, updates: CommunityUpdates): Promise<void> {
+  const cleanUpdates: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(updates)) {
+    if (val !== undefined) cleanUpdates[key] = val;
+  }
   await db.update(communities)
     .set({ ...cleanUpdates, updatedAt: new Date() })
     .where(eq(communities.chatId, chatId));
   const cached = communityCache.get(chatId);
-  if (cached) communityCache.set(chatId, { ...cached, ...cleanUpdates });
+  if (cached) communityCache.set(chatId, { ...cached, ...updates });
 }
 
 // In-memory setup wizard state per chat (cleared when wizard completes or bot restarts)
 interface SetupWizardState {
-  step: number; // 1=name, 2=timezone, 3=welcome
+  step: number; // 1=name, 2=timezone, 3=welcome, 4=features
   initiatorId: number;
   displayName?: string;
   timezone?: string;
+  welcomeMessage?: string | null;
 }
 const setupWizardState = new Map<string, SetupWizardState>();
+
+// Canonical list of feature keys shown in the setup wizard
+const WIZARD_FEATURE_KEYS: (keyof FeatureSettings)[] = [
+  "spam", "scam", "drugs", "dealers", "hate", "raid",
+  "links", "edits", "files", "impersonation", "newuser",
+  "gifs", "personality", "learning", "scheduled",
+  "referrals", "giveaways", "games", "trust", "stories",
+];
 
 // Season/Holiday awareness
 function getSeasonalContext(): { season: string; holiday: string | null; greeting: string } {
@@ -4723,31 +4746,36 @@ export function createBot(): Bot<MyContext> {
 
   // === SUBSCRIPTION GATE MIDDLEWARE ===
   // Groups must have an active trial or paid subscription for full feature access.
-  // Banned groups: no response at all. Free/expired: only basic commands work.
+  // Banned groups: completely silent. Free/expired: only whitelisted commands work.
   bot.use(async (ctx, next) => {
     const chatId = ctx.chat?.id;
-    if (!chatId || chatId >= 0) return next(); // Pass through DMs and untracked contexts
+    if (!chatId || chatId >= 0) return next(); // DMs and private chats: always pass through
     const chatIdStr = chatId.toString();
     const community = await getCommunity(chatIdStr);
 
-    // Banned communities: bot goes completely silent
+    // Banned communities: bot goes completely silent — no response whatsoever
     if (community?.status === "banned") return;
 
-    // Free/expired communities: only essential commands are allowed
+    // Free/expired communities: only basic commands work; all other messages dropped
     if (community && !isSubscribed(community)) {
-      const text = ((ctx.message as any)?.text || "").trim();
+      // Global owner always gets through (for /activate, /extendtrial, etc.)
+      if (isGlobalOwner(ctx)) return next();
+
+      const text = (ctx.message?.text || "").trim();
       const FREE_COMMANDS = ["/help", "/start", "/info", "/ask", "/setup", "/community"];
+
       if (text.startsWith("/")) {
         const cmdBase = text.split(/[\s@]/)[0].toLowerCase();
-        if (!FREE_COMMANDS.some(fc => cmdBase === fc)) {
-          await ctx.reply(
-            `This community's Karen subscription has expired.\n\n` +
-            `Available on free tier: /help, /info, /ask, /setup, /community\n\n` +
-            `Contact @aussieBoomer to activate your subscription and unlock all features.`
-          );
-          return;
-        }
+        if (FREE_COMMANDS.some(fc => cmdBase === fc)) return next();
+        await ctx.reply(
+          `This community's Karen subscription has expired.\n\n` +
+          `Available on free tier: /help, /info, /ask, /setup, /community\n\n` +
+          `Contact @aussieBoomer to activate your subscription and unlock all features.`
+        );
+        return;
       }
+      // Non-command text and all other updates: silently drop — no moderation, no AI response
+      return;
     }
 
     return next();
@@ -7886,13 +7914,19 @@ Check the leaderboard with /refboard`;
       return;
     }
 
+    // Create the community trial record immediately so the group is registered
+    // even if the wizard is abandoned mid-way
+    const chatTitle = (ctx.chat as any)?.title || undefined;
+    await ensureCommunity(chatIdStr, chatTitle);
+
     setupWizardState.set(chatIdStr, { step: 1, initiatorId: ctx.from.id });
     await ctx.reply(
       `WELCOME TO KAREN SETUP!\n\n` +
       `I'll walk you through configuring me for your community. Admins only.\n\n` +
-      `STEP 1 OF 3: What's the name of your community?\n` +
+      `Your 7-day FREE TRIAL has started!\n\n` +
+      `STEP 1 OF 4: What's the name of your community?\n` +
       `(e.g. "Dudley Bud", "CryptoHub", "NFT Lounge")\n\n` +
-      `Type the name to continue.`
+      `Type the name to continue, or /community to skip setup.`
     );
   });
 
@@ -9234,11 +9268,15 @@ Ask me anything! I'm literally always here.`
       const _wizardState = setupWizardState.get(_wChatIdStr);
       if (_wizardState && ctx.from?.id === _wizardState.initiatorId && !ctx.from.is_bot) {
         if (_wizardState.step === 1) {
+          // Step 1: collect community display name
           const communityName = text.trim();
           setupWizardState.set(_wChatIdStr, { ..._wizardState, step: 2, displayName: communityName });
+          // Update the trial record with the real name now that we have it
+          await updateCommunity(_wChatIdStr, { displayName: communityName });
+          communityCache.delete(_wChatIdStr);
           await ctx.reply(
             `Great name!\n\n` +
-            `STEP 2 OF 3: What timezone should I use for scheduled posts?\n\n` +
+            `STEP 2 OF 4: What timezone should I use for scheduled posts?\n\n` +
             `Common options:\n` +
             `• America/Los_Angeles (Pacific)\n` +
             `• America/New_York (Eastern)\n` +
@@ -9248,6 +9286,7 @@ Ask me anything! I'm literally always here.`
             `Type one of the above, or "skip" to use Pacific Time.`
           );
         } else if (_wizardState.step === 2) {
+          // Step 2: collect timezone
           let timezone = text.trim();
           if (timezone.toLowerCase() === "skip") timezone = "America/Los_Angeles";
           try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch {
@@ -9257,37 +9296,71 @@ Ask me anything! I'm literally always here.`
           setupWizardState.set(_wChatIdStr, { ..._wizardState, step: 3, timezone });
           await ctx.reply(
             `Timezone set to ${timezone}!\n\n` +
-            `STEP 3 OF 3: Set a custom welcome message for new members.\n\n` +
+            `STEP 3 OF 4: Set a custom welcome message for new members.\n\n` +
             `Use {name} as a placeholder for the new member's name.\n` +
             `Example: Hey {name}! Welcome to our community! Read the pinned messages.\n\n` +
             `Type your message, or "skip" to use the default welcome rotation.`
           );
         } else if (_wizardState.step === 3) {
+          // Step 3: collect welcome message, then advance to feature selection
           const welcomeMsg = text.trim().toLowerCase() === "skip" ? null : text.trim();
+          setupWizardState.set(_wChatIdStr, { ..._wizardState, step: 4, welcomeMessage: welcomeMsg });
+          const featureList = WIZARD_FEATURE_KEYS.map(k => `• ${k}`).join("\n");
+          await ctx.reply(
+            `Welcome message ${welcomeMsg ? "saved" : "skipped"}!\n\n` +
+            `STEP 4 OF 4: Feature Selection\n\n` +
+            `All 20 features are ON by default. Type the names of any you want to DISABLE (comma-separated), or type "all on" to enable everything.\n\n` +
+            `Available features:\n${featureList}\n\n` +
+            `Example: "gifs, stories, giveaways" or "all on"`
+          );
+        } else if (_wizardState.step === 4) {
+          // Step 4: feature selection — finalize setup
           const displayName = _wizardState.displayName || "Community";
           const timezone = _wizardState.timezone || "America/Los_Angeles";
+          const welcomeMsg = _wizardState.welcomeMessage ?? null;
           setupWizardState.delete(_wChatIdStr);
 
-          const community = await ensureCommunity(_wChatIdStr, displayName);
+          // Parse which features to disable
+          const input = text.trim().toLowerCase();
+          const toDisable: (keyof FeatureSettings)[] = [];
+          if (input !== "all on" && input !== "skip") {
+            const parts = input.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+            for (const part of parts) {
+              const match = WIZARD_FEATURE_KEYS.find(k => k.toLowerCase() === part);
+              if (match) toDisable.push(match);
+            }
+          }
+
+          // Apply feature overrides
+          if (toDisable.length > 0) {
+            for (const feat of toDisable) {
+              await updateFeatureSetting(_wChatIdStr, feat, false);
+            }
+          }
+
+          // Finalize community record
           await updateCommunity(_wChatIdStr, {
-            displayName,
             timezone,
             ...(welcomeMsg ? { welcomeMessage: welcomeMsg } : {}),
             isOnboarded: true,
-            onboardingStep: 4,
+            onboardingStep: 5,
           });
           communityCache.delete(_wChatIdStr); // Force fresh read next time
 
-          const trialExpiry = community.trialExpiresAt ? community.trialExpiresAt.toDateString() : "7 days from now";
+          const community = await getCommunity(_wChatIdStr);
+          const trialExpiry = community?.trialExpiresAt ? community.trialExpiresAt.toDateString() : "7 days from now";
+          const disabledNote = toDisable.length > 0
+            ? `Disabled features: ${toDisable.join(", ")}`
+            : "All 20 features: ON";
           await ctx.reply(
             `SETUP COMPLETE!\n\n` +
             `Community Name: ${displayName}\n` +
             `Timezone: ${timezone}\n` +
-            `Welcome Message: ${welcomeMsg ? "Custom" : "Default rotation"}\n\n` +
-            `Your 7-day FREE TRIAL is active until ${trialExpiry}.\n` +
-            `All 20 feature sections are ON by default. Use /settings to view and /toggle to adjust.\n\n` +
+            `Welcome Message: ${welcomeMsg ? "Custom" : "Default rotation"}\n` +
+            `${disabledNote}\n\n` +
+            `Your 7-day FREE TRIAL is active until ${trialExpiry}.\n\n` +
             `After the trial, contact @aussieBoomer to continue.\n\n` +
-            `Use /community anytime to check your config.`
+            `Use /community to view config · /settings to adjust features · /toggle [feature] to flip individual ones`
           );
         }
         return; // Don't process wizard messages through normal chat handling
