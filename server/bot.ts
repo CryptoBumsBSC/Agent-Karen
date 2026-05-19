@@ -468,6 +468,26 @@ const FREE_FEATURE_KEYS = new Set<keyof FeatureSettings>([
   "spam", "scam", "hate", "drugs", "dealers", "links", "files", "newuser",
 ]);
 
+// Feature groups for organized /settings display
+const FEATURE_GROUPS: { label: string; keys: (keyof FeatureSettings)[] }[] = [
+  {
+    label: "SAFETY FILTERS (FREE on all tiers)",
+    keys: ["spam", "scam", "hate", "drugs", "dealers", "links", "files", "newuser"],
+  },
+  {
+    label: "SECURITY GATES",
+    keys: ["captcha", "accountAge", "bioScan", "massMention", "edits", "impersonation", "raid", "crossBan"],
+  },
+  {
+    label: "AI & PERSONALITY",
+    keys: ["aiChat", "medicalQA", "personality", "gifs", "learning", "stories"],
+  },
+  {
+    label: "COMMUNITY FEATURES",
+    keys: ["trust", "referrals", "games", "giveaways", "scheduled"],
+  },
+];
+
 // Human-readable upgrade card shown when a free/expired group tries a paid command
 function buildUpgradePrompt(botName = "Karen"): string {
   return (
@@ -5368,31 +5388,42 @@ _Karen gets smarter with every conversation! Rate my responses with the +1/-1 bu
     const subscribed = community ? isSubscribed(community) : false;
     const feats = await getFeatureSettings(chatIdStr);
 
-    const lines = (Object.keys(FEATURE_LABELS) as (keyof FeatureSettings)[]).map(key => {
-      const isFreeFeature = FREE_FEATURE_KEYS.has(key);
-      if (subscribed) {
-        // Full access — show actual enabled/disabled state
-        const on = feats[key];
-        return `${on ? "✅" : "❌"} ${FEATURE_LABELS[key]} (${key})`;
-      } else {
-        // Free/expired — show what's included vs locked
-        if (isFreeFeature) {
+    const sections: string[] = [];
+    for (const group of FEATURE_GROUPS) {
+      const groupLines = group.keys.map(key => {
+        const isFreeFeature = FREE_FEATURE_KEYS.has(key);
+        if (subscribed) {
           const on = feats[key];
-          return `${on ? "✅" : "❌"} ${FEATURE_LABELS[key]} (${key}) — INCLUDED FREE`;
+          return `  ${on ? "✅" : "❌"} ${FEATURE_LABELS[key]} (${key})`;
         } else {
-          return `🔒 ${FEATURE_LABELS[key]} (${key}) — PAID`;
+          if (isFreeFeature) {
+            const on = feats[key];
+            return `  ${on ? "✅" : "❌"} ${FEATURE_LABELS[key]} (${key})`;
+          } else {
+            return `  🔒 ${FEATURE_LABELS[key]} (${key})`;
+          }
         }
-      }
-    });
+      });
+      sections.push(`━━ ${group.label} ━━\n${groupLines.join("\n")}`);
+    }
 
-    const statusLine = community ? `Status: ${getStatusLabel(community)}\n\n` : "";
+    const statusLine = community ? `Status: ${getStatusLabel(community)}\n` : "";
+    const enabledCount = (Object.keys(feats) as (keyof FeatureSettings)[]).filter(k => feats[k]).length;
     const footer = subscribed
-      ? `\nTo toggle a feature: /toggle [name]\nExample: /toggle spam`
-      : `\n🔒 = Paid features. Contact @aussieBoomer to upgrade and unlock everything.`;
+      ? `\nEnabled: ${enabledCount}/27 features\n\nTo toggle: /toggle [name]  e.g. /toggle spam\nFor help: /adminhelp`
+      : `\n🔒 = Paid features locked on FREE TIER.\nContact @aussieBoomer to upgrade.`;
 
-    await ctx.reply(
-      `KAREN BOT — FEATURE SETTINGS\n\n${statusLine}${lines.join("\n")}${footer}`
-    );
+    const body = `KAREN BOT — FEATURE SETTINGS\n${statusLine}\n${sections.join("\n\n")}${footer}`;
+
+    // Split into chunks if over Telegram's 4096 char limit
+    if (body.length <= 4096) {
+      await ctx.reply(body);
+    } else {
+      const parts = sections.map(s => `KAREN — FEATURE SETTINGS\n\n${s}`);
+      parts[0] = `KAREN BOT — FEATURE SETTINGS\n${statusLine}\n${parts[0]}`;
+      parts[parts.length - 1] += footer;
+      for (const part of parts) await ctx.reply(part);
+    }
   });
 
   // /toggle [feature] - Flip a feature on or off (admin only)
@@ -5421,6 +5452,186 @@ _Karen gets smarter with every conversation! Rate my responses with the +1/-1 bu
     await updateFeatureSetting(chatIdStr, featureName, newValue);
     const statusText = newValue ? "✅ ENABLED" : "❌ DISABLED";
     await ctx.reply(`${FEATURE_LABELS[featureName]} is now ${statusText}\n\nUse /settings to see all toggles.`);
+  });
+
+  // /help — User-facing command list
+  bot.command("help", async (ctx) => {
+    const botName = ctx.chat?.type !== "private"
+      ? ((await getCommunity(ctx.chat!.id.toString()))?.botNickname || "Karen")
+      : "Karen";
+    await ctx.reply(
+      `${botName.toUpperCase()} BOT — COMMANDS\n\n` +
+      `━━ FOR EVERYONE ━━\n` +
+      `/ask [question] — Ask me anything\n` +
+      `/roast @user — Roast someone\n` +
+      `/joke — Random cannabis joke\n` +
+      `/fact — Random cannabis fact\n` +
+      `/story — Random Dudleyverse story\n` +
+      `/characters — Meet the cast\n` +
+      `/safety — Safety reminders\n` +
+      `/legal — Legal disclaimers\n` +
+      `/info — Project info\n\n` +
+      `━━ YOUR PROFILE ━━\n` +
+      `/myprofile — View your community profile\n` +
+      `/setbirthday [DD/MM] — Set your birthday\n` +
+      `/myreferrals — Your referral stats\n` +
+      `/trustinfo — Your trust score\n` +
+      `/trustpoints — Trust leaderboard\n` +
+      `/myscore — Your trivia score\n\n` +
+      `━━ GAMES ━━\n` +
+      `/trivia — Start a trivia round\n` +
+      `/puzzle — Start a word puzzle\n` +
+      `/seedstorm — Seed Storm game info\n\n` +
+      `━━ COMMUNITY ━━\n` +
+      `/refboard — Referral leaderboard\n` +
+      `/leaderboard — Community leaderboard\n` +
+      `/puzzleboard — Puzzle scores\n` +
+      `/trustboard — Trust leaderboard\n\n` +
+      `━━ ADMINS ONLY ━━\n` +
+      `/adminhelp — Full admin reference card\n` +
+      `/settings — Feature toggles dashboard\n` +
+      `/status — Live community snapshot`
+    );
+  });
+
+  // /status — Live community snapshot for admins
+  bot.command("status", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") { await ctx.reply("Run /status in your group chat!"); return; }
+    const chatIdStr = ctx.chat.id.toString();
+    if (!(await isBotAdmin(ctx, chatIdStr))) { await ctx.reply("Admins only."); return; }
+
+    const community = await getCommunity(chatIdStr);
+    if (!community) {
+      await ctx.reply("This group hasn't been set up yet. Run /setup to get started.");
+      return;
+    }
+    const feats = await getFeatureSettings(chatIdStr);
+    const subscribed = isSubscribed(community);
+
+    // Count features enabled per group
+    const groupSummaries = FEATURE_GROUPS.map(g => {
+      const total = g.keys.length;
+      const enabled = g.keys.filter(k => feats[k]).length;
+      return `${g.label}: ${enabled}/${total}`;
+    });
+
+    const totalEnabled = (Object.keys(feats) as (keyof FeatureSettings)[]).filter(k => feats[k]).length;
+
+    const adminList = community.botAdminIds.length > 0
+      ? `Custom bot admins: ${community.botAdminIds.length} user(s)`
+      : `Bot admins: All Telegram admins (no custom list set)`;
+
+    await ctx.reply(
+      `COMMUNITY STATUS — ${community.displayName}\n\n` +
+      `Bot Nickname: ${community.botNickname}\n` +
+      `Timezone: ${community.timezone}\n` +
+      `Subscription: ${getStatusLabel(community)}\n\n` +
+      `━━ FEATURES (${totalEnabled}/27 enabled) ━━\n` +
+      groupSummaries.join("\n") + `\n\n` +
+      `━━ ADMIN ACCESS ━━\n` +
+      `${adminList}\n\n` +
+      `━━ QUICK ACTIONS ━━\n` +
+      `/settings — View & toggle all features\n` +
+      `/adminhelp — Full admin command reference\n` +
+      `/toggle [name] — Flip a single feature`
+    );
+  });
+
+  // /adminhelp — Full admin reference card. Any bot admin can access this.
+  bot.command("adminhelp", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") { await ctx.reply("Run /adminhelp in your group chat!"); return; }
+    const chatIdStr = ctx.chat.id.toString();
+    if (!(await isBotAdmin(ctx, chatIdStr))) { await ctx.reply("Admins only."); return; }
+
+    const pages = [
+      // Page 1 — Setup & Subscription
+      `KAREN BOT — ADMIN REFERENCE (1/4)\n\n` +
+      `━━ SETUP & COMMUNITY ━━\n` +
+      `/setup — Onboarding wizard (7-day trial starts here)\n` +
+      `/community — View current config & subscription status\n` +
+      `/status — Live snapshot of all features & subscription\n` +
+      `/setname [name] — Update community display name\n` +
+      `/setnickname [name] — Change the bot's name in this group\n` +
+      `/setwelcome [msg] — Set a custom welcome message ({name} = member name)\n` +
+      `/settimezone [zone] — Set timezone (e.g. Australia/Sydney)\n\n` +
+      `━━ SUBSCRIPTION TIERS ━━\n` +
+      `TRIAL — Full access for 7 days (auto-starts on /setup)\n` +
+      `ACTIVE — Paid, full access\n` +
+      `COMPLIMENTARY — Gifted full access (no payment)\n` +
+      `FREE — Basic safety moderation only\n` +
+      `BANNED — Bot completely silent\n\n` +
+      `Contact @aussieBoomer to change tier.`,
+
+      // Page 2 — Feature Toggles
+      `KAREN BOT — ADMIN REFERENCE (2/4)\n\n` +
+      `━━ FEATURE TOGGLES ━━\n` +
+      `/settings — View all 27 features grouped by category\n` +
+      `/toggle [name] — Flip any feature on or off\n\n` +
+      `GROUP 1: SAFETY FILTERS (always free)\n` +
+      `  spam · scam · hate · drugs · dealers · links · files · newuser\n\n` +
+      `GROUP 2: SECURITY GATES\n` +
+      `  captcha · accountAge · bioScan · massMention\n` +
+      `  edits · impersonation · raid · crossBan\n\n` +
+      `GROUP 3: AI & PERSONALITY\n` +
+      `  aiChat · medicalQA · personality · gifs · learning · stories\n\n` +
+      `GROUP 4: COMMUNITY FEATURES\n` +
+      `  trust · referrals · games · giveaways · scheduled\n\n` +
+      `Example: /toggle aiChat  or  /toggle spam`,
+
+      // Page 3 — Moderation commands
+      `KAREN BOT — ADMIN REFERENCE (3/4)\n\n` +
+      `━━ MODERATION ━━\n` +
+      `/ban — Reply to a message to ban that user\n` +
+      `/kick — Reply to a message to kick that user\n` +
+      `/mute — Reply to mute (or: /mute @user [minutes])\n` +
+      `/unmute — Reply to unmute a user\n` +
+      `/warn — Reply to issue a formal warning\n` +
+      `/banlist — View ban/kick history for this group\n` +
+      `/violations — View security violation log\n` +
+      `/modstats — Moderation statistics\n\n` +
+      `━━ ANTI-RAID ━━\n` +
+      `/lockdown — Manually activate raid lockdown\n` +
+      `/unlock — End lockdown early\n` +
+      `/raidstatus — Current lockdown status\n\n` +
+      `━━ TRUST SYSTEM ━━\n` +
+      `/trust — Reply to manually raise trust level\n` +
+      `/untrust — Reply to lower trust level\n` +
+      `/trustinfo — View trust details for any user\n` +
+      `/trustpoints — Trust score leaderboard\n` +
+      `/trustfreeze — Freeze a user's trust score\n` +
+      `/trustunfreeze — Unfreeze a user's trust score\n` +
+      `/trustbulk — Bulk-adjust trust for multiple users\n` +
+      `/trustboard — Full trust leaderboard`,
+
+      // Page 4 — Admin access & giveaways
+      `KAREN BOT — ADMIN REFERENCE (4/4)\n\n` +
+      `━━ BOT ADMIN LIST ━━\n` +
+      `By default: all Telegram admins + group owner have access.\n` +
+      `Custom list (overrides Telegram admins):\n` +
+      `/addadmin — Reply to a message to add someone\n` +
+      `/removeadmin — Reply to a message to remove someone\n` +
+      `/changeadmin — Reply to replace entire list with one person\n` +
+      `/listadmins — See the current bot admin list\n\n` +
+      `━━ GIVEAWAYS ━━\n` +
+      `/giveaway [prize] — Start a giveaway\n` +
+      `/entries — List current entries\n` +
+      `/pickwinner — Pick a random winner\n` +
+      `/endgiveaway — End without picking a winner\n\n` +
+      `━━ POLLS & CONTENT ━━\n` +
+      `/poll [question] — Create a quick poll\n` +
+      `/budify @user — Generate a bud avatar for a user\n` +
+      `/setrole @user [role] — Assign a community role\n\n` +
+      `━━ SCHEDULED POSTS ━━\n` +
+      `Automated: daily recipes (4pm), quotes (10am), birthdays (9am)\n` +
+      `Toggle with: /toggle scheduled\n\n` +
+      `For all owner-only remote commands: DM the bot and type /ownerhelp`,
+    ];
+
+    for (const page of pages) {
+      await ctx.reply(page);
+    }
   });
 
   // === RAID LOCKDOWN COMMANDS ===
