@@ -426,6 +426,33 @@ export const learnedPatterns = pgTable("learned_patterns", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Admin Portal Users — web-based admin/team accounts (separate from Telegram users)
+export const adminUsers = pgTable("admin_users", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  displayName: text("display_name"),
+  role: text("role").notNull().default("moderator"), // owner | admin | moderator
+  invitedBy: integer("invited_by"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  lastLoginAt: timestamp("last_login_at"),
+});
+
+// Admin Invites — pending invite tokens for new team members
+export const adminInvites = pgTable("admin_invites", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("moderator"),
+  token: text("token").notNull().unique(),
+  invitedBy: integer("invited_by").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  acceptedAt: timestamp("accepted_at"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export type AdminUser = typeof adminUsers.$inferSelect;
+export type AdminInvite = typeof adminInvites.$inferSelect;
+
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
 export const insertContentItemSchema = createInsertSchema(contentItems).omit({ id: true });

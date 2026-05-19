@@ -591,6 +591,21 @@ async function updateFeatureSetting(chatId: string, feature: keyof FeatureSettin
   featureSettingsCache.set(chatId, cached);
 }
 
+// === ADMIN PORTAL HOOKS — exported for server/adminRoutes.ts ===
+export function invalidateFeatureCache(chatId: string): void {
+  featureSettingsCache.delete(chatId);
+}
+export function invalidateCommunityCache(chatId: string): void {
+  communityCache.delete(chatId);
+}
+export function invalidateAllCaches(): void {
+  featureSettingsCache.clear();
+  communityCache.clear();
+}
+let _botInstance: Bot<MyContext> | null = null;
+export function getBotInstance(): Bot<MyContext> | null { return _botInstance; }
+export function setBotInstance(b: Bot<MyContext>): void { _botInstance = b; }
+
 // === MULTI-COMMUNITY SAAS SYSTEM ===
 
 interface CommunityRecord {
@@ -13204,6 +13219,7 @@ export async function startBot() {
   }
 
   const bot = createBot();
+  setBotInstance(bot);
 
   console.log("AgentKarenBot starting...");
   
