@@ -5001,7 +5001,9 @@ _Karen gets smarter with every conversation! Rate my responses with the +1/-1 bu
       await ctx.reply("Only admins can toggle features!");
       return;
     }
-    const featureName = ctx.message?.text?.replace("/toggle", "").trim().toLowerCase() as keyof FeatureSettings | undefined;
+    // Use ctx.match which grammY populates with the text after the command,
+    // already stripping /toggle and any @BotName suffix — handles all group command forms.
+    const featureName = (ctx.match || "").trim().toLowerCase() as keyof FeatureSettings | undefined;
     if (!featureName || !(featureName in FEATURE_LABELS)) {
       const validKeys = Object.keys(FEATURE_LABELS).join(", ");
       await ctx.reply(`Please specify a valid feature name.\n\nValid options:\n${validKeys}\n\nExample: /toggle spam`);
@@ -11036,17 +11038,6 @@ function getRandomBudInterval(): number {
 async function postCommunityBudAvatar() {
   if (!botInstance) return;
   
-  // Check scheduled toggle for the primary active chat before proceeding
-  const _primaryChatId = Array.from(leaderboardData.keys())[0]?.toString();
-  if (_primaryChatId) {
-    const _budFeats = await getFeatureSettings(_primaryChatId);
-    if (!_budFeats.scheduled) {
-      console.log(`Community bud avatar skipped — scheduled posts disabled for chat ${_primaryChatId}`);
-      scheduleCommunityBud();
-      return;
-    }
-  }
-  
   // Get today's date for daily reset (Pacific time)
   const pacificFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
@@ -11076,6 +11067,14 @@ async function postCommunityBudAvatar() {
   
   // Pick first active chat (usually the main community)
   const chatId = activeChatIds[0];
+  
+  // Check scheduled toggle for the selected target chat (true per-chat semantics)
+  const _budFeats = await getFeatureSettings(chatId.toString());
+  if (!_budFeats.scheduled) {
+    console.log(`Community bud avatar skipped — scheduled posts disabled for chat ${chatId}`);
+    scheduleCommunityBud();
+    return;
+  }
   
   // Get ALL tracked users from chat (not sorted, truly random)
   const chatLeaderboard = leaderboardData.get(chatId);
