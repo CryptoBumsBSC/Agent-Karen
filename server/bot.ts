@@ -462,6 +462,36 @@ const FEATURE_LABELS: Record<keyof FeatureSettings, string> = {
   medicalQA: "Medical Cannabis Q&A Mode (disclaimers + medical context)",
 };
 
+// Features available on the free/expired tier — basic safety only.
+// Everything else requires an active subscription (paid, trial, or complimentary).
+const FREE_FEATURE_KEYS = new Set<keyof FeatureSettings>([
+  "spam", "scam", "hate", "drugs", "dealers", "links", "files", "newuser",
+]);
+
+// Human-readable upgrade card shown when a free/expired group tries a paid command
+function buildUpgradePrompt(botName = "Karen"): string {
+  return (
+    `This is a PAID feature.\n\n` +
+    `Your community is on the FREE TIER. Upgrade to unlock:\n\n` +
+    `🔒 Anti-Raid Mode\n` +
+    `🔒 Message Edit Tracking\n` +
+    `🔒 Admin Impersonation Detection\n` +
+    `🔒 Karen Personality + GIF Reactions\n` +
+    `🔒 Bot Learning System\n` +
+    `🔒 Scheduled Daily Posts\n` +
+    `🔒 Referral Program\n` +
+    `🔒 Games (Trivia / Puzzle / Seed Storm)\n` +
+    `🔒 Full Trust System\n` +
+    `🔒 CAPTCHA + Account Age Gates\n` +
+    `🔒 Cross-Group Ban Propagation\n` +
+    `🔒 AI Chat Responses (/ask, /roast)\n` +
+    `🔒 Medical Cannabis Q&A\n` +
+    `🔒 Story Generator\n` +
+    `🔒 Bio Scanning + Mass-Mention Detection\n\n` +
+    `Contact @aussieBoomer to activate your subscription.`
+  );
+}
+
 // In-memory cache — avoids a DB hit on every message
 const featureSettingsCache = new Map<string, FeatureSettings>();
 
@@ -615,6 +645,7 @@ async function ensureCommunity(chatId: string, displayName?: string): Promise<Co
 
 function isSubscribed(community: CommunityRecord): boolean {
   if (community.status === "active") return true;
+  if (community.status === "complimentary") return true;
   if (community.status === "trial") {
     if (!community.trialExpiresAt) return true;
     return community.trialExpiresAt > new Date();
@@ -625,6 +656,7 @@ function isSubscribed(community: CommunityRecord): boolean {
 function getStatusLabel(community: CommunityRecord): string {
   if (community.status === "banned") return "BANNED";
   if (community.status === "active") return "ACTIVE (Paid)";
+  if (community.status === "complimentary") return "COMPLIMENTARY (Full Access — Free Gift)";
   if (community.status === "trial") {
     const now = new Date();
     if (!community.trialExpiresAt || community.trialExpiresAt > now) {
@@ -633,9 +665,9 @@ function getStatusLabel(community: CommunityRecord): string {
         : 7;
       return `TRIAL (${days} day${days !== 1 ? "s" : ""} remaining)`;
     }
-    return "TRIAL EXPIRED — upgrade to restore features";
+    return "TRIAL EXPIRED — contact @aussieBoomer to upgrade";
   }
-  return "FREE (limited commands only)";
+  return "FREE TIER — upgrade to unlock all features";
 }
 
 interface CommunityUpdates {
@@ -4839,26 +4871,26 @@ export function createBot(): Bot<MyContext> {
     // Banned communities: bot goes completely silent — no response whatsoever
     if (community.status === "banned") return;
 
-    // Free/expired communities: only basic commands work; all other messages dropped
+    // Free/expired communities: basic safety moderation + free commands only
     if (!isSubscribed(community)) {
-      // Global owner always gets through (for /activate, /extendtrial, etc.)
+      // Global owner always gets through (for /activate, /makefree, etc.)
       if (isGlobalOwner(ctx)) return next();
 
       const text = (ctx.message?.text || "").trim();
-      const FREE_COMMANDS = ["/help", "/start", "/info", "/ask", "/setup", "/community"];
+      // Commands always available regardless of tier
+      const FREE_COMMANDS = ["/help", "/start", "/info", "/ask", "/setup", "/community", "/settings"];
 
       if (text.startsWith("/")) {
         const cmdBase = text.split(/[\s@]/)[0].toLowerCase();
         if (FREE_COMMANDS.some(fc => cmdBase === fc)) return next();
-        await ctx.reply(
-          `This community's Karen subscription has expired.\n\n` +
-          `Available on free tier: /help, /info, /ask, /setup, /community\n\n` +
-          `Contact @aussieBoomer to activate your subscription and unlock all features.`
-        );
+        // Show informative upgrade card instead of silently doing nothing
+        const communityBotName = community.botNickname || "Karen";
+        await ctx.reply(buildUpgradePrompt(communityBotName));
         return;
       }
-      // Non-command text and all other updates: silently drop — no moderation, no AI response
-      return;
+      // Non-command text: still run basic safety moderation (spam/scam/hate/drugs/dealers/links/files)
+      // but skip personality, AI, and all premium behaviour — fall through to next()
+      return next();
     }
 
     return next();
@@ -5319,6 +5351,7 @@ _Karen gets smarter with every conversation! Rate my responses with the +1/-1 bu
   // === FEATURE SETTINGS COMMANDS ===
 
   // /settings - Show all feature toggles with ON/OFF status (admin only)
+  // Works on all tiers — free/expired groups see what's locked vs included
   bot.command("settings", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
     if (ctx.chat.type === "private") {
@@ -5331,13 +5364,34 @@ _Karen gets smarter with every conversation! Rate my responses with the +1/-1 bu
       await ctx.reply("Only admins can view or change settings!");
       return;
     }
+    const community = await getCommunity(chatIdStr);
+    const subscribed = community ? isSubscribed(community) : false;
     const feats = await getFeatureSettings(chatIdStr);
+
     const lines = (Object.keys(FEATURE_LABELS) as (keyof FeatureSettings)[]).map(key => {
-      const on = feats[key];
-      return `${on ? "✅" : "❌"} ${FEATURE_LABELS[key]} (${key})`;
+      const isFreeFeature = FREE_FEATURE_KEYS.has(key);
+      if (subscribed) {
+        // Full access — show actual enabled/disabled state
+        const on = feats[key];
+        return `${on ? "✅" : "❌"} ${FEATURE_LABELS[key]} (${key})`;
+      } else {
+        // Free/expired — show what's included vs locked
+        if (isFreeFeature) {
+          const on = feats[key];
+          return `${on ? "✅" : "❌"} ${FEATURE_LABELS[key]} (${key}) — INCLUDED FREE`;
+        } else {
+          return `🔒 ${FEATURE_LABELS[key]} (${key}) — PAID`;
+        }
+      }
     });
+
+    const statusLine = community ? `Status: ${getStatusLabel(community)}\n\n` : "";
+    const footer = subscribed
+      ? `\nTo toggle a feature: /toggle [name]\nExample: /toggle spam`
+      : `\n🔒 = Paid features. Contact @aussieBoomer to upgrade and unlock everything.`;
+
     await ctx.reply(
-      `KAREN BOT — FEATURE SETTINGS\n\n${lines.join("\n")}\n\nTo toggle a feature:\n/toggle [name]\n\nExample: /toggle spam`
+      `KAREN BOT — FEATURE SETTINGS\n\n${statusLine}${lines.join("\n")}${footer}`
     );
   });
 
@@ -8402,9 +8456,56 @@ Check the leaderboard with /refboard`;
     await updateCommunity(chatId, { status: "free" });
     communityCache.delete(chatId);
     if (botInstance) {
-      try { await botInstance.api.sendMessage(parseInt(chatId), `Your Karen subscription has ended. Only basic commands (/help, /info, /ask) are available. Contact @aussieBoomer to reactivate.`); } catch {}
+      try {
+        await botInstance.api.sendMessage(
+          parseInt(chatId),
+          `Your Karen subscription has ended. Basic safety moderation continues.\n\n` +
+          `Paid features (/ask, games, referrals, scheduled posts, trust system, etc.) are now locked.\n\n` +
+          `Contact @aussieBoomer to reactivate.`
+        );
+      } catch {}
     }
     await ctx.reply(`Community "${existing.displayName}" (${chatId}) downgraded to free tier.`);
+  });
+
+  // /makefree [chatId] — Grant complimentary (free full access) to a community — no payment required
+  // Use this to gift full access to communities you want to support for free.
+  // Unlike /activate (which marks them as "paid"), this marks them as "complimentary".
+  bot.command("makefree", async (ctx) => {
+    if (!ctx.from) return;
+    if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+    const chatId = (ctx.match || "").trim();
+    if (!chatId) {
+      await ctx.reply(
+        "Usage: /makefree -100123456789\n\n" +
+        "Grants this community full access at no cost (Complimentary tier).\n" +
+        "Use /activate for paid communities, /makefree for gifted ones.\n" +
+        "Get chat IDs with /communities"
+      );
+      return;
+    }
+    const existing = await getCommunity(chatId);
+    if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}\n\nUse /communities to list all groups.`); return; }
+    if (existing.status === "complimentary") {
+      await ctx.reply(`"${existing.displayName}" is already on the Complimentary tier.`);
+      return;
+    }
+    await updateCommunity(chatId, { status: "complimentary", trialExpiresAt: null });
+    communityCache.delete(chatId);
+    if (botInstance) {
+      try {
+        await botInstance.api.sendMessage(
+          parseInt(chatId),
+          `Great news! This community has been granted full Karen access as a complimentary gift.\n\n` +
+          `All features are now unlocked. Thank you for being part of the Dudley Bud universe!`
+        );
+      } catch {}
+    }
+    await ctx.reply(
+      `✅ "${existing.displayName}" (${chatId}) set to COMPLIMENTARY.\n\n` +
+      `Full access granted — no payment required.\n` +
+      `To revert: /deactivate ${chatId}`
+    );
   });
 
   // /extendtrial [chatId] [days] — Extend a community's trial period
@@ -8530,11 +8631,13 @@ Check the leaderboard with /refboard`;
       `/communities — List all registered groups\n` +
       `/communityinfo [chatId] — Full details for one group\n\n` +
       `━━ SUBSCRIPTION CONTROL ━━\n` +
-      `/activate [chatId] — Mark as paid/active (all features on)\n` +
-      `/deactivate [chatId] — Downgrade to free tier\n` +
-      `/extendtrial [chatId] [days] — Extend trial period\n` +
-      `/bangroup [chatId] — Silence bot in a group (stays but ignores)\n` +
+      `/activate [chatId] — Mark as PAID — full access (they've paid)\n` +
+      `/makefree [chatId] — Mark as COMPLIMENTARY — full access (your gift, no payment)\n` +
+      `/deactivate [chatId] — Downgrade to free tier (basic safety only)\n` +
+      `/extendtrial [chatId] [days] — Extend a trial period\n` +
+      `/bangroup [chatId] — Silence bot in a group (stays but ignores everything)\n` +
       `/leavegroup [chatId] — Remove bot from a group entirely\n\n` +
+      `Tiers: ACTIVE (paid) · COMPLIMENTARY (gifted) · TRIAL · FREE (limited) · BANNED\n\n` +
       `━━ ADMIN MANAGEMENT ━━\n` +
       `/setadmin [chatId] [userId] — Add a bot admin to any group\n` +
       `/removeadmin [chatId] [userId] — Remove a bot admin from any group\n` +
