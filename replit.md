@@ -1,5 +1,8 @@
 # Dudley Bud - Web3 Cannabis Character Universe
 
+## Current Version
+**AgentKarenBot v2.0** — Multi-community SaaS Telegram bot with 27 toggleable features, 5 subscription tiers, per-community configuration, and global owner remote control. Full version notes in `KAREN_V2.md`.
+
 ## Overview
 Dudley Bud is a Web3 creative storytelling project built on the Base blockchain, centered around cannabis-themed characters. The project aims to provide entertainment, community engagement, and educational content through a Telegram bot and a React web application. It emphasizes that its NFTs are for entertainment and collecting purposes only, without promises of financial returns.
 
