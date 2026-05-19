@@ -15,6 +15,7 @@ import AdminDashboard from "@/pages/admin/Dashboard";
 import AdminTeam from "@/pages/admin/Team";
 import CommunityDetail from "@/pages/admin/CommunityDetail";
 import BotControls from "@/pages/admin/BotControls";
+import BotReference from "@/pages/admin/BotReference";
 
 function Router() {
   return (
@@ -29,6 +30,7 @@ function Router() {
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/admin/team" component={AdminTeam} />
       <Route path="/admin/bot" component={BotControls} />
+      <Route path="/admin/reference" component={BotReference} />
       <Route path="/admin/community/:chatId" component={CommunityDetail} />
       <Route component={NotFound} />
     </Switch>
