@@ -8190,24 +8190,50 @@ Check the leaderboard with /refboard`;
     await ctx.reply(`${targetName || "@" + targetUsername} added to the bot admin list. They can now run admin Karen commands.`);
   });
 
-  // /removeadmin — Remove a user from this community's bot admin override list (group owner only)
+  // /removeadmin — context-aware:
+  //   In a group: reply to a message to remove that person (group owner only)
+  //   In DM:      /removeadmin [chatId] [userId]  (global owner only)
   bot.command("removeadmin", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
-    if (ctx.chat.type === "private") return;
+
+    if (ctx.chat.type === "private") {
+      // Remote mode — owner DM
+      if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+      const parts = (ctx.match || "").trim().split(/\s+/);
+      const chatId = parts[0]; const userId = parts[1];
+      if (!chatId || !userId) {
+        await ctx.reply("Usage: /removeadmin -100123456789 123456789\n\nGet chat IDs with /communities");
+        return;
+      }
+      const existing = await getCommunity(chatId);
+      if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
+      const currentList = existing.botAdminIds || [];
+      if (!currentList.includes(userId)) {
+        await ctx.reply(`User ${userId} is not in the bot admin list for "${existing.displayName}".`);
+        return;
+      }
+      await updateCommunity(chatId, { botAdminIds: currentList.filter(id => id !== userId) });
+      communityCache.delete(chatId);
+      if (botInstance) {
+        try { await botInstance.api.sendMessage(parseInt(chatId), `User ID ${userId} has been removed from Karen bot admin access by the owner.`); } catch {}
+      }
+      await ctx.reply(`✅ User ${userId} removed from bot admins in "${existing.displayName}" (${chatId})`);
+      return;
+    }
+
+    // In-group mode — reply-based
     if (!(await isOwner(ctx))) { await ctx.reply("Only the group owner can manage the bot admin list."); return; }
     const chatIdStr = ctx.chat.id.toString();
-
     let targetUserId: string | undefined;
     let targetName: string | undefined;
     if (ctx.message?.reply_to_message?.from) {
       targetUserId = String(ctx.message.reply_to_message.from.id);
       targetName = ctx.message.reply_to_message.from.first_name || ctx.message.reply_to_message.from.username;
     } else {
-      await ctx.reply("Usage: Reply to a user's message with /removeadmin");
+      await ctx.reply("Usage: Reply to a user's message with /removeadmin\nOr from DM: /removeadmin [chatId] [userId]");
       return;
     }
     if (!targetUserId) { await ctx.reply("Couldn't identify the user."); return; }
-
     const community = await getCommunity(chatIdStr);
     const currentList = community?.botAdminIds || [];
     if (!currentList.includes(targetUserId)) {
@@ -8219,18 +8245,104 @@ Check the leaderboard with /refboard`;
     await ctx.reply(`${targetName} removed from the bot admin list.`);
   });
 
-  // /listadmins — Show all users in this community's bot admin override list
+  // /listadmins — context-aware:
+  //   In a group: shows bot admins for this group
+  //   In DM:      /listadmins [chatId]  (global owner only)
   bot.command("listadmins", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
-    if (ctx.chat.type === "private") return;
+
+    if (ctx.chat.type === "private") {
+      // Remote mode — owner DM
+      if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+      const chatId = (ctx.match || "").trim();
+      if (!chatId) { await ctx.reply("Usage: /listadmins -100123456789\n\nGet chat IDs with /communities"); return; }
+      const existing = await getCommunity(chatId);
+      if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
+      const list = existing.botAdminIds || [];
+      if (list.length === 0) {
+        await ctx.reply(`"${existing.displayName}" (${chatId}) has no bot admin overrides.\n\nOnly Telegram admins can run Karen commands there.`);
+        return;
+      }
+      await ctx.reply(
+        `BOT ADMINS — "${existing.displayName}" (${chatId})\n\n` +
+        list.map((id, i) => `${i + 1}. User ID: ${id}`).join("\n") +
+        `\n\nAdd: /setadmin ${chatId} [userId]\nRemove: /removeadmin ${chatId} [userId]\nReplace all: /changeadmin ${chatId} [userId]`
+      );
+      return;
+    }
+
+    // In-group mode
     const chatIdStr = ctx.chat.id.toString();
     const community = await getCommunity(chatIdStr);
     if (!community || community.botAdminIds.length === 0) {
-      await ctx.reply("No custom bot admins set for this community.\n\nAll Telegram admins and the group owner can run bot admin commands by default.\n\nUse /addadmin (reply to a message) to add custom bot admins.");
+      await ctx.reply(
+        "No custom bot admins set for this group.\n\n" +
+        "All Telegram admins and the group owner can run Karen commands by default.\n\n" +
+        "Commands:\n/addadmin — reply to a message to add someone\n/changeadmin — reply to make someone the new admin"
+      );
       return;
     }
     const list = community.botAdminIds.map((id, i) => `${i + 1}. User ID: ${id}`).join("\n");
-    await ctx.reply(`BOT ADMIN OVERRIDE LIST (${community.botAdminIds.length} entries)\n\n${list}\n\nThese users can run admin Karen commands even without Telegram admin status.`);
+    await ctx.reply(
+      `BOT ADMIN LIST (${community.botAdminIds.length})\n\n${list}\n\n` +
+      `These users can run Karen admin commands without Telegram admin status.\n\n` +
+      `/addadmin — add someone · /removeadmin — remove someone · /changeadmin — swap to new person`
+    );
+  });
+
+  // /changeadmin — Replace the entire bot admin list with one new person
+  //   In a group: reply to a message (group owner only)
+  //   In DM:      /changeadmin [chatId] [userId]  (global owner only)
+  bot.command("changeadmin", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+
+    if (ctx.chat.type === "private") {
+      // Remote mode — owner DM
+      if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
+      const parts = (ctx.match || "").trim().split(/\s+/);
+      const chatId = parts[0]; const userId = parts[1];
+      if (!chatId || !userId) {
+        await ctx.reply("Usage: /changeadmin -100123456789 123456789\n\nReplaces ALL current bot admins with just this user.\nGet chat IDs with /communities");
+        return;
+      }
+      const existing = await getCommunity(chatId);
+      if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
+      await updateCommunity(chatId, { botAdminIds: [userId] });
+      communityCache.delete(chatId);
+      if (botInstance) {
+        try { await botInstance.api.sendMessage(parseInt(chatId), `Bot admin access has been updated by the owner. User ID ${userId} is now the sole bot admin for this community.`); } catch {}
+      }
+      await ctx.reply(`✅ Bot admin for "${existing.displayName}" (${chatId}) changed to User ID ${userId}\n\nAll previous admins removed.`);
+      return;
+    }
+
+    // In-group mode — reply-based
+    if (!(await isOwner(ctx))) { await ctx.reply("Only the group owner can change the bot admin."); return; }
+    const chatIdStr = ctx.chat.id.toString();
+    let targetUserId: string | undefined;
+    let targetName: string | undefined;
+    let targetUsername: string | undefined;
+    if (ctx.message?.reply_to_message?.from) {
+      targetUserId = String(ctx.message.reply_to_message.from.id);
+      targetUsername = ctx.message.reply_to_message.from.username;
+      targetName = ctx.message.reply_to_message.from.first_name || targetUsername;
+    } else {
+      await ctx.reply(
+        "Usage: Reply to any message from the new admin and type /changeadmin\n\n" +
+        "This replaces the current bot admin with that person.\n" +
+        "Use /addadmin if you want to add them alongside existing admins instead."
+      );
+      return;
+    }
+    if (!targetUserId) { await ctx.reply("Couldn't identify the user."); return; }
+    await ensureCommunity(chatIdStr);
+    await updateCommunity(chatIdStr, { botAdminIds: [targetUserId] });
+    communityCache.delete(chatIdStr);
+    await ctx.reply(
+      `${targetName || "@" + targetUsername} is now the bot admin for this group.\n\n` +
+      `They can use all Karen admin commands. Previous bot admins (if any) have been replaced.\n\n` +
+      `Use /addadmin to add more admins alongside them.`
+    );
   });
 
   // === OWNER MANAGEMENT COMMANDS (usable from any chat by @aussieBoomer) ===
@@ -8407,52 +8519,6 @@ Check the leaderboard with /refboard`;
     await ctx.reply(`✅ User ${userId} added as bot admin in "${existing.displayName}" (${chatId})`);
   });
 
-  // /removeadmin [chatId] [userId] — Remotely remove a bot admin from any community (owner DM)
-  bot.command("removeadmin", async (ctx) => {
-    if (!ctx.from) return;
-    if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
-    const parts = (ctx.match || "").trim().split(/\s+/);
-    const chatId = parts[0];
-    const userId = parts[1];
-    if (!chatId || !userId) {
-      await ctx.reply("Usage: /removeadmin -100123456789 123456789\n\nGet chat IDs with /communities");
-      return;
-    }
-    const existing = await getCommunity(chatId);
-    if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
-    const currentList = existing.botAdminIds || [];
-    if (!currentList.includes(userId)) {
-      await ctx.reply(`User ${userId} is not in the bot admin list for "${existing.displayName}".`);
-      return;
-    }
-    await updateCommunity(chatId, { botAdminIds: currentList.filter(id => id !== userId) });
-    communityCache.delete(chatId);
-    if (botInstance) {
-      try { await botInstance.api.sendMessage(parseInt(chatId), `User ID ${userId} has been removed from Karen bot admin access for this community.`); } catch {}
-    }
-    await ctx.reply(`✅ User ${userId} removed from bot admins in "${existing.displayName}" (${chatId})`);
-  });
-
-  // /listadmins [chatId] — View bot admin list for any community remotely (owner DM)
-  bot.command("listadmins", async (ctx) => {
-    if (!ctx.from) return;
-    if (!isGlobalOwner(ctx)) { await ctx.reply("Owner-only command."); return; }
-    const chatId = (ctx.match || "").trim();
-    if (!chatId) { await ctx.reply("Usage: /listadmins -100123456789\n\nGet chat IDs with /communities"); return; }
-    const existing = await getCommunity(chatId);
-    if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
-    const list = existing.botAdminIds || [];
-    if (list.length === 0) {
-      await ctx.reply(`"${existing.displayName}" (${chatId}) has no bot admin overrides.\n\nOnly Telegram admins can run Karen commands there.`);
-      return;
-    }
-    await ctx.reply(
-      `BOT ADMINS — "${existing.displayName}" (${chatId})\n\n` +
-      list.map((id, i) => `${i + 1}. User ID: ${id}`).join("\n") +
-      `\n\nAdd: /setadmin ${chatId} [userId]\nRemove: /removeadmin ${chatId} [userId]`
-    );
-  });
-
   // /ownerhelp — Show every global owner command (owner DM only)
   bot.command("ownerhelp", async (ctx) => {
     if (!ctx.from) return;
@@ -8470,9 +8536,11 @@ Check the leaderboard with /refboard`;
       `/bangroup [chatId] — Silence bot in a group (stays but ignores)\n` +
       `/leavegroup [chatId] — Remove bot from a group entirely\n\n` +
       `━━ ADMIN MANAGEMENT ━━\n` +
-      `/setadmin [chatId] [userId] — Add bot admin to any group\n` +
-      `/removeadmin [chatId] [userId] — Remove bot admin from any group\n` +
+      `/setadmin [chatId] [userId] — Add a bot admin to any group\n` +
+      `/removeadmin [chatId] [userId] — Remove a bot admin from any group\n` +
+      `/changeadmin [chatId] [userId] — Replace ALL bot admins with one new person\n` +
       `/listadmins [chatId] — View bot admins for any group\n\n` +
+      `In-group (reply-based): /addadmin · /removeadmin · /changeadmin · /listadmins\n\n` +
       `━━ TRUST & MODERATION ━━\n` +
       `/trustset @user — Manually vouch for a user\n` +
       `/trustremove @user — Remove trust from a user\n` +
