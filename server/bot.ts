@@ -9546,14 +9546,16 @@ Pause: Press Escape
       const displayName = username ? `@${username}` : firstName;
       const trackingUserId = ctx.from?.id?.toString() || "";
       const chatIdStr = chatId ? String(chatId) : "";
+      // Fetch feature flags once — used for personality, learning, and milestone gating
+      const _chatFeats = chatIdStr ? await getFeatureSettings(chatIdStr) : { ...DEFAULT_FEATURE_SETTINGS };
       
       // Track user interaction and check milestones
       let newMsgCount = 0;
       if (trackingUserId) {
         try {
           newMsgCount = await trackUserInteraction(trackingUserId, text);
-          // Check for milestone celebrations using the returned count
-          const milestone = checkMilestone(newMsgCount);
+          // Check for milestone celebrations (personality feature)
+          const milestone = _chatFeats.personality ? checkMilestone(newMsgCount) : null;
           if (milestone) {
             await ctx.reply(`${displayName} ${milestone}`, { reply_parameters: { message_id: ctx.message.message_id } });
           }
@@ -9594,8 +9596,8 @@ Pause: Press Escape
             // Add returning user context if available
             response = returningContext ? `${returningContext}\n\n${knowledgeResult}` : knowledgeResult;
           } else {
-            // Try learned response first (saves API costs)
-            const learnedResponse = await BotMemory.getLearnedResponse(questionText);
+            // Try learned response first (saves API costs, gated by learning toggle)
+            const learnedResponse = _chatFeats.learning ? await BotMemory.getLearnedResponse(questionText) : null;
             if (learnedResponse) {
               response = learnedResponse;
               if (returningContext) response = `${returningContext}\n\n${response}`;
@@ -9619,8 +9621,8 @@ Pause: Press Escape
             ? `${rudenessContext}\n\n${responseContext}. Address them as ${displayName}.`
             : `${responseContext}. Address them as ${displayName}. Keep response brief and friendly.`;
           
-          // Try learned response first (saves API costs)
-          const learnedResponse = await BotMemory.getLearnedResponse(text);
+          // Try learned response first (saves API costs, gated by learning toggle)
+          const learnedResponse = _chatFeats.learning ? await BotMemory.getLearnedResponse(text) : null;
           if (learnedResponse) {
             response = learnedResponse;
           } else {
@@ -9636,20 +9638,19 @@ Pause: Press Escape
       }
       
       // Add Karen personality flair (catchphrases, gags) - 15% chance for each
-      const _personalityFeats = await getFeatureSettings(chatIdStr);
-      if (_personalityFeats.personality) {
+      if (_chatFeats.personality) {
         response = addKarenFlair(response, { includeCatchphrase: true, includeGag: true });
       }
       
-      // Save interaction for learning
-      const interactionId = await BotMemory.saveInteraction(
+      // Save interaction for learning (only when learning toggle is ON)
+      const interactionId = _chatFeats.learning ? await BotMemory.saveInteraction(
         chatIdStr,
         trackingUserId,
         username,
         text,
         response,
         'ai'
-      );
+      ) : null;
       
       // Send response with feedback buttons (if interaction saved)
       if (interactionId) {
@@ -11035,6 +11036,17 @@ function getRandomBudInterval(): number {
 async function postCommunityBudAvatar() {
   if (!botInstance) return;
   
+  // Check scheduled toggle for the primary active chat before proceeding
+  const _primaryChatId = Array.from(leaderboardData.keys())[0]?.toString();
+  if (_primaryChatId) {
+    const _budFeats = await getFeatureSettings(_primaryChatId);
+    if (!_budFeats.scheduled) {
+      console.log(`Community bud avatar skipped — scheduled posts disabled for chat ${_primaryChatId}`);
+      scheduleCommunityBud();
+      return;
+    }
+  }
+  
   // Get today's date for daily reset (Pacific time)
   const pacificFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
@@ -11204,6 +11216,10 @@ async function checkBirthdays() {
       
       const chatId = parseInt(profile.chatId);
       if (isNaN(chatId)) continue;
+      
+      // Check if scheduled posts are enabled for this chat
+      const _bdFeats = await getFeatureSettings(profile.chatId);
+      if (!_bdFeats.scheduled) continue;
       
       const userName = profile.username ? `@${profile.username}` : profile.firstName || "our friend";
       const displayName = profile.firstName || profile.username || "friend";
@@ -11500,6 +11516,10 @@ async function announceReferralWinners(period: 'weekly' | 'monthly') {
     const chatIdNum = parseInt(chatId);
     if (isNaN(chatIdNum)) continue;
     
+    // Check if scheduled posts are enabled for this chat
+    const _arwFeats = await getFeatureSettings(chatId);
+    if (!_arwFeats.scheduled) continue;
+    
     const winnerName = winner.username ? `@${winner.username}` : winner.firstName || "Champion";
     const displayName = winner.firstName || winner.username || "Top Referrer";
     
@@ -11549,6 +11569,10 @@ async function announceWinners(period: 'daily' | 'weekly' | 'monthly') {
     for (const [chatId, winner] of Array.from(topScorers.entries())) {
       const chatIdNum = parseInt(chatId);
       if (isNaN(chatIdNum)) continue;
+      
+      // Check if scheduled posts are enabled for this chat
+      const _awFeats = await getFeatureSettings(chatId);
+      if (!_awFeats.scheduled) continue;
       
       const winnerName = winner.username ? `@${winner.username}` : winner.firstName || "Champion";
       const displayName = winner.firstName || winner.username || "Champion";
@@ -11727,6 +11751,9 @@ Weekly top referrer gets a special budify avatar! Type /refboard to see current 
     const message = referralReminderMessages[Math.floor(Math.random() * referralReminderMessages.length)];
     
     for (const chatId of Array.from(activeChats)) {
+      // Check if scheduled posts are enabled for this chat
+      const _rrFeats = await getFeatureSettings(chatId.toString());
+      if (!_rrFeats.scheduled) continue;
       try {
         await botInstance?.api.sendMessage(chatId, message);
         console.log(`Posted referral reminder to chat ${chatId}`);
