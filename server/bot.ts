@@ -1,7 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
-import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs } from "@shared/schema";
+import { communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs, chatFeatureSettings } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
 import * as StoryBible from "./storyBible";
@@ -350,6 +350,12 @@ function shouldSendGif(forceChance?: number): boolean {
 // Send a Karen GIF based on context (only bot sends these, not users)
 async function sendKarenGif(ctx: Context, category?: keyof typeof KAREN_GIFS, responseText?: string): Promise<void> {
   try {
+    // Check if GIF feature is enabled for this chat
+    const chatIdStr = ctx.chat?.id?.toString();
+    if (chatIdStr) {
+      const feats = await getFeatureSettings(chatIdStr);
+      if (!feats.gifs) return;
+    }
     // Determine category from response text if not specified
     const gifCategory = category || (responseText ? getGifCategoryForContext(responseText) : "sassy") || "sassy";
     const gifUrl = getKarenGif(gifCategory);
@@ -379,6 +385,100 @@ async function karenReplyWithGif(
   if (options?.forceGif || shouldSendGif(options?.gifChance)) {
     await sendKarenGif(ctx, options?.gifCategory, text);
   }
+}
+
+// === FEATURE TOGGLE SYSTEM ===
+
+export interface FeatureSettings {
+  spam: boolean;
+  scam: boolean;
+  drugs: boolean;
+  dealers: boolean;
+  hate: boolean;
+  raid: boolean;
+  links: boolean;
+  edits: boolean;
+  files: boolean;
+  impersonation: boolean;
+  newuser: boolean;
+  gifs: boolean;
+  personality: boolean;
+  learning: boolean;
+  scheduled: boolean;
+  referrals: boolean;
+  giveaways: boolean;
+  games: boolean;
+  trust: boolean;
+  stories: boolean;
+}
+
+const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
+  spam: true, scam: true, drugs: true, dealers: true, hate: true,
+  raid: true, links: true, edits: true, files: true, impersonation: true,
+  newuser: true, gifs: true, personality: true, learning: true,
+  scheduled: true, referrals: true, giveaways: true, games: true,
+  trust: true, stories: true,
+};
+
+const FEATURE_LABELS: Record<keyof FeatureSettings, string> = {
+  spam: "Anti-Spam / Flood Control",
+  scam: "Scam & Phishing Protection",
+  drugs: "Hard Drug Detection",
+  dealers: "Dealer Detection",
+  hate: "Hate Speech Filter",
+  raid: "Anti-Raid Mode",
+  links: "Link Control (New Users)",
+  edits: "Message Edit Tracking",
+  files: "Dangerous File Blocking",
+  impersonation: "Admin Impersonation Detection",
+  newuser: "New User Restrictions",
+  gifs: "Karen GIF Reactions",
+  personality: "Karen Personality (Catchphrases/Mood)",
+  learning: "Bot Learning System",
+  scheduled: "Scheduled Posts",
+  referrals: "Referral Program",
+  giveaways: "Giveaway System",
+  games: "Games (Trivia/Puzzle)",
+  trust: "Trust System",
+  stories: "Story Generator",
+};
+
+// In-memory cache — avoids a DB hit on every message
+const featureSettingsCache = new Map<string, FeatureSettings>();
+
+async function getFeatureSettings(chatId: string): Promise<FeatureSettings> {
+  if (featureSettingsCache.has(chatId)) return featureSettingsCache.get(chatId)!;
+  try {
+    const rows = await db.select().from(chatFeatureSettings).where(eq(chatFeatureSettings.chatId, chatId)).limit(1);
+    if (rows.length === 0) {
+      await db.insert(chatFeatureSettings).values({ chatId }).onConflictDoNothing();
+      const settings = { ...DEFAULT_FEATURE_SETTINGS };
+      featureSettingsCache.set(chatId, settings);
+      return settings;
+    }
+    const r = rows[0];
+    const settings: FeatureSettings = {
+      spam: r.spam, scam: r.scam, drugs: r.drugs, dealers: r.dealers, hate: r.hate,
+      raid: r.raid, links: r.links, edits: r.edits, files: r.files,
+      impersonation: r.impersonation, newuser: r.newuser, gifs: r.gifs,
+      personality: r.personality, learning: r.learning, scheduled: r.scheduled,
+      referrals: r.referrals, giveaways: r.giveaways, games: r.games,
+      trust: r.trust, stories: r.stories,
+    };
+    featureSettingsCache.set(chatId, settings);
+    return settings;
+  } catch {
+    return { ...DEFAULT_FEATURE_SETTINGS };
+  }
+}
+
+async function updateFeatureSetting(chatId: string, feature: keyof FeatureSettings, value: boolean): Promise<void> {
+  await db.insert(chatFeatureSettings)
+    .values({ chatId, [feature]: value })
+    .onConflictDoUpdate({ target: chatFeatureSettings.chatId, set: { [feature]: value } });
+  const cached = featureSettingsCache.get(chatId) || { ...DEFAULT_FEATURE_SETTINGS };
+  cached[feature] = value;
+  featureSettingsCache.set(chatId, cached);
 }
 
 // Season/Holiday awareness
@@ -4689,7 +4789,11 @@ Stay safe, fam!`;
   // /giveaway - Start a new giveaway (OWNER ONLY)
   bot.command("giveaway", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
-    
+    const _givFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_givFeats.giveaways) {
+      await ctx.reply("Giveaways are currently disabled in this chat. An admin can enable them with /toggle giveaways");
+      return;
+    }
     const ownerCheck = await isOwner(ctx);
     if (!ownerCheck) {
       await ctx.reply("Only the group owner can start giveaways!");
@@ -4726,6 +4830,8 @@ Stay safe, fam!`;
   // /enter - Enter the active giveaway
   bot.command("enter", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
+    const _enterFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_enterFeats.giveaways) return;
     
     const giveaway = activeGiveaways.get(ctx.chat.id);
     if (!giveaway || !giveaway.active) {
@@ -4751,6 +4857,8 @@ Stay safe, fam!`;
   // /entries - Check how many entries (anyone can use)
   bot.command("entries", async (ctx) => {
     if (!ctx.chat) return;
+    const _entriesFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_entriesFeats.giveaways) return;
     
     const giveaway = activeGiveaways.get(ctx.chat.id);
     if (!giveaway || !giveaway.active) {
@@ -4764,6 +4872,8 @@ Stay safe, fam!`;
   // /pickwinner - Randomly pick a winner (OWNER ONLY)
   bot.command("pickwinner", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
+    const _pwFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_pwFeats.giveaways) return;
     
     const ownerCheck = await isOwner(ctx);
     if (!ownerCheck) {
@@ -4800,6 +4910,8 @@ Stay safe, fam!`;
   // /endgiveaway - End giveaway without picking winner (OWNER ONLY)
   bot.command("endgiveaway", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
+    const _egFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_egFeats.giveaways) return;
     
     const ownerCheck = await isOwner(ctx);
     if (!ownerCheck) {
@@ -4849,6 +4961,57 @@ Stay safe, fam!`;
 _Karen gets smarter with every conversation! Rate my responses with the +1/-1 buttons to help me learn faster!_`, 
       { parse_mode: "Markdown" }
     );
+  });
+
+  // === FEATURE SETTINGS COMMANDS ===
+
+  // /settings - Show all feature toggles with ON/OFF status (admin only)
+  bot.command("settings", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") {
+      await ctx.reply("Settings are managed per group chat. Add me to a group and use /settings there!");
+      return;
+    }
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can view or change settings!");
+      return;
+    }
+    const chatIdStr = ctx.chat.id.toString();
+    const feats = await getFeatureSettings(chatIdStr);
+    const lines = (Object.keys(FEATURE_LABELS) as (keyof FeatureSettings)[]).map(key => {
+      const on = feats[key];
+      return `${on ? "✅" : "❌"} ${FEATURE_LABELS[key]} (${key})`;
+    });
+    await ctx.reply(
+      `KAREN BOT — FEATURE SETTINGS\n\n${lines.join("\n")}\n\nTo toggle a feature:\n/toggle [name]\n\nExample: /toggle spam`
+    );
+  });
+
+  // /toggle [feature] - Flip a feature on or off (admin only)
+  bot.command("toggle", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") {
+      await ctx.reply("Feature toggles only work in group chats!");
+      return;
+    }
+    const adminCheck = await isAdmin(ctx);
+    if (!adminCheck) {
+      await ctx.reply("Only admins can toggle features!");
+      return;
+    }
+    const featureName = ctx.message?.text?.replace("/toggle", "").trim().toLowerCase() as keyof FeatureSettings | undefined;
+    if (!featureName || !(featureName in FEATURE_LABELS)) {
+      const validKeys = Object.keys(FEATURE_LABELS).join(", ");
+      await ctx.reply(`Please specify a valid feature name.\n\nValid options:\n${validKeys}\n\nExample: /toggle spam`);
+      return;
+    }
+    const chatIdStr = ctx.chat.id.toString();
+    const feats = await getFeatureSettings(chatIdStr);
+    const newValue = !feats[featureName];
+    await updateFeatureSetting(chatIdStr, featureName, newValue);
+    const statusText = newValue ? "✅ ENABLED" : "❌ DISABLED";
+    await ctx.reply(`${FEATURE_LABELS[featureName]} is now ${statusText}\n\nUse /settings to see all toggles.`);
   });
 
   // === RAID LOCKDOWN COMMANDS ===
@@ -4950,7 +5113,11 @@ _Karen gets smarter with every conversation! Rate my responses with the +1/-1 bu
   // /trustinfo - Check your own trust status
   bot.command("trustinfo", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
-    
+    const _trustFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_trustFeats.trust) {
+      await ctx.reply("The trust system is currently disabled in this chat. An admin can enable it with /toggle trust");
+      return;
+    }
     const chatId = String(ctx.chat.id);
     const userId = String(ctx.from.id);
     
@@ -4991,6 +5158,13 @@ Use /trustpoints to learn how to earn more!`);
   
   // /trustpoints - Karen explains the trust system
   bot.command("trustpoints", async (ctx) => {
+    if (ctx.chat?.id) {
+      const _tpFeats = await getFeatureSettings(ctx.chat.id.toString());
+      if (!_tpFeats.trust) {
+        await ctx.reply("The trust system is currently disabled in this chat.");
+        return;
+      }
+    }
     const explainer = getTrustExplainer();
     await ctx.reply(ctx.session?.karenMode ? karenResponse(explainer) : explainer);
   });
@@ -5357,7 +5531,11 @@ They cannot gain trust points until unfrozen with /trustunfreeze.`);
   // /trustboard - Show trust leaderboard
   bot.command("trustboard", async (ctx) => {
     if (!ctx.chat) return;
-    
+    const _tbFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_tbFeats.trust) {
+      await ctx.reply("The trust system is currently disabled in this chat.");
+      return;
+    }
     const chatId = String(ctx.chat.id);
     
     const topTrusted = await db.select().from(trustScores)
@@ -5496,6 +5674,11 @@ They cannot gain trust points until unfrozen with /trustunfreeze.`);
       await ctx.reply("Trivia works best in group chats!");
       return;
     }
+    const _triviaFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_triviaFeats.games) {
+      await ctx.reply("Games are currently disabled in this chat. An admin can enable them with /toggle games");
+      return;
+    }
 
     // Check if there's already an active trivia
     const existing = activeTrivias.get(ctx.chat.id);
@@ -5553,6 +5736,8 @@ They cannot gain trust points until unfrozen with /trustunfreeze.`);
   // /answer - Answer the trivia question
   bot.command("answer", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
+    const _answerFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_answerFeats.games) return;
     
     const trivia = activeTrivias.get(ctx.chat.id);
     if (!trivia) {
@@ -5733,6 +5918,12 @@ They cannot gain trust points until unfrozen with /trustunfreeze.`);
     const chatIdStr = chatId.toString();
     const userIdStr = userId.toString();
     
+    const _refFeats = await getFeatureSettings(chatIdStr);
+    if (!_refFeats.referrals) {
+      await ctx.reply("The referral program is currently disabled in this chat.");
+      return;
+    }
+    
     try {
       // Get or create referral link
       const { link, code } = await getOrCreateReferralLink(bot, chatId, userId);
@@ -5783,7 +5974,11 @@ Check the leaderboard with /refboard`;
   // /refboard - Referral leaderboard
   bot.command("refboard", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
-    
+    const _refBoardFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_refBoardFeats.referrals) {
+      await ctx.reply("The referral program is currently disabled in this chat.");
+      return;
+    }
     const chatId = ctx.chat.id.toString();
     const args = ctx.message?.text?.split(" ").slice(1) || [];
     const period = args[0]?.toLowerCase() === "all" || args[0]?.toLowerCase() === "alltime" ? "alltime" : "weekly";
@@ -5891,6 +6086,11 @@ Check the leaderboard with /refboard`;
       await ctx.reply("Puzzle games work best in group chats!");
       return;
     }
+    const _puzzleFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_puzzleFeats.games) {
+      await ctx.reply("Games are currently disabled in this chat. An admin can enable them with /toggle games");
+      return;
+    }
     
     // Check for active puzzle
     const existing = activePuzzles.get(ctx.chat.id);
@@ -5964,6 +6164,8 @@ Check the leaderboard with /refboard`;
   // /guess - Guess the puzzle answer
   bot.command("guess", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
+    const _guessFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_guessFeats.games) return;
     
     const puzzle = activePuzzles.get(ctx.chat.id);
     if (!puzzle || puzzle.solved) {
@@ -6031,7 +6233,11 @@ Check the leaderboard with /refboard`;
   // /puzzleboard - Show puzzle leaderboard
   bot.command("puzzleboard", async (ctx) => {
     if (!ctx.chat || !ctx.from) return;
-    
+    const _pbFeats = await getFeatureSettings(ctx.chat.id.toString());
+    if (!_pbFeats.games) {
+      await ctx.reply("Games are currently disabled in this chat.");
+      return;
+    }
     const chatId = ctx.chat.id.toString();
     
     const now = new Date();
@@ -6102,7 +6308,13 @@ Check the leaderboard with /refboard`;
   // /story - Generate a random Dudleyverse story
   bot.command("story", async (ctx) => {
     if (!ctx.from) return;
-    
+    if (ctx.chat?.id) {
+      const _storyFeats = await getFeatureSettings(ctx.chat.id.toString());
+      if (!_storyFeats.stories) {
+        await ctx.reply("Stories are currently disabled in this chat. An admin can enable them with /toggle stories");
+        return;
+      }
+    }
     const username = ctx.from.username || ctx.from.first_name || "friend";
     const story = StoryBible.generateRandomStory(username);
     
@@ -7413,6 +7625,10 @@ Check the leaderboard with /refboard`;
   // Handle edited text messages
   bot.on("edited_message:text", async (ctx) => {
     if (!ctx.editedMessage || !ctx.editedMessage.from || !ctx.editedMessage.chat) return;
+    // Check if edit tracking is enabled
+    const _editChatIdStr = ctx.editedMessage.chat.id.toString();
+    const _editFeats = await getFeatureSettings(_editChatIdStr);
+    if (!_editFeats.edits) return;
     
     const chatId = ctx.editedMessage.chat.id;
     const chatIdStr = String(chatId);
@@ -7569,6 +7785,10 @@ Check the leaderboard with /refboard`;
       const newMemberId = member.id.toString();
       
       // === RAID DETECTION ===
+      const _raidFeats = await getFeatureSettings(chatIdStr);
+      if (!_raidFeats.raid) {
+        // Raid feature off — skip raid lockdown, still allow welcome flow below
+      } else {
       const raidCheck = trackJoinForRaid(chatIdStr, newMemberId);
       if (raidCheck.isRaid) {
         // First time hitting raid threshold - alert admins
@@ -7620,8 +7840,9 @@ Check the leaderboard with /refboard`;
         }
       }
       
+      } // end raid feature block
       // Check if currently in lockdown (even if this join didn't trigger it)
-      if (isInLockdown(chatIdStr)) {
+      if (_raidFeats.raid && isInLockdown(chatIdStr)) {
         try {
           const lockInfo = lockdownMode.get(chatIdStr);
           if (lockInfo) {
@@ -7661,7 +7882,7 @@ Check the leaderboard with /refboard`;
       }
       
       // === ADMIN IMPERSONATION DETECTION ===
-      if (username) {
+      if (_raidFeats.impersonation && username) {
         try {
           // Get or refresh admin cache
           const cached = adminCache.get(chatIdStr);
@@ -8331,7 +8552,8 @@ Ask me anything! I'm literally always here.`
     const hoursInChat = (Date.now() - new Date(userJoinDate).getTime()) / (1000 * 60 * 60);
     
     // New users (less than 24 hours) can't forward messages
-    if (hoursInChat < 24 && userStatus?.role === "newbie") {
+    const _fwdFeats = await getFeatureSettings(chatIdStr);
+    if (_fwdFeats.newuser && hoursInChat < 24 && userStatus?.role === "newbie") {
       try {
         await ctx.api.deleteMessage(chatId, ctx.message!.message_id);
         await incrementModStat(chatIdStr, 'spamBlocked');
@@ -8371,7 +8593,8 @@ Ask me anything! I'm literally always here.`
     const hoursInChat = (Date.now() - new Date(userJoinDate).getTime()) / (1000 * 60 * 60);
     
     // New users can't share contacts (scammers share fake support contacts)
-    if (hoursInChat < 48 && userStatus?.role === "newbie") {
+    const _contactFeats = await getFeatureSettings(chatIdStr);
+    if (_contactFeats.newuser && hoursInChat < 48 && userStatus?.role === "newbie") {
       try {
         await ctx.api.deleteMessage(chatId, ctx.message!.message_id);
         await incrementModStat(chatIdStr, 'scamsBlocked');
@@ -8409,7 +8632,8 @@ Ask me anything! I'm literally always here.`
     }
     
     // Check for dangerous file extensions
-    const isDangerous = DANGEROUS_EXTENSIONS.some(ext => fileName.endsWith(ext));
+    const _fileFeats = await getFeatureSettings(String(chatId));
+    const isDangerous = _fileFeats.files && DANGEROUS_EXTENSIONS.some(ext => fileName.endsWith(ext));
     if (isDangerous) {
       try {
         await ctx.api.deleteMessage(chatId, ctx.message.message_id);
@@ -8480,8 +8704,9 @@ Ask me anything! I'm literally always here.`
       if (ctx.from?.id && !ctx.from.is_bot) {
         // Check if user is admin (admins are exempt from spam detection)
         const userIsAdmin = await isAdmin(ctx);
+        const _spamFeats = await getFeatureSettings(String(chatId));
         
-        if (!userIsAdmin && isSpam(chatId, ctx.from.id, text)) {
+        if (!userIsAdmin && _spamFeats.spam && isSpam(chatId, ctx.from.id, text)) {
           const { muteSeconds, offenseCount, shouldBan } = addOffense(chatId, ctx.from.id);
           const firstName = ctx.from.first_name || "User";
           const uname = ctx.from.username;
@@ -8560,12 +8785,14 @@ Ask me anything! I'm literally always here.`
       if (!userIsAdminForMod && !isGameCommand) {
         // Get chat settings for raid mode and thresholds
         const settings = await getChatSettings(chatIdStr);
+        // Get feature toggles for this chat
+        const feats = await getFeatureSettings(chatIdStr);
         
         // === PHASE 1 SECURITY CHECKS ===
         const lowerTextMod = text.toLowerCase();
         
         // 1A. Seed phrase detection - protect users from sharing recovery phrases
-        if (detectSeedPhrase(text)) {
+        if (feats.scam && detectSeedPhrase(text)) {
           try {
             await ctx.api.deleteMessage(chatId, ctx.message.message_id);
             await incrementModStat(chatIdStr, 'scamsBlocked');
@@ -8582,7 +8809,7 @@ If this was a mistake, no worries. Just keep those 12/24 words safe and private!
         }
         
         // 1B. Wallet drainer phrase detection
-        for (const phrase of WALLET_DRAINER_PHRASES) {
+        if (feats.scam) for (const phrase of WALLET_DRAINER_PHRASES) {
           if (lowerTextMod.includes(phrase)) {
             try {
               await ctx.api.deleteMessage(chatId, ctx.message.message_id);
@@ -8601,6 +8828,7 @@ If you received a DM asking you to do this, report and block them immediately.`)
         }
         
         // 1C. Short link domain detection (URL shorteners hide scam links)
+        if (feats.scam) {
         const urlRegexShort = /https?:\/\/([^\s\/]+)/gi;
         let shortLinkMatch;
         while ((shortLinkMatch = urlRegexShort.exec(text)) !== null) {
@@ -8621,8 +8849,10 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
           }
         }
         
+        } // end feats.scam short-link block
+        
         // 1D. Hate speech detection with progressive warnings
-        const hateSpeechCheck = detectHateSpeech(text);
+        const hateSpeechCheck = feats.hate ? detectHateSpeech(text) : { detected: false };
         if (hateSpeechCheck.detected) {
           const warningKey = `${userIdStr}:${chatIdStr}`;
           const existing = hateSpeechWarnings.get(warningKey);
@@ -8681,7 +8911,7 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
         }
         
         // 1E. Drug trafficking detection
-        if (detectDrugTrafficking(text)) {
+        if (feats.dealers && detectDrugTrafficking(text)) {
           try {
             await ctx.api.deleteMessage(chatId, ctx.message.message_id);
             await incrementModStat(chatIdStr, 'messagesBlocked');
@@ -8699,7 +8929,7 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
         }
         
         // 1E2. Dealer signal detection (progressive: warn → 48hr mute → ban)
-        const dealerCheck = detectDealerSignals(text);
+        const dealerCheck = feats.dealers ? detectDealerSignals(text) : { detected: false, matched: [] as string[] };
         if (dealerCheck.detected) {
           const isExempt = await isExemptFromDrugCheck(ctx, chatIdStr, userIdStr);
           if (!isExempt) {
@@ -8783,7 +9013,7 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
         }
         
         // 1E3. Hard drug term/emoji detection (exemptions for trusted members)
-        const hardDrugCheck = detectHardDrugs(text);
+        const hardDrugCheck = feats.drugs ? detectHardDrugs(text) : { found: false, matched: [] as string[] };
         if (hardDrugCheck.found) {
           // Check if user is exempt (admin, owner, or fully trusted)
           const isExempt = await isExemptFromDrugCheck(ctx, chatIdStr, userIdStr);
@@ -8847,7 +9077,7 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
         }
         
         // 1F. Emoji spam detection
-        if (detectEmojiSpam(text)) {
+        if (feats.spam && detectEmojiSpam(text)) {
           try {
             await ctx.api.deleteMessage(chatId, ctx.message.message_id);
             await incrementModStat(chatIdStr, 'spamBlocked');
@@ -8863,7 +9093,7 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
         // 1. Rate limiting check (use stricter threshold in raid mode)
         const rateThreshold = settings.raidMode ? Math.max(3, settings.spamThreshold - 2) : settings.spamThreshold;
         const rateCheck = checkRateLimit(userIdStr, chatIdStr, text, rateThreshold);
-        if (rateCheck.blocked) {
+        if (feats.spam && rateCheck.blocked) {
           try {
             await ctx.api.deleteMessage(chatId, ctx.message.message_id);
             await incrementModStat(chatIdStr, rateCheck.reason === "flood" ? 'spamBlocked' : 'messagesBlocked');
@@ -8881,7 +9111,7 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
         // 2. Link restriction for new users
         const urlRegex = /https?:\/\/[^\s]+/gi;
         const urls = text.match(urlRegex) || [];
-        if (urls.length > 0) {
+        if (feats.links && urls.length > 0) {
           // Get user moderation status to check join date and role
           await ensureUserModerationStatus(userIdStr, chatIdStr);
           const userStatus = await getUserModerationStatus(userIdStr, chatIdStr);
@@ -8912,7 +9142,7 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
         // 3. Risk scoring for scam/phishing detection
         const userJoinDate = (await getUserModerationStatus(userIdStr, chatIdStr))?.joinDate || new Date();
         const accountAgeDays = (Date.now() - new Date(userJoinDate).getTime()) / (1000 * 60 * 60 * 24);
-        const riskScore = calculateRiskScore(text, username, accountAgeDays);
+        const riskScore = feats.scam ? calculateRiskScore(text, username, accountAgeDays) : 0;
         
         // Raid mode = lower threshold for action
         const highRiskThreshold = settings.raidMode ? 40 : 60;
@@ -9057,7 +9287,7 @@ Tip: Never click shortened links in crypto groups - they're often phishing sites
     }
     
     // Story generator trigger - generate random Dudleyverse story
-    if (lowerText === "story" || lowerText.includes("tell me a story") || lowerText.includes("dudley story") || lowerText.includes("dudleyverse")) {
+    if ((lowerText === "story" || lowerText.includes("tell me a story") || lowerText.includes("dudley story") || lowerText.includes("dudleyverse")) && (await getFeatureSettings(chatIdStr)).stories) {
       const story = StoryBible.generateRandomStory(username || firstName);
       await ctx.reply(`Alright ${firstName}, gather 'round for today's tale...\n\n${story}\n\nClassic Dudleyverse chaos, sweetie.`, { reply_parameters: { message_id: ctx.message.message_id } });
       return;

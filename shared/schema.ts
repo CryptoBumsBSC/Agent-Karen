@@ -327,6 +327,33 @@ export const violationLogs = pgTable("violation_logs", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Chat feature settings - per-chat on/off toggles for every feature section
+export const chatFeatureSettings = pgTable("chat_feature_settings", {
+  id: serial("id").primaryKey(),
+  chatId: text("chat_id").notNull().unique(),
+  spam: boolean("spam").default(true).notNull(),
+  scam: boolean("scam").default(true).notNull(),
+  drugs: boolean("drugs").default(true).notNull(),
+  dealers: boolean("dealers").default(true).notNull(),
+  hate: boolean("hate").default(true).notNull(),
+  raid: boolean("raid").default(true).notNull(),
+  links: boolean("links").default(true).notNull(),
+  edits: boolean("edits").default(true).notNull(),
+  files: boolean("files").default(true).notNull(),
+  impersonation: boolean("impersonation").default(true).notNull(),
+  newuser: boolean("newuser").default(true).notNull(),
+  gifs: boolean("gifs").default(true).notNull(),
+  personality: boolean("personality").default(true).notNull(),
+  learning: boolean("learning").default(true).notNull(),
+  scheduled: boolean("scheduled").default(true).notNull(),
+  referrals: boolean("referrals").default(true).notNull(),
+  giveaways: boolean("giveaways").default(true).notNull(),
+  games: boolean("games").default(true).notNull(),
+  trust: boolean("trust").default(true).notNull(),
+  stories: boolean("stories").default(true).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
 // === BOT LEARNING SYSTEM ===
 
 // Bot interactions - stores all conversations for learning
@@ -387,6 +414,7 @@ export const insertRareStrainRecipientSchema = createInsertSchema(rareStrainReci
 export const insertUserProjectQuestionSchema = createInsertSchema(userProjectQuestions).omit({ id: true, lastAskedAt: true });
 export const insertNewUserMessageSchema = createInsertSchema(newUserMessages).omit({ id: true, createdAt: true });
 export const insertViolationLogSchema = createInsertSchema(violationLogs).omit({ id: true, createdAt: true });
+export const insertChatFeatureSettingsSchema = createInsertSchema(chatFeatureSettings).omit({ id: true, updatedAt: true });
 export const insertBotInteractionSchema = createInsertSchema(botInteractions).omit({ id: true, createdAt: true });
 export const insertUserFeedbackSchema = createInsertSchema(userFeedback).omit({ id: true, createdAt: true });
 export const insertLearnedPatternSchema = createInsertSchema(learnedPatterns).omit({ id: true, createdAt: true });
@@ -414,6 +442,8 @@ export type RareStrainRecipient = typeof rareStrainRecipients.$inferSelect;
 export type UserProjectQuestion = typeof userProjectQuestions.$inferSelect;
 export type NewUserMessage = typeof newUserMessages.$inferSelect;
 export type ViolationLog = typeof violationLogs.$inferSelect;
+export type ChatFeatureSettings = typeof chatFeatureSettings.$inferSelect;
+export type InsertChatFeatureSettings = z.infer<typeof insertChatFeatureSettingsSchema>;
 export type BotInteraction = typeof botInteractions.$inferSelect;
 export type UserFeedback = typeof userFeedback.$inferSelect;
 export type LearnedPattern = typeof learnedPatterns.$inferSelect;
