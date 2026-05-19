@@ -366,6 +366,7 @@ export const communities = pgTable("communities", {
   trialExpiresAt: timestamp("trial_expires_at"),
   isOnboarded: boolean("is_onboarded").default(false),
   onboardingStep: integer("onboarding_step").default(0),
+  botAdminIds: text("bot_admin_ids").array().default(sql`ARRAY[]::text[]`),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`),
   updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`),
 });

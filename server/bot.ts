@@ -494,6 +494,7 @@ interface CommunityRecord {
   trialExpiresAt: Date | null;
   isOnboarded: boolean;
   onboardingStep: number;
+  botAdminIds: string[]; // Per-community bot admin override list (user IDs)
 }
 
 const communityCache = new Map<string, CommunityRecord>();
@@ -509,6 +510,7 @@ function mapCommunityRow(r: CommunityDbRow): CommunityRecord {
     trialExpiresAt: r.trialExpiresAt ? new Date(r.trialExpiresAt) : null,
     isOnboarded: r.isOnboarded || false,
     onboardingStep: r.onboardingStep || 0,
+    botAdminIds: Array.isArray(r.botAdminIds) ? r.botAdminIds : [],
   };
 }
 
@@ -546,6 +548,7 @@ async function ensureCommunity(chatId: string, displayName?: string): Promise<Co
     trialExpiresAt,
     isOnboarded: false,
     onboardingStep: 0,
+    botAdminIds: [],
   };
   communityCache.set(chatId, community);
   return community;
@@ -585,6 +588,7 @@ interface CommunityUpdates {
   trialExpiresAt?: Date | null;
   isOnboarded?: boolean;
   onboardingStep?: number;
+  botAdminIds?: string[];
 }
 
 async function updateCommunity(chatId: string, updates: CommunityUpdates): Promise<void> {
@@ -4230,6 +4234,15 @@ function isGlobalOwner(ctx: MyContext): boolean {
   return ctx.from?.username?.toLowerCase() === "aussieboomer";
 }
 
+// isBotAdmin — checks both Telegram admin status AND the per-community bot admin override list.
+// The override list lets group owners grant bot admin rights to non-Telegram-admins.
+async function isBotAdmin(ctx: MyContext, chatIdStr: string): Promise<boolean> {
+  if (await isAdmin(ctx)) return true;
+  const community = await getCommunity(chatIdStr);
+  const userId = ctx.from?.id?.toString();
+  return !!(userId && community?.botAdminIds?.includes(userId));
+}
+
 // Check if user is admin or creator
 async function isAdmin(ctx: MyContext): Promise<boolean> {
   if (!ctx.chat || !ctx.from) return false;
@@ -4745,19 +4758,25 @@ export function createBot(): Bot<MyContext> {
   }));
 
   // === SUBSCRIPTION GATE MIDDLEWARE ===
-  // Groups must have an active trial or paid subscription for full feature access.
+  // Every group gets a 7-day trial auto-created on first interaction.
   // Banned groups: completely silent. Free/expired: only whitelisted commands work.
   bot.use(async (ctx, next) => {
     const chatId = ctx.chat?.id;
     if (!chatId || chatId >= 0) return next(); // DMs and private chats: always pass through
     const chatIdStr = chatId.toString();
-    const community = await getCommunity(chatIdStr);
+    let community = await getCommunity(chatIdStr);
+
+    // Auto-create trial for first-ever interaction so no group ever bypasses the gate
+    if (!community) {
+      const chatTitle = (ctx.chat as { title?: string })?.title;
+      community = await ensureCommunity(chatIdStr, chatTitle);
+    }
 
     // Banned communities: bot goes completely silent — no response whatsoever
-    if (community?.status === "banned") return;
+    if (community.status === "banned") return;
 
     // Free/expired communities: only basic commands work; all other messages dropped
-    if (community && !isSubscribed(community)) {
+    if (!isSubscribed(community)) {
       // Global owner always gets through (for /activate, /extendtrial, etc.)
       if (isGlobalOwner(ctx)) return next();
 
@@ -8040,6 +8059,89 @@ Check the leaderboard with /refboard`;
     await ensureCommunity(chatIdStr);
     await updateCommunity(chatIdStr, { timezone: tz });
     await ctx.reply(`Timezone updated to: ${tz}`);
+  });
+
+  // === PER-COMMUNITY BOT ADMIN LIST COMMANDS ===
+
+  // /addadmin — Add a user to this community's bot admin override list (group owner only)
+  bot.command("addadmin", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    if (!(await isOwner(ctx))) { await ctx.reply("Only the group owner can manage the bot admin list."); return; }
+    const chatIdStr = ctx.chat.id.toString();
+
+    let targetUserId: string | undefined;
+    let targetUsername: string | undefined;
+    let targetName: string | undefined;
+    if (ctx.message?.reply_to_message?.from) {
+      targetUserId = String(ctx.message.reply_to_message.from.id);
+      targetUsername = ctx.message.reply_to_message.from.username;
+      targetName = ctx.message.reply_to_message.from.first_name || targetUsername;
+    } else {
+      const mention = (ctx.match || "").trim().match(/@(\w+)/);
+      if (mention) {
+        await ctx.reply(`To add @${mention[1]} as a bot admin, please reply to one of their messages with /addadmin`);
+      } else {
+        await ctx.reply("Usage: Reply to a user's message with /addadmin\nThis grants them bot admin privileges for Karen commands in this group.");
+      }
+      return;
+    }
+    if (!targetUserId) { await ctx.reply("Couldn't identify the user."); return; }
+
+    await ensureCommunity(chatIdStr);
+    const community = await getCommunity(chatIdStr);
+    const currentList = community?.botAdminIds || [];
+    if (currentList.includes(targetUserId)) {
+      await ctx.reply(`${targetName || targetUsername} is already a bot admin.`);
+      return;
+    }
+    const newList = [...currentList, targetUserId];
+    await updateCommunity(chatIdStr, { botAdminIds: newList });
+    communityCache.delete(chatIdStr);
+    await ctx.reply(`${targetName || "@" + targetUsername} added to the bot admin list. They can now run admin Karen commands.`);
+  });
+
+  // /removeadmin — Remove a user from this community's bot admin override list (group owner only)
+  bot.command("removeadmin", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    if (!(await isOwner(ctx))) { await ctx.reply("Only the group owner can manage the bot admin list."); return; }
+    const chatIdStr = ctx.chat.id.toString();
+
+    let targetUserId: string | undefined;
+    let targetName: string | undefined;
+    if (ctx.message?.reply_to_message?.from) {
+      targetUserId = String(ctx.message.reply_to_message.from.id);
+      targetName = ctx.message.reply_to_message.from.first_name || ctx.message.reply_to_message.from.username;
+    } else {
+      await ctx.reply("Usage: Reply to a user's message with /removeadmin");
+      return;
+    }
+    if (!targetUserId) { await ctx.reply("Couldn't identify the user."); return; }
+
+    const community = await getCommunity(chatIdStr);
+    const currentList = community?.botAdminIds || [];
+    if (!currentList.includes(targetUserId)) {
+      await ctx.reply(`${targetName} is not in the bot admin list.`);
+      return;
+    }
+    await updateCommunity(chatIdStr, { botAdminIds: currentList.filter(id => id !== targetUserId) });
+    communityCache.delete(chatIdStr);
+    await ctx.reply(`${targetName} removed from the bot admin list.`);
+  });
+
+  // /listadmins — Show all users in this community's bot admin override list
+  bot.command("listadmins", async (ctx) => {
+    if (!ctx.chat || !ctx.from) return;
+    if (ctx.chat.type === "private") return;
+    const chatIdStr = ctx.chat.id.toString();
+    const community = await getCommunity(chatIdStr);
+    if (!community || community.botAdminIds.length === 0) {
+      await ctx.reply("No custom bot admins set for this community.\n\nAll Telegram admins and the group owner can run bot admin commands by default.\n\nUse /addadmin (reply to a message) to add custom bot admins.");
+      return;
+    }
+    const list = community.botAdminIds.map((id, i) => `${i + 1}. User ID: ${id}`).join("\n");
+    await ctx.reply(`BOT ADMIN OVERRIDE LIST (${community.botAdminIds.length} entries)\n\n${list}\n\nThese users can run admin Karen commands even without Telegram admin status.`);
   });
 
   // === OWNER MANAGEMENT COMMANDS (usable from any chat by @aussieBoomer) ===
