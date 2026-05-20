@@ -43,7 +43,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 
   const nav = [
     { href: "/admin", label: "Communities", icon: LayoutDashboard, active: isDashboard, show: true },
-    { href: "/admin/bot", label: "Bot Controls", icon: Bot, active: isBot, show: true },
+    { href: "/admin/bot", label: "Bot Controls", icon: Bot, active: isBot, show: me.role !== "moderator" },
     { href: "/admin/reference", label: "Bot Reference", icon: Book, active: isRef, show: true },
     { href: "/admin/activity", label: "Activity Log", icon: Activity, active: isActivity, show: me.role !== "moderator" },
     { href: "/admin/team", label: "Team", icon: Users, active: isTeam, show: me.role === "owner" },

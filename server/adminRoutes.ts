@@ -365,8 +365,10 @@ export function registerAdminRoutes(app: Express) {
     res.json(rows);
   });
 
-  // ===== BOT CONTROLS / GLOBAL =====
-  app.get("/api/admin/stats", requireAuth, async (_req, res) => {
+  // ===== BOT CONTROLS / GLOBAL (admin+) =====
+  // Moderators are limited to per-community dashboard + violation clear,
+  // so global stats / bans are gated to admin and owner.
+  app.get("/api/admin/stats", requireRole("admin"), async (_req, res) => {
     const [{ communities: communityCount }] = await db.select({
       communities: sql<number>`count(*)::int`,
     }).from(communities);
@@ -394,7 +396,7 @@ export function registerAdminRoutes(app: Express) {
     });
   });
 
-  app.get("/api/admin/global-bans", requireAuth, async (_req, res) => {
+  app.get("/api/admin/global-bans", requireRole("admin"), async (_req, res) => {
     const rows = await db.select().from(globalBans).orderBy(desc(globalBans.createdAt)).limit(200);
     res.json(rows);
   });

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { AdminLayout, useMe } from "./AdminLayout";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,11 +20,19 @@ type Stats = {
 };
 
 export default function BotControls() {
-  const { data: me } = useMe();
+  const { data: me, isLoading: loadingMe } = useMe();
   const role = me?.user?.role || "moderator";
+  const [, navigate] = useLocation();
   const { toast } = useToast();
-  const { data: stats } = useQuery<Stats>({ queryKey: ["/api/admin/stats"] });
-  const { data: bans } = useQuery<any[]>({ queryKey: ["/api/admin/global-bans"] });
+
+  // Bot controls are admin+ only — moderators get redirected
+  useEffect(() => {
+    if (!loadingMe && me?.user && me.user.role === "moderator") navigate("/admin");
+  }, [loadingMe, me, navigate]);
+
+  const isPrivileged = role === "owner" || role === "admin";
+  const { data: stats } = useQuery<Stats>({ queryKey: ["/api/admin/stats"], enabled: isPrivileged });
+  const { data: bans } = useQuery<any[]>({ queryKey: ["/api/admin/global-bans"], enabled: isPrivileged });
 
   const [message, setMessage] = useState("");
   const [target, setTarget] = useState<"active" | "all">("active");
