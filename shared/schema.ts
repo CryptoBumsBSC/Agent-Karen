@@ -450,6 +450,21 @@ export const adminInvites = pgTable("admin_invites", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// Bot Instances — registered bot deployments managed by this Hub
+// (this Repl auto-registers itself as isLocal=true; forks register via API)
+export const botInstances = pgTable("bot_instances", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  baseUrl: text("base_url").notNull(),
+  sharedSecret: text("shared_secret").notNull(),
+  isLocal: boolean("is_local").default(false).notNull(),
+  status: text("status").default("unknown").notNull(), // "ok" | "down" | "unknown"
+  lastSeenAt: timestamp("last_seen_at"),
+  lastError: text("last_error"),
+  addedByUserId: integer("added_by_user_id"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 // Admin Audit Log — tracks every destructive action in the portal
 export const adminAuditLog = pgTable("admin_audit_log", {
   id: serial("id").primaryKey(),
@@ -466,6 +481,7 @@ export const adminAuditLog = pgTable("admin_audit_log", {
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type AdminInvite = typeof adminInvites.$inferSelect;
 export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
+export type BotInstance = typeof botInstances.$inferSelect;
 
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });

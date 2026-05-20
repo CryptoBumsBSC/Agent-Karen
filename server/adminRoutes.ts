@@ -5,6 +5,7 @@ import { db } from "./db";
 import {
   adminUsers, adminInvites, adminAuditLog, communities, chatFeatureSettings,
   moderationStats, violationLogs, globalBans, memberScores, banEvents,
+  botInstances,
 } from "@shared/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
 import {
@@ -439,6 +440,111 @@ export function registerAdminRoutes(app: Express) {
       .limit(200);
     res.json(rows);
   });
+
+  // ===== BOT INSTANCES — master hub (owner only) =====
+  // Lists every registered bot deployment (this one plus remote forks),
+  // lets the Owner add/remove/test them, and aggregates their stats.
+  app.get("/api/admin/instances", requireRole("owner"), async (_req, res) => {
+    const rows = await db.select().from(botInstances).orderBy(desc(botInstances.isLocal), botInstances.name);
+    // Hide secret in list view — only the local one's secret is shown via /local
+    res.json(rows.map(r => ({ ...r, sharedSecret: r.isLocal ? r.sharedSecret : "••••••••" })));
+  });
+
+  app.post("/api/admin/instances", requireRole("owner"), async (req, res) => {
+    const { name, baseUrl, sharedSecret } = req.body || {};
+    if (!name || !baseUrl || !sharedSecret) {
+      return res.status(400).json({ error: "name, baseUrl and sharedSecret are required" });
+    }
+    const cleanUrl = String(baseUrl).replace(/\/+$/, "");
+    try {
+      const [row] = await db.insert(botInstances).values({
+        name: String(name).trim(),
+        baseUrl: cleanUrl,
+        sharedSecret: String(sharedSecret),
+        isLocal: false,
+        addedByUserId: (req as any).adminUser.id,
+      }).returning();
+      await audit(req, "instance.add", "instance", String(row.id), { name: row.name, baseUrl: row.baseUrl });
+      res.json(row);
+    } catch (e: any) {
+      if (String(e?.message || "").includes("unique")) {
+        return res.status(409).json({ error: "An instance with that name already exists" });
+      }
+      res.status(500).json({ error: "Failed to add instance" });
+    }
+  });
+
+  app.delete("/api/admin/instances/:id", requireRole("owner"), async (req, res) => {
+    const id = parseInt(req.params.id);
+    const [existing] = await db.select().from(botInstances).where(eq(botInstances.id, id)).limit(1);
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (existing.isLocal) return res.status(400).json({ error: "Cannot remove the local instance" });
+    await db.delete(botInstances).where(eq(botInstances.id, id));
+    await audit(req, "instance.remove", "instance", String(id), { name: existing.name });
+    res.json({ ok: true });
+  });
+
+  // Ping a registered instance and update its status.
+  app.post("/api/admin/instances/:id/test", requireRole("owner"), async (req, res) => {
+    const id = parseInt(req.params.id);
+    const [inst] = await db.select().from(botInstances).where(eq(botInstances.id, id)).limit(1);
+    if (!inst) return res.status(404).json({ error: "Not found" });
+    const result = await callInstance(inst, "/api/hub/info");
+    await db.update(botInstances).set({
+      status: result.ok ? "ok" : "down",
+      lastSeenAt: result.ok ? new Date() : inst.lastSeenAt,
+      lastError: result.ok ? null : result.error,
+    }).where(eq(botInstances.id, id));
+    await audit(req, "instance.test", "instance", String(id), { ok: result.ok, error: result.error });
+    res.json({ ok: result.ok, info: result.data, error: result.error });
+  });
+
+  // Aggregated stats from every registered instance (Hub overview).
+  app.get("/api/admin/instances/aggregate", requireRole("admin"), async (_req, res) => {
+    const rows = await db.select().from(botInstances);
+    const results = await Promise.all(rows.map(async (inst) => {
+      const [info, stats] = await Promise.all([
+        callInstance(inst, "/api/hub/info"),
+        callInstance(inst, "/api/hub/stats"),
+      ]);
+      const ok = info.ok && stats.ok;
+      // Best-effort status update (don't fail the request if it errors)
+      db.update(botInstances).set({
+        status: ok ? "ok" : "down",
+        lastSeenAt: ok ? new Date() : inst.lastSeenAt,
+        lastError: ok ? null : (info.error || stats.error),
+      }).where(eq(botInstances.id, inst.id)).catch(() => {});
+      return {
+        id: inst.id,
+        name: inst.name,
+        baseUrl: inst.baseUrl,
+        isLocal: inst.isLocal,
+        status: ok ? "ok" : "down",
+        info: info.data,
+        stats: stats.data,
+        error: ok ? null : (info.error || stats.error),
+      };
+    }));
+    res.json(results);
+  });
+}
+
+// ---- Outbound call helper for talking to registered instances ----
+async function callInstance(inst: { baseUrl: string; sharedSecret: string }, path: string): Promise<{ ok: boolean; data?: any; error?: string }> {
+  const url = inst.baseUrl.replace(/\/+$/, "") + path;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch(url, {
+      headers: { "x-hub-secret": inst.sharedSecret, "accept": "application/json" },
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
+    return { ok: true, data: await r.json() };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "Network error" };
+  }
 }
 
 async function needsBootstrap(): Promise<boolean> {

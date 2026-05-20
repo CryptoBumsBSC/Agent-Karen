@@ -3,6 +3,34 @@
 ## Current Version
 **AgentKarenBot v2.0** — Multi-community SaaS Telegram bot with 27 toggleable features, 5 subscription tiers, per-community configuration, and global owner remote control. Full version notes in `KAREN_V2.md`.
 
+## Master Hub (multi-bot management)
+This admin portal can also act as a **master Hub** managing several forked
+bot deployments from one screen.
+
+- Every deployment auto-registers itself in `bot_instances` on boot
+  (the local row is created with a random shared secret).
+- Owners can view the local secret on `/admin/instances` and add remote
+  deployments by entering their public URL + that fork's local secret.
+- The Hub aggregates live stats from every registered instance at
+  `/admin/all-bots`, refreshing once a minute.
+
+### Setting up a fork to be managed by a Hub
+1. Fork this project (or self-host on any Node + Postgres server).
+2. Set `PUBLIC_URL` to that fork's externally reachable URL (e.g.
+   `https://my-bot.example.com`). Optional: `LOCAL_INSTANCE_NAME` to
+   give it a nickname and `HUB_LOCAL_SECRET` to control the shared
+   secret instead of letting it auto-generate.
+3. Boot the app once so the row is created.
+4. From the Hub admin → Instances → Add: paste the fork's URL and its
+   local secret. The Hub will start polling its `/api/hub/*` endpoints.
+
+### Hub-facing endpoints exposed by every instance
+All require an `x-hub-secret` header matching the local instance's
+`sharedSecret`:
+- `GET /api/hub/info` — name, member count, uptime
+- `GET /api/hub/stats` — community / member / today's moderation totals
+- `GET /api/hub/communities` — community list
+
 ## Overview
 Dudley Bud is a Web3 creative storytelling project built on the Base blockchain, centered around cannabis-themed characters. The project aims to provide entertainment, community engagement, and educational content through a Telegram bot and a React web application. It emphasizes that its NFTs are for entertainment and collecting purposes only, without promises of financial returns.
 

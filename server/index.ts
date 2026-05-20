@@ -8,6 +8,8 @@ import { setupVite } from "./vite";
 import { serveStatic } from "./static";
 import { registerRoutes } from "./routes";
 import { registerAdminRoutes } from "./adminRoutes";
+import { registerHubApi } from "./hubApi";
+import { ensureLocalInstance } from "./bootInstance";
 
 console.log("🤖 Starting AgentKarenBot + Admin Portal...");
 
@@ -49,8 +51,10 @@ app.get("/health", (_req, res) => {
 
 // API routes
 registerAdminRoutes(app);
+registerHubApi(app);
 
 async function main() {
+  await ensureLocalInstance();
   await registerRoutes(httpServer, app);
 
   if (process.env.NODE_ENV === "production") {
