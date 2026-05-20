@@ -16,6 +16,7 @@ import AdminTeam from "@/pages/admin/Team";
 import CommunityDetail from "@/pages/admin/CommunityDetail";
 import BotControls from "@/pages/admin/BotControls";
 import BotReference from "@/pages/admin/BotReference";
+import Activity from "@/pages/admin/Activity";
 import Dashboard from "@/pages/Dashboard";
 
 function Router() {
@@ -32,6 +33,7 @@ function Router() {
       <Route path="/admin/team" component={AdminTeam} />
       <Route path="/admin/bot" component={BotControls} />
       <Route path="/admin/reference" component={BotReference} />
+      <Route path="/admin/activity" component={Activity} />
       <Route path="/admin/community/:chatId" component={CommunityDetail} />
       <Route path="/dashboard" component={Dashboard} />
       <Route component={NotFound} />

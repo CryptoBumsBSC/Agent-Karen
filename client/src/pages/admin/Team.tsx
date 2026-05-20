@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { AdminLayout, useMe } from "./AdminLayout";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,8 +19,18 @@ type TeamData = {
 };
 
 export default function AdminTeam() {
-  const { data: me } = useMe();
-  const { data, isLoading } = useQuery<TeamData>({ queryKey: ["/api/admin/team"] });
+  const { data: me, isLoading: loadingMe } = useMe();
+  const [, navigate] = useLocation();
+
+  // Client-side guard: only Owners can access this page (backend also enforces 403)
+  useEffect(() => {
+    if (!loadingMe && me?.user && me.user.role !== "owner") navigate("/admin");
+  }, [loadingMe, me, navigate]);
+
+  const { data, isLoading } = useQuery<TeamData>({
+    queryKey: ["/api/admin/team"],
+    enabled: me?.user?.role === "owner",
+  });
   const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"owner" | "admin" | "moderator">("moderator");

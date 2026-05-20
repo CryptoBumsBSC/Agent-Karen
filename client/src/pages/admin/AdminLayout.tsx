@@ -3,7 +3,7 @@ import { Link, useLocation, useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Users, Bot, LogOut, Shield, Book } from "lucide-react";
+import { LayoutDashboard, Users, Bot, LogOut, Shield, Book, Activity } from "lucide-react";
 
 export type Me = { id: number; email: string; role: "owner" | "admin" | "moderator"; displayName?: string | null };
 
@@ -20,6 +20,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
   const [isTeam] = useRoute("/admin/team");
   const [isBot] = useRoute("/admin/bot");
   const [isRef] = useRoute("/admin/reference");
+  const [isActivity] = useRoute("/admin/activity");
 
   if (isLoading) return <div className="flex items-center justify-center h-screen text-slate-500">Loading…</div>;
 
@@ -44,6 +45,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
     { href: "/admin", label: "Communities", icon: LayoutDashboard, active: isDashboard, show: true },
     { href: "/admin/bot", label: "Bot Controls", icon: Bot, active: isBot, show: true },
     { href: "/admin/reference", label: "Bot Reference", icon: Book, active: isRef, show: true },
+    { href: "/admin/activity", label: "Activity Log", icon: Activity, active: isActivity, show: me.role !== "moderator" },
     { href: "/admin/team", label: "Team", icon: Users, active: isTeam, show: me.role === "owner" },
   ];
 

@@ -13175,10 +13175,6 @@ function startCommunityExpiryScheduler() {
   console.log("Community expiry scheduler started — checks daily for expired trials");
 }
 
-export function invalidateCommunityCache(chatId: string): void {
-  communityCache.delete(chatId);
-}
-
 export async function startBot() {
   if (!BOT_TOKEN) {
     console.log("========================================");
@@ -13198,11 +13194,8 @@ export async function startBot() {
   }
 
   const bot = createBot();
-<<<<<<< HEAD
   setBotInstance(bot);
-=======
   registerBotApi(bot.api);
->>>>>>> 7b8775f (Add owner dashboard page showing Telegram community subscription status)
 
   console.log("AgentKarenBot starting...");
   

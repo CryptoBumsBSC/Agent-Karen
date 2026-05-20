@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import { db } from "./db";
 import {
-  adminUsers, adminInvites, communities, chatFeatureSettings,
+  adminUsers, adminInvites, adminAuditLog, communities, chatFeatureSettings,
   moderationStats, violationLogs, globalBans, memberScores, banEvents,
 } from "@shared/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
@@ -68,6 +68,29 @@ const ALL_FEATURES = Object.values(FEATURE_GROUPS).flat();
 
 // ---------- Helpers ----------
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+async function audit(
+  req: Request,
+  action: string,
+  targetType: string | null,
+  targetId: string | null,
+  details?: any,
+) {
+  const user = (req as any).adminUser || { id: req.session.userId, email: req.session.email, role: req.session.role };
+  try {
+    await db.insert(adminAuditLog).values({
+      adminUserId: user?.id ?? null,
+      adminEmail: user?.email ?? "unknown",
+      adminRole: user?.role ?? "unknown",
+      action,
+      targetType,
+      targetId,
+      details: details ? JSON.stringify(details) : null,
+    });
+  } catch (e) {
+    console.error("audit log write failed:", e);
+  }
+}
 
 export function registerAdminRoutes(app: Express) {
   // ===== AUTH =====
@@ -174,11 +197,13 @@ export function registerAdminRoutes(app: Express) {
       invitedBy: req.session.userId!,
       expiresAt,
     }).returning();
+    await audit(req, "team.invite", "team_member", String(inv.id), { email: inv.email, role: inv.role });
     res.json({ invite: inv, acceptUrl: `/admin/accept-invite/${token}` });
   });
 
   app.delete("/api/admin/team/invite/:id", requireRole("owner"), async (req, res) => {
     await db.delete(adminInvites).where(eq(adminInvites.id, parseInt(req.params.id)));
+    await audit(req, "team.invite.cancel", "team_member", req.params.id);
     res.json({ ok: true });
   });
 
@@ -189,14 +214,18 @@ export function registerAdminRoutes(app: Express) {
     if (id === req.session.userId && role !== "owner") {
       return res.status(400).json({ error: "Cannot demote yourself" });
     }
+    const [before] = await db.select().from(adminUsers).where(eq(adminUsers.id, id)).limit(1);
     await db.update(adminUsers).set({ role }).where(eq(adminUsers.id, id));
+    await audit(req, "team.role.change", "team_member", String(id), { from: before?.role, to: role, email: before?.email });
     res.json({ ok: true });
   });
 
   app.delete("/api/admin/team/:id", requireRole("owner"), async (req, res) => {
     const id = parseInt(req.params.id);
     if (id === req.session.userId) return res.status(400).json({ error: "Cannot remove yourself" });
+    const [before] = await db.select().from(adminUsers).where(eq(adminUsers.id, id)).limit(1);
     await db.delete(adminUsers).where(eq(adminUsers.id, id));
+    await audit(req, "team.remove", "team_member", String(id), { email: before?.email, role: before?.role });
     res.json({ ok: true });
   });
 
@@ -258,6 +287,7 @@ export function registerAdminRoutes(app: Express) {
       .values({ chatId, [feature]: value } as any)
       .onConflictDoUpdate({ target: chatFeatureSettings.chatId, set: { [feature]: value } as any });
     invalidateFeatureCache(chatId);
+    await audit(req, "feature.toggle", "community", chatId, { feature, value });
     res.json({ ok: true });
   });
 
@@ -267,8 +297,10 @@ export function registerAdminRoutes(app: Express) {
     if (!["trial", "active", "free", "complimentary", "banned"].includes(status)) {
       return res.status(400).json({ error: "Invalid status" });
     }
+    const [before] = await db.select().from(communities).where(eq(communities.chatId, chatId)).limit(1);
     await db.update(communities).set({ status, updatedAt: new Date() }).where(eq(communities.chatId, chatId));
     invalidateCommunityCache(chatId);
+    await audit(req, "community.status", "community", chatId, { from: before?.status, to: status });
     res.json({ ok: true });
   });
 
@@ -284,15 +316,18 @@ export function registerAdminRoutes(app: Express) {
     await db.update(communities).set({ trialExpiresAt: newExpiry, updatedAt: new Date() })
       .where(eq(communities.chatId, chatId));
     invalidateCommunityCache(chatId);
+    await audit(req, "community.trial.extend", "community", chatId, { days: d, newExpiry });
     res.json({ ok: true, trialExpiresAt: newExpiry });
   });
 
   app.delete("/api/admin/communities/:chatId", requireRole("owner"), async (req, res) => {
     const chatId = req.params.chatId;
+    const [before] = await db.select().from(communities).where(eq(communities.chatId, chatId)).limit(1);
     await db.delete(chatFeatureSettings).where(eq(chatFeatureSettings.chatId, chatId));
     await db.delete(communities).where(eq(communities.chatId, chatId));
     invalidateCommunityCache(chatId);
     invalidateFeatureCache(chatId);
+    await audit(req, "community.delete", "community", chatId, { displayName: before?.displayName });
     res.json({ ok: true });
   });
 
@@ -308,6 +343,7 @@ export function registerAdminRoutes(app: Express) {
   // Per task spec: moderators (and above) can clear individual violations
   app.delete("/api/admin/violations/:id", requireAuth, async (req, res) => {
     await db.delete(violationLogs).where(eq(violationLogs.id, parseInt(req.params.id)));
+    await audit(req, "violation.clear", "violation", req.params.id);
     res.json({ ok: true });
   });
 
@@ -365,6 +401,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete("/api/admin/global-bans/:id", requireRole("admin"), async (req, res) => {
     await db.delete(globalBans).where(eq(globalBans.id, parseInt(req.params.id)));
+    await audit(req, "global_ban.remove", "global_ban", req.params.id);
     res.json({ ok: true });
   });
 
@@ -386,7 +423,19 @@ export function registerAdminRoutes(app: Express) {
         success++;
       } catch { failed++; }
     }
+    await audit(req, "broadcast.send", "global", null, {
+      target: tgt, total: rows.length, success, failed,
+      preview: message.slice(0, 200),
+    });
     res.json({ ok: true, success, failed, total: rows.length });
+  });
+
+  // ===== AUDIT LOG (admin+) =====
+  app.get("/api/admin/audit", requireRole("admin"), async (_req, res) => {
+    const rows = await db.select().from(adminAuditLog)
+      .orderBy(desc(adminAuditLog.createdAt))
+      .limit(200);
+    res.json(rows);
   });
 }
 

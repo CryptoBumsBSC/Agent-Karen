@@ -450,8 +450,22 @@ export const adminInvites = pgTable("admin_invites", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// Admin Audit Log — tracks every destructive action in the portal
+export const adminAuditLog = pgTable("admin_audit_log", {
+  id: serial("id").primaryKey(),
+  adminUserId: integer("admin_user_id"),
+  adminEmail: text("admin_email").notNull(),
+  adminRole: text("admin_role").notNull(),
+  action: text("action").notNull(),         // e.g. "feature.toggle", "community.status", "broadcast.send"
+  targetType: text("target_type"),          // "community", "team_member", "violation", "global_ban", "global"
+  targetId: text("target_id"),
+  details: text("details"),                 // JSON string with before/after or payload
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type AdminInvite = typeof adminInvites.$inferSelect;
+export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
 
 // === BASE SCHEMAS ===
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
