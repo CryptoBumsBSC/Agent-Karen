@@ -105,7 +105,7 @@ export default function CommunityDetail() {
           <TabsTrigger value="features" data-testid="tab-features">Features</TabsTrigger>
           <TabsTrigger value="violations" data-testid="tab-violations">Violations</TabsTrigger>
           <TabsTrigger value="members" data-testid="tab-members">Top Members</TabsTrigger>
-          {role === "owner" && <TabsTrigger value="settings" data-testid="tab-settings">Subscription</TabsTrigger>}
+          {canEdit && <TabsTrigger value="settings" data-testid="tab-settings">Subscription</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="features" className="space-y-4 mt-4">
@@ -141,28 +141,32 @@ export default function CommunityDetail() {
           <MembersList chatId={chatId} />
         </TabsContent>
 
-        {role === "owner" && (
+        {canEdit && (
           <TabsContent value="settings" className="mt-4 space-y-4">
-            <Card>
-              <CardHeader><CardTitle className="text-base">Subscription Status</CardTitle></CardHeader>
-              <CardContent>
-                <div className="flex gap-3 items-end">
-                  <div>
-                    <label className="text-sm font-medium block mb-1">Change status</label>
-                    <Select value={c.status} onValueChange={(v) => changeStatus.mutate(v)}>
-                      <SelectTrigger className="w-48" data-testid="select-status"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="trial">Trial</SelectItem>
-                        <SelectItem value="active">Active (paid)</SelectItem>
-                        <SelectItem value="complimentary">Complimentary</SelectItem>
-                        <SelectItem value="free">Free (limited)</SelectItem>
-                        <SelectItem value="banned">Banned (bot silent)</SelectItem>
-                      </SelectContent>
-                    </Select>
+            {/* Status change + community removal are owner-only */}
+            {role === "owner" && (
+              <Card>
+                <CardHeader><CardTitle className="text-base">Subscription Status</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="flex gap-3 items-end">
+                    <div>
+                      <label className="text-sm font-medium block mb-1">Change status</label>
+                      <Select value={c.status} onValueChange={(v) => changeStatus.mutate(v)}>
+                        <SelectTrigger className="w-48" data-testid="select-status"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="trial">Trial</SelectItem>
+                          <SelectItem value="active">Active (paid)</SelectItem>
+                          <SelectItem value="complimentary">Complimentary</SelectItem>
+                          <SelectItem value="free">Free (limited)</SelectItem>
+                          <SelectItem value="banned">Banned (bot silent)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
+            {/* Trial extension is available to admins and owners */}
             <Card>
               <CardHeader><CardTitle className="text-base">Extend Trial</CardTitle></CardHeader>
               <CardContent>
@@ -173,16 +177,21 @@ export default function CommunityDetail() {
                   </div>
                   <Button onClick={() => extendTrial.mutate()} data-testid="button-extend-trial">Extend</Button>
                 </div>
+                {role !== "owner" && (
+                  <p className="text-xs text-slate-500 mt-2">Status changes and removing the community require Owner role.</p>
+                )}
               </CardContent>
             </Card>
-            <Card className="border-red-200">
-              <CardHeader><CardTitle className="text-base text-red-600">Danger Zone</CardTitle></CardHeader>
-              <CardContent>
-                <Button variant="destructive" onClick={() => { if (confirm("Remove this community? The bot will lose all settings.")) removeCommunity.mutate(); }} data-testid="button-remove-community">
-                  <Trash2 className="w-4 h-4 mr-2" /> Remove community
-                </Button>
-              </CardContent>
-            </Card>
+            {role === "owner" && (
+              <Card className="border-red-200">
+                <CardHeader><CardTitle className="text-base text-red-600">Danger Zone</CardTitle></CardHeader>
+                <CardContent>
+                  <Button variant="destructive" onClick={() => { if (confirm("Remove this community? The bot will lose all settings.")) removeCommunity.mutate(); }} data-testid="button-remove-community">
+                    <Trash2 className="w-4 h-4 mr-2" /> Remove community
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         )}
       </Tabs>
