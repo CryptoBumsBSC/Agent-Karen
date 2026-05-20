@@ -1,6 +1,7 @@
 import { Bot, Context, session, InputFile } from "grammy";
 import OpenAI from "openai";
 import { db } from "./db";
+import { registerBotApi, activateCommunity, deactivateCommunity, makeComplimentary, banCommunity } from "./communityService";
 import { type Community as CommunityDbRow, communityProfiles, memberScores, userMemory, referralCodes, referrals, moderationStats, userModerationStatus, chatModerationSettings, qaCache, referrerStatus, pendingVerifications, trustScores, banEvents, rareStrainLimits, rareStrainRecipients, userProjectQuestions, newUserMessages, violationLogs, chatFeatureSettings, communities, globalBans } from "@shared/schema";
 import { eq, and, desc, sql, gte } from "drizzle-orm";
 import { generateImageBuffer } from "./replit_integrations/image/client";
@@ -8479,11 +8480,7 @@ Check the leaderboard with /refboard`;
     if (!chatId) { await ctx.reply("Usage: /activate -100123456789"); return; }
     const existing = await getCommunity(chatId);
     if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}\n\nRun /communities to see all registered communities.`); return; }
-    await updateCommunity(chatId, { status: "active" });
-    communityCache.delete(chatId);
-    if (botInstance) {
-      try { await botInstance.api.sendMessage(parseInt(chatId), `Your Karen subscription has been ACTIVATED! All 20 feature sections are now unlocked. Thank you for your support!`); } catch {}
-    }
+    await activateCommunity(chatId);
     await ctx.reply(`Community "${existing.displayName}" (${chatId}) activated.`);
   });
 
@@ -8495,18 +8492,7 @@ Check the leaderboard with /refboard`;
     if (!chatId) { await ctx.reply("Usage: /deactivate -100123456789"); return; }
     const existing = await getCommunity(chatId);
     if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
-    await updateCommunity(chatId, { status: "free" });
-    communityCache.delete(chatId);
-    if (botInstance) {
-      try {
-        await botInstance.api.sendMessage(
-          parseInt(chatId),
-          `Your Karen subscription has ended. Basic safety moderation continues.\n\n` +
-          `Paid features (/ask, games, referrals, scheduled posts, trust system, etc.) are now locked.\n\n` +
-          `Contact @aussieBoomer to reactivate.`
-        );
-      } catch {}
-    }
+    await deactivateCommunity(chatId);
     await ctx.reply(`Community "${existing.displayName}" (${chatId}) downgraded to free tier.`);
   });
 
@@ -8532,17 +8518,7 @@ Check the leaderboard with /refboard`;
       await ctx.reply(`"${existing.displayName}" is already on the Complimentary tier.`);
       return;
     }
-    await updateCommunity(chatId, { status: "complimentary", trialExpiresAt: null });
-    communityCache.delete(chatId);
-    if (botInstance) {
-      try {
-        await botInstance.api.sendMessage(
-          parseInt(chatId),
-          `Great news! This community has been granted full Karen access as a complimentary gift.\n\n` +
-          `All features are now unlocked. Thank you for being part of the Dudley Bud universe!`
-        );
-      } catch {}
-    }
+    await makeComplimentary(chatId);
     await ctx.reply(
       `✅ "${existing.displayName}" (${chatId}) set to COMPLIMENTARY.\n\n` +
       `Full access granted — no payment required.\n` +
@@ -8578,8 +8554,7 @@ Check the leaderboard with /refboard`;
     if (!chatId) { await ctx.reply("Usage: /bangroup -100123456789"); return; }
     const existing = await getCommunity(chatId);
     if (!existing) { await ctx.reply(`No community found with chatId: ${chatId}`); return; }
-    await updateCommunity(chatId, { status: "banned" });
-    communityCache.delete(chatId);
+    await banCommunity(chatId);
     await ctx.reply(`Community "${existing.displayName}" (${chatId}) has been banned. Bot will now ignore all messages from this group.`);
   });
 
@@ -13200,6 +13175,10 @@ function startCommunityExpiryScheduler() {
   console.log("Community expiry scheduler started — checks daily for expired trials");
 }
 
+export function invalidateCommunityCache(chatId: string): void {
+  communityCache.delete(chatId);
+}
+
 export async function startBot() {
   if (!BOT_TOKEN) {
     console.log("========================================");
@@ -13219,7 +13198,11 @@ export async function startBot() {
   }
 
   const bot = createBot();
+<<<<<<< HEAD
   setBotInstance(bot);
+=======
+  registerBotApi(bot.api);
+>>>>>>> 7b8775f (Add owner dashboard page showing Telegram community subscription status)
 
   console.log("AgentKarenBot starting...");
   

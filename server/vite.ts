@@ -1,4 +1,4 @@
-import { type Express } from "express";
+import express, { type Express } from "express";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
@@ -7,6 +7,18 @@ import path from "path";
 import { nanoid } from "nanoid";
 
 const viteLogger = createLogger();
+
+export function serveStatic(app: Express) {
+  const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
+  if (!fs.existsSync(distPath)) {
+    console.warn("No production build found at dist/public — run `npm run build` first");
+    return;
+  }
+  app.use(express.static(distPath));
+  app.use("*", (_req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
 
 export async function setupVite(server: Server, app: Express) {
   const serverOptions = {
